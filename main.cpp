@@ -21,6 +21,9 @@ DrawInstanced oDrawInstanced = NULL;
 typedef void (STDMETHODCALLTYPE* RSSetViewportsFunc)(ID3D12GraphicsCommandList* dCommandList, UINT NumViewports, const D3D12_VIEWPORT* pViewports);
 RSSetViewportsFunc oRSSetViewports = nullptr;
 
+typedef void (STDMETHODCALLTYPE* SetGraphicsRootSignature)(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature);
+SetGraphicsRootSignature oSetGraphicsRootSignature = nullptr;
+
 typedef void (STDMETHODCALLTYPE* SetGraphicsRootConstantBufferView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
 SetGraphicsRootConstantBufferView oSetGraphicsRootConstantBufferView;
 
@@ -168,8 +171,11 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     
     //iSize
     UINT currentiSize = 0;
+    DXGI_FORMAT currentiFormat = DXGI_FORMAT_UNKNOWN;
     {
         std::lock_guard<std::mutex> lock(iSizesMutex);
+
+        // Retrieve SizeInBytes
         auto it = iSizes.find(dCommandList);
         if (it != iSizes.end()) {
             currentiSize = it->second;
@@ -178,7 +184,15 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             currentiSize = 0;
             //Or maybe return
         }
+
+        // Retrieve Format
+        auto itFormat = iFormat.find(dCommandList);
+        if (itFormat != iFormat.end()) {
+            currentiFormat = static_cast<DXGI_FORMAT>(itFormat->second);
+        }
     }
+    //Usage: if (currentiSize == x && currentiFormat == DXGI_FORMAT_R16_UINT) {
+
     twoDigitiSize = getTwoDigitValue(currentiSize);
 
 
@@ -196,20 +210,27 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         }
     }
 
+    //rootsignature
+    UINT currentRootSigID = 0;
+    {
+        std::lock_guard<std::mutex> lock(rootSigMutex);
+        if (rootSignatures.find(dCommandList) != rootSignatures.end()) {
+            ID3D12RootSignature* currentRootSig = rootSignatures[dCommandList];
+            if (rootSigIDs.find(currentRootSig) != rootSigIDs.end()) {
+                currentRootSigID = rootSigIDs[currentRootSig];
+            }
+        }
+    }
+
 
     //log bruteforced values by pressing VK_END
-    if (vkENDkeydown && (twoDigitiSize == countnum || Stride0+Stride1 == countnum)) {
-        Log("countnum == %d && mIndexCount == %d && Stride0 == %d && Stride1 == %d && Stride2 == %d && gRootParameterIndex == %d && twoDigitiSize == %d currentiSize == %d",
-            countnum, mIndexCount, Stride0, Stride1, Stride2, gRootParameterIndex, twoDigitiSize, currentiSize);
+    if (vkENDkeydown && (twoDigitiSize == countnum || currentRootSigID == countnum)) {
+        Log("countnum == %d && mIndexCount == %d && Stride0 == %d && Stride1 == %d && Stride2 == %d && gRootParameterIndex == %d && twoDigitiSize == %d currentiSize == %d && currentiFormat == %d && currentRootSigID == %d",
+            countnum, mIndexCount, Stride0, Stride1, Stride2, gRootParameterIndex, twoDigitiSize, currentiSize, currentiFormat, currentRootSigID);
     }
-    //Log example:
-    //countnum == 70 && mIndexCount == 4476 && Stride0 == 40 && Stride1 == 8 && Stride2 == 32 && gRootParameterIndex == 5 && twoDigitiSize == 70 currentiSize == 9084 //valheim model
-    //countnum == 59 && mIndexCount == 11532 && Stride0 == 12 && Stride1 == 0 && Stride2 == 16 && gRootParameterIndex == 8 && twoDigitiSize == 59 currentiSize == 2088036 //petra legs
-
-
+  
     //wallhack
-    if (twoDigitiSize == countnum||Stride0+Stride1 == countnum) { //brute force values, or mIndexCount/1000 == countnum
-    //if(Stride0 == 12 && Stride1 == 8 && Stride2 == 8) { //final example
+    if(twoDigitiSize == countnum || currentRootSigID == countnum) {
         SetDepthRange(0.95f, dCommandList);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         ResetDepthRange(dCommandList);
@@ -263,9 +284,26 @@ void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,
 
 //=========================================================================================================================//
 
+void STDMETHODCALLTYPE hkSetGraphicsRootSignature(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature) {
+    if (dCommandList && pRootSignature) {
+        std::lock_guard<std::mutex> lock(rootSigMutex);
+
+        // If root signature is not yet assigned an ID, give it one
+        if (rootSigIDs.find(pRootSignature) == rootSigIDs.end()) {
+            rootSigIDs[pRootSignature] = nextRootSigID++;
+        }
+
+        // Store the root signature for this command list
+        rootSignatures[dCommandList] = pRootSignature;
+    }
+    return oSetGraphicsRootSignature(dCommandList, pRootSignature);
+}
+
+//=========================================================================================================================//
+
 void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
 
-    gRootParameterIndex = RootParameterIndex;
+    //gRootParameterIndex = RootParameterIndex;
     //gBufferLocation = BufferLocation;
 
     return oSetGraphicsRootConstantBufferView(dCommandList, RootParameterIndex, BufferLocation);
@@ -308,6 +346,7 @@ void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandLis
     {
         std::lock_guard<std::mutex> lock(iSizesMutex); // Thread safety
         iSizes[dCommandList] = pView->SizeInBytes;
+        iFormat[dCommandList] = pView->Format;
     }
     
     return oIASetIndexBuffer(dCommandList, pView);
@@ -464,6 +503,11 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
 			CreateHook(115, (void**)&oIASetIndexBuffer, hkIASetIndexBuffer);
             CreateHook(118, (void**)&oOMSetRenderTargets, hkOMSetRenderTargets);
             CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState);
+            CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);
+            //CreateHook(39, (void**)&oCreateQueryHeap, hkCreateQueryHeap);
+            //CreateHook(124, (void**)&oBeginQuery, hkBeginQuery);
+            //CreateHook(125, (void**)&oEndQuery, hkEndQuery);
+            //CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData);
             //CreateHook(109, (void**)&oSetComputeRootConstantBufferView, hkSetComputeRootConstantBufferView);
             //CreateHook(17, (void**)&oCreateConstantBufferView, hkCreateConstantBufferView);
 			//CreateHook(18, (void**)&oCreateShaderResourceView, hkCreateShaderResourceView);

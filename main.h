@@ -54,12 +54,20 @@ UINT countnum = -1;
 
 //iSize
 std::unordered_map<ID3D12GraphicsCommandList*, UINT> iSizes;
+std::unordered_map<ID3D12GraphicsCommandList*, UINT> iFormat;
 std::mutex iSizesMutex;
 
 //Stride
 const UINT MAX_VERTEX_BUFFER_SLOTS = D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT;
 std::unordered_map<ID3D12GraphicsCommandList*, std::array<UINT, MAX_VERTEX_BUFFER_SLOTS>> vStride;
 std::mutex vStrideMutex;
+
+//rootsignature
+std::unordered_map<ID3D12RootSignature*, UINT> rootSigIDs;
+std::unordered_map<ID3D12GraphicsCommandList*, ID3D12RootSignature*> rootSignatures;
+std::mutex rootSigMutex;
+
+UINT nextRootSigID = 1;  // Start assigning IDs from 1
 
 //=========================================================================================================================//
 
