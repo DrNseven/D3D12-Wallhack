@@ -11,6 +11,7 @@
 #include <mutex>
 #include <array>      
 #include <cstdint>
+#include <unordered_set>
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
@@ -32,42 +33,51 @@ using namespace DirectX;
 //=========================================================================================================================//
 
 //globals
-bool InitOnce = true;
 bool ShowMenu = false;
-bool ImGui_Initialised = false;
+ComPtr<ID3D12Device> pDevice = nullptr;
 D3D12_CPU_DESCRIPTOR_HANDLE g_RTVHandle = {}; // For Render Target View (RTV)
 D3D12_CPU_DESCRIPTOR_HANDLE g_DSVHandle = {}; // For Depth-Stencil View (DSV)
 ID3D12PipelineState* g_CurrentPSO = nullptr;
-UINT mIndexCount;
-UINT mVertexCount;
-int twoDigitiSize;
-ComPtr<ID3D12Device> pDevice = nullptr;
-UINT vStartSlot;
-UINT gRootParameterIndex;
-D3D12_GPU_VIRTUAL_ADDRESS gBufferLocation;
+//D3D12_GPU_VIRTUAL_ADDRESS gBufferLocation;
 //ID3D12DescriptorHeap* g_CurrentDescriptorHeap = nullptr;
 ID3D12CommandQueue* commandQueue;
 D3D12_VIEWPORT gpV, oVp, vp;
-//volatile int countnum = -1;
 UINT countnum = -1;
 
-
-//iSize
-std::unordered_map<ID3D12GraphicsCommandList*, UINT> iSizes;
-std::unordered_map<ID3D12GraphicsCommandList*, UINT> iFormat;
-std::mutex iSizesMutex;
-
-//Stride
-const UINT MAX_VERTEX_BUFFER_SLOTS = D3D12_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT;
-std::unordered_map<ID3D12GraphicsCommandList*, std::array<UINT, MAX_VERTEX_BUFFER_SLOTS>> vStride;
-std::mutex vStrideMutex;
 
 //rootsignature
 std::unordered_map<ID3D12RootSignature*, UINT> rootSigIDs;
 std::unordered_map<ID3D12GraphicsCommandList*, ID3D12RootSignature*> rootSignatures;
 std::mutex rootSigMutex;
+UINT nextRootSigID = 1;
 
-UINT nextRootSigID = 1;  // Start assigning IDs from 1
+//rootparameterindex
+std::atomic<UINT> g_lastSetRootParameterIndex = UINT_MAX;
+//std::unordered_map<ID3D12GraphicsCommandList*, UINT> gRootParameterMap;
+
+//Stride, iSize, iFormat
+struct CommandListState {
+	UINT currentStride0 = 0;
+	UINT currentStride1 = 0;
+	UINT currentStride2 = 0;
+	UINT currentStride3 = 0;
+	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
+	UINT currentiSize = 0;
+	// Potentially add other states you need
+};
+thread_local CommandListState tls_commandListState; // Thread-local storage
+
+//setpipelinestate
+// Global map for green variants
+std::unordered_map<ID3D12PipelineState*, ID3D12PipelineState*> greenVariants;
+std::mutex pipelineMutex;
+// Global map to track the last PSO set per command list
+std::unordered_map<ID3D12GraphicsCommandList*, ID3D12PipelineState*> currentCommandListPSO;
+std::mutex commandListPSOMutex;
+ID3D12PipelineState* originalPSO = nullptr;
+ID3D12PipelineState* greenPSO = nullptr;
+bool swapped = false;
+
 
 //=========================================================================================================================//
 
@@ -357,8 +367,13 @@ std::string GetDebugName(ID3D12Object* pObject)
 */
 
 int getTwoDigitValue(int value) {
-	value = ((value >> 2) ^ (value * 2654435761)) & 0xFFFF;
-	return (value % 89) + 10;  // Result is between 10-99
+	uint32_t h = (uint32_t)value;
+	h ^= h >> 16;
+	h *= 0x85ebca6b;
+	h ^= h >> 13;
+	h *= 0xc2b2ae35;
+	h ^= h >> 16;
+	return (h % 90) + 10;
 }
 
 void SetDepthRange(float dr, ID3D12GraphicsCommandList* dcl)
@@ -379,644 +394,180 @@ void ResetDepthRange(ID3D12GraphicsCommandList* dcl)
 
 // TEST code below
 
+// --- Use ComPtr for globals ---
+ComPtr<ID3D12Device> g_pDevice = nullptr; // Store the device globally if needed elsewhere
+ComPtr<ID3D12RootSignature> g_rootSig = nullptr;
+ComPtr<ID3D12PipelineState> g_greenPSO = nullptr;
 
-// GPU resources
-ComPtr<ID3D12PipelineState> g_GreenPSO;
-ComPtr<ID3D12PipelineState> g_RedPSO;
-ComPtr<ID3D12RootSignature> g_RootSignature;
-
-
-/*
-// Shader source (HLSL)
-const char* g_VertexShader =
-"struct VS_INPUT { float3 pos : POSITION; float2 tex : TEXCOORD; };"
-"struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; };"
-"VS_OUTPUT main(VS_INPUT input) {"
-"    VS_OUTPUT output;"
-"    output.pos = float4(input.pos, 1.0);"
-"    output.tex = input.tex;"
-"    return output;"
-"}";
-*/
-
-/*
-const char* g_VertexShader =
-"struct VS_INPUT { float3 pos : POSITION; float2 tex : TEXCOORD; };"
-"struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; };"
-"VS_OUTPUT main(VS_INPUT input) {"
-"    VS_OUTPUT output;"
-"    output.pos = float4(input.pos, 1.0);"
-"output.pos.z = 0.5;" // TEMPORARY: Force a specific Z value, fix graphical bugs. Directly setting this won't disable the z-buffer. It just sets the z-position for the depth test.
-"output.pos.w = 1.0;"
-"output.pos.x = output.pos.x * 0.1;"
-"output.pos.y = output.pos.y * 0.1;"
-"output.pos.z = 0.0;"
-"    output.tex = input.tex;"
-"    return output;"
-"}";
-
-const char* g_PixelShader =
-"Texture2D g_Texture : register(t0);"
-"SamplerState g_Sampler : register(s0);"
-"float4 main(float4 pos : SV_POSITION, float2 tex : TEXCOORD) : SV_Target {"
-"    return float4(1.0, 0.0, 0.0, 1.0);"  // red
-"}";
-*/
-
-/*
-const char* g_GreenVertexShader =
-"struct VS_INPUT { float3 pos : POSITION; float2 tex : TEXCOORD; };"
-"struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; float3 debugColor : COLOR; };"
-"VS_OUTPUT main(VS_INPUT input) {"
-"    VS_OUTPUT output;"
-"    output.pos = float4(input.pos, 1.0);"
-//"    output.pos.x *= 0.1;"
-//"    output.pos.y *= 0.1;"
-//"    output.pos.z = 0.0;"  // Setting z to 0.0 for consistent depth
-//"    output.tex = input.tex;"
-//"    output.debugColor = abs(float3(output.pos.x, output.pos.y, output.pos.z));"
-"    output.debugColor = abs(float3(output.pos.x * 5.0, output.pos.y * 10.0, output.pos.z * 2.0));" // Scale each channel independently, Glow
-"    return output;"
-"};";
-*/
-
-/*
-// Vertex Shader
-const char* g_VertexShader =
-"struct VS_INPUT { float3 pos : POSITION; float2 tex : TEXCOORD; };"
-"struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; float3 debugColor : COLOR; };"
-"VS_OUTPUT main(VS_INPUT input) {"
-"    VS_OUTPUT output;"
-"    output.pos = float4(input.pos, 1.0);"
-"    output.pos.x *= 0.1;"
-"    output.pos.y *= 0.1;"
-"    output.pos.z = 0.0;"  // Setting z to 0.0 for consistent depth
-"    output.tex = input.tex;"
-// Scale and clamp
-"    float r = clamp(abs(output.pos.x) * 1.0, 0.0, 1.0);"
-"    float g = clamp(abs(output.pos.y) * 1.0, 0.0, 1.0);"
-"    float b = clamp(abs(output.pos.z) * 10.0, 10.0, 1.0);"
-"    output.debugColor = float3(r, g, b);"
-"    return output;"
-"};";
-*/
-
-/*
-// Vertex Shader
-const char* g_VertexShader =
-"struct VS_INPUT { float3 pos : POSITION; float2 tex : TEXCOORD; };"
-"struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; float3 debugColor : COLOR; };"
-"VS_OUTPUT main(VS_INPUT input) {"
-"    VS_OUTPUT output;"
-"    output.pos = float4(input.pos, 1.0);"
-"    output.pos.x *= 0.1;"
-"    output.pos.y *= 0.1;"
-"    output.pos.z = 0.0;"  // Setting z to 0.0 for consistent depth
-"    output.tex = input.tex;"
-// Mix mostly to blue
-"    float r = clamp(abs(output.pos.x) * 0.1, 0.0, 0.2);"   // Small amount of red
-"    float g = clamp(abs(output.pos.y) * 0.5, 0.0, 0.2);"   // Small amount of green
-"    float b = clamp(abs(output.pos.z) * 2.0, 0.0, 1.0);"   // Strong blue
-"    output.debugColor = float3(r, g, b);"
-"    return output;"
-"};";
-*/
-
-const char* g_GreenVertexShader =
-"struct VS_INPUT { float3 pos : POSITION; float2 tex : TEXCOORD; };"
-"struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; float3 debugColor : COLOR; };"
-
-"VS_OUTPUT main(VS_INPUT input) {"
-"    VS_OUTPUT output;"
-
-"    output.pos = float4(input.pos, 1.0);"
-"    output.pos.x *= -0.5;"//warning can shrink the model by 90%
-"    output.pos.y *= -0.5;"
-"	 output.pos.z *= -0.5;"
-
-// Offset the position
-//Moving the model relative to the camera, is not possible without access to some kind of transformation matrix
-"float offsetX = 0.2;"  // Example: Move right (positive X)
-"float offsetY = -0.3;" // Example: Move down (negative Y)
-"float offsetZ = 0.0;"  // Move closer/further (Z-axis, but depth behavior can be tricky)
-
-"output.pos.x += offsetX;"
-"output.pos.y += offsetY;"
-"output.pos.z += offsetZ;"
-
-"    output.tex = input.tex;"
-"    output.debugColor = abs(float3(0.0, 1.0, 0.0));" //use specific color, with glow
-"    return output;"
-"};";
-
-const char* g_RedVertexShader =
-"struct VS_INPUT { float3 pos : POSITION; float2 tex : TEXCOORD; };"
-"struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; float3 debugColor : COLOR; };"
-
-"VS_OUTPUT main(VS_INPUT input) {"
-"    VS_OUTPUT output;"
-"    output.pos = float4(input.pos, 1.0);"
-"    output.pos.x *= 0.1;"//warning can shrink the model by 90%
-"    output.pos.y *= 0.1;"
-"    output.pos.z = 0.0;"  // Setting z to 0.0 for consistent depth
-"    output.tex = input.tex;"
-"    output.debugColor = abs(float3(2.0, 0.0, 0.0));" //use specific color, with glow
-"    return output;"
-"};";
-
-
-/*
-const char* g_VertexShader =
-"struct VS_INPUT { float3 pos : POSITION; float2 tex : TEXCOORD; };"
-"struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; float3 debugColor : COLOR; };"
-"VS_OUTPUT main(VS_INPUT input) {"
-"    VS_OUTPUT output;"
-"    output.pos = float4(input.pos, 1.0);"
-"    output.pos.x *= 0.1;"//*= 0.1;"
-//"    output.pos.x *= -1.0;" // Flip X-axis if needed
-//"    output.pos.y *= 0.1;"
-"    output.pos.y *= -0.1;" // Flip Y-axis if needed
-"    output.pos.z = 0.0;"  // Setting z to 0.0 for consistent depth
-"    output.tex = input.tex;"
-"    output.debugColor = abs(float3(0.0, 2.0, 0.0));" //use specific color
-"    return output;"
-"};";
-*/
-/*
-const char* g_VertexShader =
-"struct VS_INPUT { float3 pos : POSITION; float2 tex : TEXCOORD; };"
-"struct VS_OUTPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; float3 debugColor : COLOR; };"
-"VS_OUTPUT main(VS_INPUT input) {"
-"    VS_OUTPUT output;"
-"    output.pos = float4(input.pos, 1.0);"
-"    output.pos.x = 0.0;"
-"    output.pos.y = 0.0;"
-"    output.pos.z = 0.0;"  // Setting z to 0.0 for consistent depth
-"    output.tex = input.tex;"
-"    output.debugColor = abs(float3(0.0, 1.0, 0.0));" //use specific color
-"    return output;"
-"};";
-*/
-
-/*
-// Fragment Shader (pixelshader)
-const char* g_FragmentShader =
-"struct PS_INPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; float3 debugColor : COLOR; };" // Must match VS_OUTPUT
-"float4 main(PS_INPUT input) : SV_TARGET {"
-"    return float4(input.debugColor, 1.0);" // Use the debugColor
-"}";
-//debugColor values are now encoded as colors on the screen, you essentially need to read those colors back and decode them.
-*/
-
-const char* g_FragmentShader =
-"struct PS_INPUT { float4 pos : SV_POSITION; float2 tex : TEXCOORD; float3 debugColor : COLOR; };" // Must match VS_OUTPUT
-
-"cbuffer ConstantBufferData : register(b0) {"
-"    float4 g_Color;" // Global color from constant buffer
-"};"
-
-"float4 main(PS_INPUT input) : SV_TARGET {"
-"    return g_Color;" // Use the color from constant buffer
-"};";
-
-
-// Function to compile shader
-HRESULT CompileShader(const char* source, const char* entry, const char* target, ID3DBlob** blob) {
-	return D3DCompile(source, strlen(source), NULL, NULL, NULL, entry, target, 0, 0, blob, NULL);
-}
-
-//#include <dxgi1_6.h>
-using Microsoft::WRL::ComPtr;
-
-ID3D12RootSignature* rootSignature = nullptr; // Define it globally
-
-void CreateRootSignature(ID3D12Device* device) {
-	if (!device) {
-		Log("Device is not initialized.\n");
-		return;
+bool InitGreenOverlayPipeline(ID3D12Device* device, ID3D12RootSignature** ppRootSig, ID3D12PipelineState** ppPSO)
+{
+	// Ensure output pointers are valid and initialize them to nullptr
+	if (!ppRootSig || !ppPSO || !device) {
+		//Log("ERROR: InitGreenOverlayPipeline called with null device or output pointers.");
+		if (ppRootSig) *ppRootSig = nullptr;
+		if (ppPSO) *ppPSO = nullptr;
+		return false;
 	}
+	*ppRootSig = nullptr;
+	*ppPSO = nullptr;
 
-	// Describe root parameters.  Adjust the number as needed!
-	std::vector<CD3DX12_ROOT_PARAMETER> rootParameters(3); // For Constant Buffer, Texture (SRV), Sampler
+	HRESULT hr;
+	ComPtr<ID3D12RootSignature> tempRootSig = nullptr; // Use local ComPtr for RAII
+	ComPtr<ID3D12PipelineState> tempPSO = nullptr;     // Use local ComPtr for RAII
+	ComPtr<ID3DBlob> rsBlob = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	ComPtr<ID3DBlob> vsBlob = nullptr;
+	ComPtr<ID3DBlob> psBlob = nullptr;
+	ComPtr<ID3DBlob> vsErrorBlob = nullptr;
+	ComPtr<ID3DBlob> psErrorBlob = nullptr;
 
-	// Slot 0: Constant Buffer (Color) - needs to correspond to register(b0) in HLSL
-	rootParameters[0].InitAsConstantBufferView(0); // Register b0, Shader visibility to all shaders by default (can be changed)
+	// --- 1. Create Empty Root Signature ---
+	//Log("Creating Root Signature...");
+	D3D12_ROOT_SIGNATURE_DESC rsDesc = {};
+	rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
-	// Slot 1: Texture (SRV) - Needs to correspond to register(t0) in HLSL
-	CD3DX12_DESCRIPTOR_RANGE texRange;
-	texRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);  // SRV, 1 descriptor, register t0
-	rootParameters[1].InitAsDescriptorTable(1, &texRange, D3D12_SHADER_VISIBILITY_PIXEL); //Important: Shader visibility set to Pixel shader
-
-	// Slot 2: Sampler - Needs to correspond to register(s0) in HLSL
-	CD3DX12_DESCRIPTOR_RANGE sampRange;
-	sampRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, 1, 0); //Sampler, 1 Descriptor, register s0
-	rootParameters[2].InitAsDescriptorTable(1, &sampRange, D3D12_SHADER_VISIBILITY_PIXEL); //Important: Shader visibility set to Pixel shader
-
-	// Define the root signature description
-	CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-	rootSignatureDesc.Init(
-		rootParameters.size(),       // Number of root parameters
-		rootParameters.data(),        // Pointer to array of root parameters
-		0,                             // Number of static samplers
-		nullptr,                       // Pointer to static samplers
-		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |  // Flags, allow IA layout
-		D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
-		D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
-		D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS
-	);
-
-	// Serialize the root signature.
-	ComPtr<ID3DBlob> signature;
-	ComPtr<ID3DBlob> error;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
-
+	hr = D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &errorBlob);
 	if (FAILED(hr)) {
-		Log("Failed to serialize root signature.\n");
-		if (error) {
-			Log(static_cast<char*>(error->GetBufferPointer()));
+		if (errorBlob) {
+			//Log("Failed to serialize root signature: %s", (char*)errorBlob->GetBufferPointer());
 		}
-		return;
-	}
-
-	// Create the root signature.
-	hr = device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&rootSignature));
-
-	if (FAILED(hr)) {
-		Log("Failed to create root signature.\n");
-		return;
-	}
-
-	//Log("Successfully created root signature.\n");
-}
-
-
-void CreateGreenPipelineState(ID3D12Device* device, ID3D12GraphicsCommandList* commandList) {
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-
-	// Compile shaders
-	ComPtr<ID3DBlob> vsBlob, psBlob;
-	CompileShader(g_GreenVertexShader, "main", "vs_5_0", &vsBlob);
-	CompileShader(g_FragmentShader, "main", "ps_5_0", &psBlob);
-
-	// Root signature creation (no changes needed)
-	//D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
-	//rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-
-	//ComPtr<ID3DBlob> signatureBlob;
-	//D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob, nullptr);
-	//device->CreateRootSignature(0, signatureBlob->GetBufferPointer(), signatureBlob->GetBufferSize(), IID_PPV_ARGS(&g_RootSignature));
-
-	// Input Layout (no changes)
-	D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	};
-	psoDesc.InputLayout = { inputLayout, _countof(inputLayout) };
-
-	// Set the shaders and root signature
-	psoDesc.pRootSignature = rootSignature; //g_RootSignature.Get();
-	psoDesc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
-	psoDesc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
-	
-	// Rasterizer and blend state (no changes needed)
-	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID; //D3D12_FILL_MODE_WIREFRAME
-	psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-
-	// Blend state
-	D3D12_BLEND_DESC blendDesc = {};
-	blendDesc.AlphaToCoverageEnable = FALSE;
-	blendDesc.IndependentBlendEnable = FALSE;
-	blendDesc.RenderTarget[0].BlendEnable = FALSE; // Disable blending
-	blendDesc.RenderTarget[0].LogicOpEnable = FALSE;
-	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
-	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
-	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	psoDesc.BlendState = blendDesc;
-
-	// Disable depth testing
-	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-	depthStencilDesc.DepthEnable = FALSE;  // Disable depth testing
-	depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;  // Don't write to the depth buffer
-	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;  // This ensures the depth test will always pass
-	depthStencilDesc.StencilEnable = FALSE;  // Disable stencil testing
-	psoDesc.DepthStencilState = depthStencilDesc;  // Set depth stencil state in PSO
-
-	psoDesc.SampleMask = UINT_MAX;
-	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	psoDesc.NumRenderTargets = 1;
-	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-	psoDesc.SampleDesc.Count = 1;
-	
-	// Create the pipeline state object
-	HRESULT hr = device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&g_GreenPSO));
-	if (FAILED(hr)) {
-		Log("Failed to create pipeline state, HRESULT: 0x%08X", hr);
-		return;
-	}
-}
-
-void CreateRedPipelineState(ID3D12Device* device, ID3D12GraphicsCommandList* commandList) {
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-
-	// Compile shaders
-	ComPtr<ID3DBlob> vsBlob, psBlob;
-	CompileShader(g_RedVertexShader, "main", "vs_5_0", &vsBlob);
-	CompileShader(g_FragmentShader, "main", "ps_5_0", &psBlob);
-
-	// Root signature creation (no changes needed)
-	D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
-	rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-
-	ComPtr<ID3DBlob> signatureBlob;
-	D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob, nullptr);
-	device->CreateRootSignature(0, signatureBlob->GetBufferPointer(), signatureBlob->GetBufferSize(), IID_PPV_ARGS(&g_RootSignature));
-
-	//commandList->SetGraphicsRootSignature(g_RootSignature.Get());
-
-	// Input Layout (no changes)
-	D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	};
-	psoDesc.InputLayout = { inputLayout, _countof(inputLayout) };
-
-	// Set the shaders and root signature
-	psoDesc.pRootSignature = g_RootSignature.Get();
-	psoDesc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
-	psoDesc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
-
-	// Rasterizer and blend state (no changes needed)
-	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID; //D3D12_FILL_MODE_WIREFRAME
-	psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-
-	// Blend state
-	D3D12_BLEND_DESC blendDesc = {};
-	blendDesc.AlphaToCoverageEnable = FALSE;
-	blendDesc.IndependentBlendEnable = FALSE;
-	blendDesc.RenderTarget[0].BlendEnable = FALSE; // Disable blending
-	blendDesc.RenderTarget[0].LogicOpEnable = FALSE;
-	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
-	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
-	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	psoDesc.BlendState = blendDesc;
-
-	// Disable depth testing
-	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-	depthStencilDesc.DepthEnable = FALSE;  // Disable depth testing
-	depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;  // Don't write to the depth buffer
-	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;  // This ensures the depth test will always pass
-	depthStencilDesc.StencilEnable = FALSE;  // Disable stencil testing
-	psoDesc.DepthStencilState = depthStencilDesc;  // Set depth stencil state in PSO
-
-	psoDesc.SampleMask = UINT_MAX;
-	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	psoDesc.NumRenderTargets = 1;
-	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-	psoDesc.SampleDesc.Count = 1;
-
-	// Create the pipeline state object
-	HRESULT hr = device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&g_RedPSO));
-	if (FAILED(hr)) {
-		Log("Failed to create pipeline state, HRESULT: 0x%08X", hr);
-		return;
-	}
-}
-
-ComPtr<ID3D12Resource> g_MyConstantBuffer; // Global or class member variable
-
-// Global color value
-float g_color[4] = { 1.0f, 0.0f, 1.0f, 1.0f }; // Red
-
-// Modified CreateConstantBuffer function
-void CreateConstantBuffer(UINT rootpindex, ID3D12Device* device, ID3D12GraphicsCommandList* commandList) {
-
-	// Define the constant buffer structure
-	struct ConstantBufferData {
-		float color[4]; // RGBA
-	};
-
-	// Check if the buffer already exists, reuse it
-	if (!g_MyConstantBuffer) {
-		ConstantBufferData cbData = { g_color[0], g_color[1], g_color[2], g_color[3] };
-
-		D3D12_HEAP_PROPERTIES heapProps = {};
-		heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
-
-		D3D12_RESOURCE_DESC resourceDesc = {};
-		resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-		resourceDesc.Width = (sizeof(ConstantBufferData) + 255) & ~255; // Align to 256 bytes
-		resourceDesc.Height = 1;
-		resourceDesc.DepthOrArraySize = 1;
-		resourceDesc.MipLevels = 1;
-		resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
-		resourceDesc.SampleDesc.Count = 1;
-		resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-		resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-		// Create buffer
-		device->CreateCommittedResource(
-			&heapProps,
-			D3D12_HEAP_FLAG_NONE,
-			&resourceDesc,
-			D3D12_RESOURCE_STATE_GENERIC_READ,
-			nullptr,
-			IID_PPV_ARGS(&g_MyConstantBuffer)
-		);
-
-		// Map and copy data
-		void* mappedData;
-		g_MyConstantBuffer->Map(0, nullptr, &mappedData);
-		memcpy(mappedData, &cbData, sizeof(cbData));
-		g_MyConstantBuffer->Unmap(0, nullptr);
-	}
-
-	// Use the buffer's GPU virtual address
-	commandList->SetGraphicsRootConstantBufferView(rootpindex, g_MyConstantBuffer->GetGPUVirtualAddress()); //Root parameter 0
-}
-
-/*
-void CreateRootSignature(ID3D12Device* device) {
-	if (!device) {
-		Log("Device is not initialized.\n");
-		return;
-	}
-
-	// Describe the root signature.
-	CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-	rootSignatureDesc.Init(
-		0,                   // Number of root parameters (set to 0 if none are used)
-		nullptr,             // Pointer to array of root parameters (nullptr if none are used)
-		0,                   // Number of static samplers
-		nullptr,             // Pointer to static samplers
-		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT // Flags
-	);
-
-	// Serialize the root signature.
-	ComPtr<ID3DBlob> signature;
-	ComPtr<ID3DBlob> error;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
-
-	if (FAILED(hr)) {
-		Log("Failed to serialize root signature.\n");
-		if (error) {
-			Log(static_cast<char*>(error->GetBufferPointer()));
+		else {
+			//Log("Failed to serialize root signature, HRESULT: 0x%08X", hr);
 		}
-		return;
+		return false; // Cannot proceed
+	}
+	if (!rsBlob) {
+		//Log("Failed to serialize root signature: Blob is null despite success HRESULT.");
+		return false;
 	}
 
-	// Create the root signature.
-	hr = device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&rootSignature));
-
+	hr = device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&tempRootSig));
 	if (FAILED(hr)) {
-		Log("Failed to create root signature.\n");
-		return;
+		//Log("Failed to create root signature, HRESULT: 0x%08X", hr);
+		return false; // Cannot proceed
+	}
+	tempRootSig->SetName(L"GreenOverlay RootSig"); // Optional: Name for debugging
+	//Log("Root Signature Created: %p", tempRootSig.Get());
+
+
+	// --- 2. Compile HLSL Shaders ---
+	//Log("Compiling Shaders...");
+	// Compiler flags
+	UINT compileFlags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS;
+#ifdef _DEBUG
+	// Enable debug info and disable optimizations in debug builds
+	compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#else
+	// Enable optimizations in release builds
+	compileFlags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
+#endif
+
+	// Ensure GreenOverlay.hlsl is in the correct path (game exe) relative to the executable
+	// or provide an absolute path.
+	// The HLSL should contain mainVS and mainPS entry points.
+	// A minimal example for a fullscreen triangle:
+	/*
+	// GreenOverlay.hlsl
+	struct VS_OUTPUT { float4 Pos : SV_POSITION; };
+
+	VS_OUTPUT mainVS(uint VertID : SV_VertexID) {
+		VS_OUTPUT output = (VS_OUTPUT)0;
+		// Generate fullscreen triangle verts directly
+		float2 pos = float2((VertID << 1) & 2, VertID & 2);
+		output.Pos = float4(pos * 2.0f - 1.0f, 0.0f, 1.0f);
+		output.Pos.y = -output.Pos.y; // Flip Y for typical screen coords
+		return output;
 	}
 
-	Log("Successfully created root signature.\n");
+	float4 mainPS(VS_OUTPUT input) : SV_TARGET {
+		return float4(0.0f, 1.0f, 0.0f, 1.0f); // Solid Green
+	}
+	*/
+
+	hr = D3DCompileFromFile(L"GreenOverlay.hlsl", nullptr, nullptr, "mainVS", "vs_5_0", compileFlags, 0, &vsBlob, &vsErrorBlob);
+	if (FAILED(hr)) {
+		if (vsErrorBlob) {
+			//Log("Failed to compile Vertex Shader: %s", (char*)vsErrorBlob->GetBufferPointer());
+		}
+		else {
+			//Log("Failed to compile Vertex Shader (file not found or other error), HRESULT: 0x%08X", hr);
+		}
+		return false; // tempRootSig will auto-release via ComPtr
+	}
+	if (!vsBlob) {
+		//Log("Failed to compile Vertex Shader: Blob is null despite success HRESULT.");
+		return false;
+	}
+
+	hr = D3DCompileFromFile(L"GreenOverlay.hlsl", nullptr, nullptr, "mainPS", "ps_5_0", compileFlags, 0, &psBlob, &psErrorBlob);
+	if (FAILED(hr)) {
+		if (psErrorBlob) {
+			//Log("Failed to compile Pixel Shader: %s", (char*)psErrorBlob->GetBufferPointer());
+		}
+		else {
+			//Log("Failed to compile Pixel Shader (file not found or other error), HRESULT: 0x%08X", hr);
+		}
+		return false; // tempRootSig will auto-release via ComPtr
+	}
+	if (!psBlob) {
+		//Log("Failed to compile Pixel Shader: Blob is null despite success HRESULT.");
+		return false;
+	}
+	//Log("Shaders Compiled Successfully.");
+
+
+	// --- 3. Create Graphics Pipeline State Object ---
+	//Log("Creating Graphics Pipeline State...");
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
+	desc.pRootSignature = tempRootSig.Get(); // Use the successfully created root signature
+	desc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
+	desc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
+
+	// --- Blend State ---
+	// Set up for additive blending (Green + Background)
+	// If you want opaque green, set BlendEnable = FALSE and leave others default
+	desc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // Start with default
+	desc.BlendState.RenderTarget[0].BlendEnable = FALSE;
+	desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;       // PS output (source color)
+	desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;      // RT content (destination color)
+	desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;     // Source + Destination
+	desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;  // Use source alpha
+	desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO; // Ignore destination alpha
+	desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;    // Add alpha (though likely not used)
+	desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_GREEN; //D3D12_COLOR_WRITE_ENABLE_ALL; // Allow writing all channels
+
+	desc.SampleMask = UINT_MAX;
+	desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	// Disable culling for a simple fullscreen triangle/quad overlay
+	desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+	// --- Depth Stencil State ---
+	desc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	// Disable depth testing/writing for an overlay that should draw on top
+	desc.DepthStencilState.DepthEnable = FALSE;
+	desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	desc.DepthStencilState.StencilEnable = FALSE; // Ensure stencil is off too
+
+	desc.InputLayout = {}; // No input elements from vertex buffer for this shader
+	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	desc.NumRenderTargets = 1;
+	desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM; // Common format, adjust if game uses different backbuffer (e.g., R10G10B10A2_UNORM, R16G16B16A16_FLOAT)
+	desc.DSVFormat = DXGI_FORMAT_UNKNOWN; // Valid because DepthEnable is FALSE
+	desc.SampleDesc.Count = 1;
+	desc.SampleDesc.Quality = 0; // Standard quality level
+
+	// --- Create PSO ---
+	hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&tempPSO));
+	if (FAILED(hr)) {
+		Log("Failed to create Graphics Pipeline State, HRESULT: 0x%08X", hr);
+		return false; // tempRootSig will auto-release via ComPtr
+	}
+	tempPSO->SetName(L"GreenOverlay PSO"); // Optional: Name for debugging
+	//Log("Graphics Pipeline State Created: %p", tempPSO.Get());
+
+	// --- Success ---
+	//Log("InitGreenOverlayPipeline completed successfully!");
+	*ppRootSig = tempRootSig.Detach(); // Transfer ownership to output pointer
+	*ppPSO = tempPSO.Detach();       // Transfer ownership to output pointer
+	return true; // Indicate success
 }
-*/
-
-/*
-* const char* g_GreenVertexShader =
-"struct VS_INPUT {"
-"    float3 pos : POSITION;"
-"    float2 tex : TEXCOORD;"
-"};"
-
-"cbuffer ConstantBufferData : register(b0) {"
-"    float4 g_Color;" // Global color from constant buffer
-"};"
-
-"struct PS_INPUT {"
-"    float4 pos : SV_POSITION;"
-"    float2 tex : TEXCOORD;"
-"    float3 debugColor : COLOR0;" // Color attribute for the pixel shader
-"};"
-
-"PS_INPUT main(VS_INPUT input) {"
-"    PS_INPUT output;"
-"    output.pos = float4(input.pos, 1.0);" // Convert to homogeneous coordinates
-"    output.tex = input.tex;" // Pass texture coordinates
-//"    output.debugColor = g_Color.rgb;" // Pass constant buffer color
-"    output.debugColor = float3(0, 1, 0);"
-"    return output;"
-"};";
-
-const char* g_FragmentShader =
-"struct PS_INPUT {"
-"    float4 pos : SV_POSITION;"
-"    float2 tex : TEXCOORD;"
-"    float3 debugColor : COLOR0;" // This must match the output of the vertex shader
-"};"
-
-"cbuffer ConstantBufferData : register(b0) {"
-"    float4 g_Color;" // Global color from constant buffer
-"};"
-
-"float4 main(PS_INPUT input) : SV_TARGET {"
-"    return float4(input.debugColor, 1.0);" // Use the color from the vertex shader's output
-"};";
-
-void CreateGreenPipelineState(ID3D12Device* device, ID3D12GraphicsCommandList* commandList) {
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-
-	// Compile shaders
-	ComPtr<ID3DBlob> vsBlob, psBlob;
-	CompileShader(g_GreenVertexShader, "main", "vs_5_0", &vsBlob);
-	CompileShader(g_FragmentShader, "main", "ps_5_0", &psBlob);
-
-	// Define root signature with constant buffer at register b0 (pixel shader visibility)
-	D3D12_ROOT_PARAMETER rootParameters[1] = {};
-	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[0].Descriptor.ShaderRegister = 0; // Register b0
-	rootParameters[0].Descriptor.RegisterSpace = 0;
-	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL; // 
-
-	D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
-	rootSignatureDesc.NumParameters = _countof(rootParameters);
-	rootSignatureDesc.pParameters = rootParameters;
-	rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-
-	ComPtr<ID3DBlob> signatureBlob, errorBlob;
-	HRESULT hr = D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob, &errorBlob);
-	if (FAILED(hr)) {
-		Log("Root Signature Serialization Failed: %s", (char*)errorBlob->GetBufferPointer());
-		return;
-	}
-
-	hr = device->CreateRootSignature(0, signatureBlob->GetBufferPointer(), signatureBlob->GetBufferSize(), IID_PPV_ARGS(&g_RootSignature));
-	if (FAILED(hr)) {
-		Log("Failed to create Root Signature!");
-		return;
-	}
-
-	D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D12_APPEND_ALIGNED_ELEMENT, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	};
-
-	// Input Layout
-	//D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-		//{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		//{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	//};
-	psoDesc.InputLayout = { inputLayout, _countof(inputLayout) };
-
-	// Set shaders and root signature
-	psoDesc.pRootSignature = g_RootSignature.Get();
-	psoDesc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
-	psoDesc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
-
-	// Rasterizer state
-	psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-	psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-
-	// Blend state
-	D3D12_BLEND_DESC blendDesc = {};
-	blendDesc.AlphaToCoverageEnable = FALSE;
-	blendDesc.IndependentBlendEnable = FALSE;
-	blendDesc.RenderTarget[0].BlendEnable = FALSE;
-	blendDesc.RenderTarget[0].LogicOpEnable = FALSE;
-	blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_ZERO;
-	blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
-	blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
-	blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	blendDesc.RenderTarget[0].LogicOp = D3D12_LOGIC_OP_NOOP;
-	blendDesc.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-	psoDesc.BlendState = blendDesc;
-
-	// Depth-stencil state
-	D3D12_DEPTH_STENCIL_DESC depthStencilDesc = {};
-	depthStencilDesc.DepthEnable = FALSE;
-	depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-	depthStencilDesc.StencilEnable = FALSE;
-	psoDesc.DepthStencilState = depthStencilDesc;
-
-	// Sample mask and primitive topology
-	psoDesc.SampleMask = UINT_MAX;
-	psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	psoDesc.NumRenderTargets = 1;
-	psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-	psoDesc.SampleDesc.Count = 1;
-
-	// Create the pipeline state object
-	hr = device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&g_GreenPSO));
-	if (FAILED(hr)) {
-		Log("Failed to create pipeline state, HRESULT: 0x%08X", hr);
-		return;
-	}
-}
-*/

@@ -36,6 +36,9 @@ IASetVertexBuffers oIASetVertexBuffers = NULL;
 typedef void(STDMETHODCALLTYPE* IASetIndexBuffer)(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
 IASetIndexBuffer oIASetIndexBuffer = NULL;
 
+typedef HRESULT(STDMETHODCALLTYPE* CreateGraphicsPipelineState)(ID3D12Device* pDevice, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* pDesc, REFIID riid, void** ppPipelineState);
+CreateGraphicsPipelineState oCreateGraphicsPipelineState = NULL;
+
 typedef void(STDMETHODCALLTYPE* SetPipelineState)(ID3D12GraphicsCommandList* dCommandList, ID3D12PipelineState* pPipelineState);
 SetPipelineState oSetPipelineState = NULL;
 
@@ -88,7 +91,7 @@ bool vkENDkeydown = false;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    //Log("1");
+    
     if (ShowMenu) {
         ImGui_ImplWin32_WndProcHandler(hwnd, uMsg, wParam, lParam); //ImGui gets first crack at the message
     }
@@ -149,11 +152,9 @@ HRESULT APIENTRY hkPresent(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT 
 
 void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dCommandList, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation) {
 
-	mIndexCount = IndexCountPerInstance;
-    
 	static bool initialized = false;
 	if (!initialized) {
-		//get device here if you want to use it
+		//get device
 		HRESULT hr = dCommandList->GetDevice(__uuidof(ID3D12Device), (void**)&pDevice);
 		if (FAILED(hr)) {
 			Log("Failed to get ID3D12Device from command list, HRESULT: 0x%08X", hr);
@@ -161,56 +162,25 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 		}
 
         //load custom stuff
-        CreateRootSignature(pDevice.Get());
-        CreateGreenPipelineState(pDevice.Get(), dCommandList);
-        //CreateRedPipelineState(pDevice.Get(), dCommandList);
+        ID3D12RootSignature* rawRootSig = nullptr;
+        ID3D12PipelineState* rawPSO = nullptr;
+        bool initSuccess = InitGreenOverlayPipeline(pDevice.Get(), &rawRootSig, &rawPSO);
+        if (initSuccess && rawRootSig && rawPSO) {
+            g_rootSig = rawRootSig;
+            g_greenPSO = rawPSO;
+        }
 
 		initialized = true;
 	}
 
     
-    //iSize
-    UINT currentiSize = 0;
-    DXGI_FORMAT currentiFormat = DXGI_FORMAT_UNKNOWN;
-    {
-        std::lock_guard<std::mutex> lock(iSizesMutex);
-
-        // Retrieve SizeInBytes
-        auto it = iSizes.find(dCommandList);
-        if (it != iSizes.end()) {
-            currentiSize = it->second;
-        }
-        else {
-            currentiSize = 0;
-            //Or maybe return
-        }
-
-        // Retrieve Format
-        auto itFormat = iFormat.find(dCommandList);
-        if (itFormat != iFormat.end()) {
-            currentiFormat = static_cast<DXGI_FORMAT>(itFormat->second);
-        }
-    }
-    //Usage: if (currentiSize == x && currentiFormat == DXGI_FORMAT_R16_UINT) {
-
-    twoDigitiSize = getTwoDigitValue(currentiSize);
+    // Retrieve state from TLS
+    UINT currentStride = tls_commandListState.currentStride0 +tls_commandListState.currentStride1 + tls_commandListState.currentStride2 + tls_commandListState.currentStride3;
+    UINT currentiSize = tls_commandListState.currentiSize;
+    DXGI_FORMAT currentiFormat = tls_commandListState.currentIndexFormat;
 
 
-    //Stride
-    UINT Stride0 = 0;
-    UINT Stride1 = 0;
-    UINT Stride2 = 0;
-    {
-        std::lock_guard<std::mutex> lock(vStrideMutex);
-        auto it = vStride.find(dCommandList);
-        if (it != vStride.end()) {
-            Stride0 = it->second[0]; // 0 = stride of slot 0
-            Stride1 = it->second[1];
-            Stride2 = it->second[2];
-        }
-    }
-
-    //rootsignature
+    //Rootsignature
     UINT currentRootSigID = 0;
     {
         std::lock_guard<std::mutex> lock(rootSigMutex);
@@ -222,42 +192,94 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         }
     }
 
+    // Read the atomic variable once for consistent checking within this function call
+    UINT currentRootIndex = g_lastSetRootParameterIndex.load(std::memory_order_relaxed);
+
 
     //log bruteforced values by pressing VK_END
-    if (vkENDkeydown && (twoDigitiSize == countnum || currentRootSigID == countnum)) {
-        Log("countnum == %d && mIndexCount == %d && Stride0 == %d && Stride1 == %d && Stride2 == %d && gRootParameterIndex == %d && twoDigitiSize == %d currentiSize == %d && currentiFormat == %d && currentRootSigID == %d",
-            countnum, mIndexCount, Stride0, Stride1, Stride2, gRootParameterIndex, twoDigitiSize, currentiSize, currentiFormat, currentRootSigID);
+    if (vkENDkeydown && (currentStride == countnum || currentRootSigID == countnum || IndexCountPerInstance / 1000 == countnum)) {
+        Log("countnum == %d && IndexCountPerInstance == %d && currentStride == %d && currentRootIndex == %d && currentiSize == %d && currentiFormat == %d && currentRootSigID == %d",
+            countnum, IndexCountPerInstance, currentStride, currentRootIndex, currentiSize, currentiFormat, currentRootSigID);
     }
   
     //wallhack
-    if(twoDigitiSize == countnum || currentRootSigID == countnum) {
+    if(currentStride == countnum || currentRootSigID == countnum || IndexCountPerInstance/1000 == countnum) {
         SetDepthRange(0.95f, dCommandList);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         ResetDepthRange(dCommandList);
         //return; //or erase texture
     }
 
+   
+
+    //try to hijack games pipeline (unity), doesn't work if game caches it offline (ue5)
+    if (currentStride == 9999 || currentRootSigID == 9999) {
+        // 1. Get the PSO that should be currently active for this command list
+        {
+            std::lock_guard<std::mutex> lock(commandListPSOMutex);
+            auto it = currentCommandListPSO.find(dCommandList);
+            if (it != currentCommandListPSO.end()) {
+                originalPSO = it->second;
+            }
+        } // Release commandListPSOMutex lock
+
+        // 2. Find the green variant for this PSO
+        if (originalPSO) {
+            std::lock_guard<std::mutex> lock(pipelineMutex);
+            auto it = greenVariants.find(originalPSO);
+            if (it != greenVariants.end()) {
+                greenPSO = it->second;
+            }
+        } // Release pipelineMutex lock
+
+        // 3. If we found a green variant, swap to it
+        if (greenPSO) {
+            oSetPipelineState(dCommandList, greenPSO); // Set the green PSO
+            swapped = true;
+            //Log("DrawIndexedInstanced (IndexCount: %u): Swapped to Green PSO %p (Original: %p)", IndexCountPerInstance, greenPSO, originalPSO);
+        }
+        else {
+            //Log("DrawIndexedInstanced (IndexCount: %u): Target draw call, but Green PSO not found for Original PSO %p", IndexCountPerInstance, originalPSO);
+        }
+
+        // 4. Call the original draw function (with either original or green PSO active)
+        //oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+        // 5. If we swapped, restore the original PSO (removes colors too)
+        //if (swapped) {
+            //oSetPipelineState(dCommandList, originalPSO); // Restore the original PSO
+            // Log("DrawIndexedInstanced (IndexCount: %u): Restored Original PSO %p", IndexCountPerInstance, originalPSO);
+        //}
+    }
 
     /*
-    //meh
-    if (gRootParameterIndex == 6 && vStride[0] == 40) {
+    //try green custom shader, requires GreenOverlay.hlsl
+    if (currentRootIndex == ? && (currentStride == 9999 || currentRootSigID == countnum))
+    {
+        if(g_greenPSO)
+        dCommandList->SetPipelineState(g_greenPSO.Get());
+
+        dCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+        //dCommandList->IASetVertexBuffers(0, 0, nullptr);
+        //dCommandList->IASetIndexBuffer(nullptr);
+
+        // Draw a fullscreen triangle using 3 vertices generated in the Vertex Shader
+        dCommandList->DrawInstanced(3, 1, 0, 0);
+        //return;
+    }
+    */
+
+    /*
+    //try to fook textures to green
+    if (currentRootIndex == ? && currentStride == countnum || currentRootSigID == countnum) {
 
         float mColor[] = { 0.0f, 1.0f, 0.0f, 0.0f }; // Green
         dCommandList->ClearRenderTargetView(g_RTVHandle, mColor, 0, nullptr);
-        dCommandList->SetGraphicsRootConstantBufferView(countnum+13, 0);//1- = crash
+        dCommandList->SetGraphicsRootConstantBufferView(?, 0);//countnum+13
     }
     */
 
-    /*
-    //meh
-    if (gRootParameterIndex == 6 && vStride[0] == 40|| gRootParameterIndex == 8 && mIndexCount == 11532) {
-        if (g_GreenPSO) {
-            dCommandList->SetPipelineState(g_GreenPSO.Get());  // Set custom pipeline state
-            CreateConstantBuffer(countnum+13, pDevice.Get(), dCommandList);//5,4 //1- = crash
-            //return;
-        }
-    }
-    */
 
 	return oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
 }
@@ -265,8 +287,6 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 //=========================================================================================================================//
 
 void STDMETHODCALLTYPE hkDrawInstanced(ID3D12GraphicsCommandList* dCommandList, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation) {
-
-    //mVertexCount = VertexCountPerInstance;
 
     return oDrawInstanced(dCommandList, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation);
 }
@@ -285,6 +305,7 @@ void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,
 //=========================================================================================================================//
 
 void STDMETHODCALLTYPE hkSetGraphicsRootSignature(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature) {
+
     if (dCommandList && pRootSignature) {
         std::lock_guard<std::mutex> lock(rootSigMutex);
 
@@ -296,12 +317,18 @@ void STDMETHODCALLTYPE hkSetGraphicsRootSignature(ID3D12GraphicsCommandList* dCo
         // Store the root signature for this command list
         rootSignatures[dCommandList] = pRootSignature;
     }
+
     return oSetGraphicsRootSignature(dCommandList, pRootSignature);
 }
 
 //=========================================================================================================================//
 
 void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
+
+    // Store the last set index. The value right before the draw call.
+    g_lastSetRootParameterIndex.store(RootParameterIndex, std::memory_order_relaxed);
+
+    //gRootParameterMap[dCommandList] = RootParameterIndex;
 
     //gRootParameterIndex = RootParameterIndex;
     //gBufferLocation = BufferLocation;
@@ -313,25 +340,15 @@ void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommand
 
 void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
 
-    if (!dCommandList || !pViews || NumViews == 0) {
-        return;
-    }
-    
-    //Stride
-    std::lock_guard<std::mutex> lock(vStrideMutex);
-
-    // Access or initialize stride array for this command list
-    auto it = vStride.find(dCommandList);
-    if (it == vStride.end()) {
-        // Command list not found, insert a new entry with a default-initialized array.
-        it = vStride.emplace(dCommandList, std::array<UINT, MAX_VERTEX_BUFFER_SLOTS>{}).first;
-    }
-    auto& strideArray = it->second;
-
-    for (UINT i = 0; i < NumViews; ++i) {
-        if (StartSlot + i < MAX_VERTEX_BUFFER_SLOTS) {
-            strideArray[StartSlot + i] = pViews[i].StrideInBytes;
-        }
+     if (NumViews > 0 && pViews != nullptr) { 
+         if(pViews[0].StrideInBytes <= 120)
+        tls_commandListState.currentStride0 = pViews[0].StrideInBytes;
+         if (pViews[1].StrideInBytes <= 120)
+        tls_commandListState.currentStride1 = pViews[1].StrideInBytes;
+         if (pViews[2].StrideInBytes <= 120)
+        tls_commandListState.currentStride2 = pViews[2].StrideInBytes;
+         if (pViews[3].StrideInBytes <= 120)
+        tls_commandListState.currentStride3 = pViews[3].StrideInBytes;
     }
 
     return oIASetVertexBuffers(dCommandList, StartSlot, NumViews, pViews);
@@ -341,12 +358,12 @@ void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandL
 
 void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView)
 {
-    //iSize
-    if (pView != nullptr && dCommandList != nullptr) // Add a null check for dCommandList
-    {
-        std::lock_guard<std::mutex> lock(iSizesMutex); // Thread safety
-        iSizes[dCommandList] = pView->SizeInBytes;
-        iFormat[dCommandList] = pView->Format;
+    if (pView != nullptr) {
+        tls_commandListState.currentIndexFormat = pView->Format;
+        tls_commandListState.currentiSize = pView->SizeInBytes;
+    }
+    else {
+        tls_commandListState.currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     }
     
     return oIASetIndexBuffer(dCommandList, pView);
@@ -363,6 +380,7 @@ void STDMETHODCALLTYPE hkOMSetRenderTargets(
 {
     if (pRenderTargetDescriptors && NumRenderTargetDescriptors > 0)
     {
+        //g_RTVHandle = pRenderTargetDescriptors[0]; // Store the RTV
         g_RTVHandle = *pRenderTargetDescriptors; // Store the RTV
     }
 
@@ -376,11 +394,84 @@ void STDMETHODCALLTYPE hkOMSetRenderTargets(
 
 //=========================================================================================================================//
 
+HRESULT STDMETHODCALLTYPE hkCreateGraphicsPipelineState(ID3D12Device* pDevice,const D3D12_GRAPHICS_PIPELINE_STATE_DESC* pDesc,REFIID riid,void** ppPipelineState)
+{
+    // Call the original function first
+    HRESULT hr = oCreateGraphicsPipelineState(pDevice, pDesc, riid, ppPipelineState);
+    if (FAILED(hr) || !ppPipelineState || !*ppPipelineState) {
+        //Log("Original CreateGraphicsPipelineState failed or returned null PSO. HRESULT: 0x%X", hr);
+        return hr;
+    }
+
+    ID3D12PipelineState* originalPSO = static_cast<ID3D12PipelineState*>(*ppPipelineState);
+    //Log("Original PSO created: %p", originalPSO);
+
+    // Now create a green-modified clone
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC newDesc = *pDesc;
+
+
+    // 1. Modify Blend State (Green Color)
+    if (newDesc.NumRenderTargets > 0) {
+        // GREEN + ALPHA if alpha blending is important and enabled
+        newDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_GREEN | D3D12_COLOR_WRITE_ENABLE_ALPHA;
+        newDesc.BlendState.IndependentBlendEnable = TRUE;
+    }
+    else {
+        //Log("Info: Original PSO has NumRenderTargets=0. Skipping BlendState modification.");
+    }
+
+    // 2. Modify Depth Stencil State
+    // Check if a Depth/Stencil buffer format is actually specified. Modifying if none is specified is harmless but unnecessary.
+    if (newDesc.DSVFormat != DXGI_FORMAT_UNKNOWN) {
+        //Log("Modifying DepthStencilState for PSO %p (Original DepthEnable: %d)", originalPSO, newDesc.DepthStencilState.DepthEnable);
+        newDesc.DepthStencilState.DepthEnable = FALSE;                 // Disable depth testing
+        newDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS; // Set comparison func (wallhack)
+
+        // Optional: Also disable depth writes if needed?
+        // newDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    }
+    else {
+        //Log("Info: Original PSO has DSVFormat=UNKNOWN. Skipping DepthStencilState modification.");
+    }
+    // Note: Stencil settings (StencilEnable, etc.) remain unchanged from the original pDesc.
+
+
+    ID3D12PipelineState* greenPSO = nullptr;
+    // Use the same riid as the original call
+    HRESULT greenHr = oCreateGraphicsPipelineState(pDevice, &newDesc, riid, reinterpret_cast<void**>(&greenPSO));
+
+    if (SUCCEEDED(greenHr) && greenPSO) {
+        std::lock_guard<std::mutex> lock(pipelineMutex);
+        greenVariants[originalPSO] = greenPSO; // Store: original -> green
+        //Log("Green variant PSO created (%p) for original PSO (%p)", greenPSO, originalPSO);
+    }
+    else {
+        //Log("Failed to create green variant PSO for original PSO (%p). HRESULT: 0x%X", originalPSO, greenHr);
+        if (greenPSO) { // If creation succeeded somehow but storing failed (unlikely with lock)
+            greenPSO->Release(); // Avoid leak
+        }
+    }
+
+    // Return the original PSO result
+    return hr;
+}
+
+//=========================================================================================================================//
+
 void STDMETHODCALLTYPE hkSetPipelineState(ID3D12GraphicsCommandList* dCommandList, ID3D12PipelineState* pPipelineState) {
 
-    if (pPipelineState != nullptr)
+    // Track the PSO the application wants to set for this command list
+    if (pPipelineState) // Avoid storing nullptrs if the app does that
     {
-        g_CurrentPSO = pPipelineState;
+        std::lock_guard<std::mutex> lock(commandListPSOMutex);
+        currentCommandListPSO[dCommandList] = pPipelineState;
+        // Log("Tracking PSO %p for CommandList %p", pPipelineState, dCommandList);
+    }
+    else {
+        // Optionally remove the entry if PSO is set to null
+        std::lock_guard<std::mutex> lock(commandListPSOMutex);
+        currentCommandListPSO.erase(dCommandList);
+        // Log("Untracking PSO for CommandList %p (set to NULL)", dCommandList);
     }
 
     return oSetPipelineState(dCommandList, pPipelineState); // Call the original function
@@ -442,7 +533,7 @@ HRESULT STDMETHODCALLTYPE hkCreatePlacedResource(
 
 //=========================================================================================================================//
 
-//This function is NOT called in all games
+//NOT called in all games
 HRESULT STDMETHODCALLTYPE hkCreateConstantBufferView(ID3D12Device* pDevice, const D3D12_CONSTANT_BUFFER_VIEW_DESC* pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) {
 
     return oCreateConstantBufferView(pDevice, pDesc, DestDescriptor);
@@ -502,6 +593,7 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
 			CreateHook(116, (void**)&oIASetVertexBuffers, hkIASetVertexBuffers);
 			CreateHook(115, (void**)&oIASetIndexBuffer, hkIASetIndexBuffer);
             CreateHook(118, (void**)&oOMSetRenderTargets, hkOMSetRenderTargets);
+            CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState);
             CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState);
             CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);
             //CreateHook(39, (void**)&oCreateQueryHeap, hkCreateQueryHeap);
