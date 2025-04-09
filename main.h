@@ -15,6 +15,7 @@
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
+#pragma comment(lib,"winmm.lib")
 
 
 using namespace Microsoft::WRL;
@@ -41,7 +42,6 @@ ID3D12PipelineState* g_CurrentPSO = nullptr;
 //D3D12_GPU_VIRTUAL_ADDRESS gBufferLocation;
 //ID3D12DescriptorHeap* g_CurrentDescriptorHeap = nullptr;
 ID3D12CommandQueue* commandQueue;
-D3D12_VIEWPORT gpV, oVp, vp;
 UINT countnum = -1;
 
 
@@ -78,6 +78,9 @@ ID3D12PipelineState* originalPSO = nullptr;
 ID3D12PipelineState* greenPSO = nullptr;
 bool swapped = false;
 
+//setviewport
+std::unordered_map<ID3D12GraphicsCommandList*, D3D12_VIEWPORT> gViewportMap;
+std::mutex gViewportMutex;
 
 //=========================================================================================================================//
 
@@ -376,20 +379,6 @@ int getTwoDigitValue(int value) {
 	return (h % 90) + 10;
 }
 
-void SetDepthRange(float dr, ID3D12GraphicsCommandList* dcl)
-{
-	oVp = gpV; dr; D3D12_VIEWPORT vp = {}; vp.TopLeftX = gpV.TopLeftX; vp.TopLeftY = gpV.TopLeftY; vp.Width = gpV.Width; vp.Height = gpV.Height;
-	vp.MinDepth = dr; vp.MaxDepth = gpV.MaxDepth; 
-	dcl->RSSetViewports(1, &vp);
-}
-
-void ResetDepthRange(ID3D12GraphicsCommandList* dcl)
-{
-	D3D12_VIEWPORT vp = {}; vp.TopLeftX = gpV.TopLeftX; vp.TopLeftY = gpV.TopLeftY; vp.Width = gpV.Width; vp.Height = gpV.Height;
-	vp.MinDepth = 0.0f; vp.MaxDepth = gpV.MaxDepth;
-	dcl->RSSetViewports(1, &vp);
-}
-
 //=========================================================================================================================//
 
 // TEST code below
@@ -534,7 +523,7 @@ bool InitGreenOverlayPipeline(ID3D12Device* device, ID3D12RootSignature** ppRoot
 	desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;  // Use source alpha
 	desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO; // Ignore destination alpha
 	desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;    // Add alpha (though likely not used)
-	desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_GREEN; //D3D12_COLOR_WRITE_ENABLE_ALL; // Allow writing all channels
+	desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_GREEN| D3D12_COLOR_WRITE_ENABLE_ALPHA; //D3D12_COLOR_WRITE_ENABLE_ALL; // Allow writing all channels
 
 	desc.SampleMask = UINT_MAX;
 	desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);

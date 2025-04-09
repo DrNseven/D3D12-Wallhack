@@ -99,10 +99,10 @@ LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_KEYDOWN: {
         switch (wParam) {
-        case 'N':
+        case VK_OEM_COMMA: //, key
             countnum--;
             break;
-        case 'M':
+        case VK_OEM_PERIOD: //. key
             countnum++;
             break;
         case '9':
@@ -178,6 +178,8 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     UINT currentStride = tls_commandListState.currentStride0 +tls_commandListState.currentStride1 + tls_commandListState.currentStride2 + tls_commandListState.currentStride3;
     UINT currentiSize = tls_commandListState.currentiSize;
     DXGI_FORMAT currentiFormat = tls_commandListState.currentIndexFormat;
+    //int twoDigitSize = getTwoDigitValue(currentiSize);
+    int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
 
 
     //Rootsignature
@@ -195,25 +197,43 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     // Read the atomic variable once for consistent checking within this function call
     UINT currentRootIndex = g_lastSetRootParameterIndex.load(std::memory_order_relaxed);
 
-
-    //log bruteforced values by pressing VK_END
-    if (vkENDkeydown && (currentStride == countnum || currentRootSigID == countnum || IndexCountPerInstance / 1000 == countnum)) {
-        Log("countnum == %d && IndexCountPerInstance == %d && currentStride == %d && currentRootIndex == %d && currentiSize == %d && currentiFormat == %d && currentRootSigID == %d",
-            countnum, IndexCountPerInstance, currentStride, currentRootIndex, currentiSize, currentiFormat, currentRootSigID);
+    //1. use keys comma (,) and period (.) to cycle through textures
+    //2. log current values by pressing END
+    if (vkENDkeydown && (currentStride == countnum || currentRootSigID == countnum || twoDigitSize == countnum)) {
+        Log("countnum == %d && IndexCountPerInstance == %d && currentStride == %d && currentRootIndex == %d && twoDigitiSize == %d && currentiSize == %d && currentiFormat == %d && currentRootSigID == %d",
+            countnum, IndexCountPerInstance, currentStride, currentRootIndex, twoDigitSize, currentiSize, currentiFormat, currentRootSigID);
     }
   
-    //wallhack
-    if(currentStride == countnum || currentRootSigID == countnum || IndexCountPerInstance/1000 == countnum) {
-        SetDepthRange(0.95f, dCommandList);
-        oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-        ResetDepthRange(dCommandList);
-        //return; //or erase texture
+    //viewport
+    float vpWidth = 0.0f;
+    float vpHeight = 0.0f;
+    {
+        std::lock_guard<std::mutex> lock(gViewportMutex);
+        auto it = gViewportMap.find(dCommandList);
+        if (it != gViewportMap.end()) {
+            vpWidth = it->second.Width;
+            vpHeight = it->second.Height;
+        }
     }
 
+    //wallhack
+    if(currentStride == countnum || currentRootSigID == countnum || twoDigitSize == countnum) {
+        D3D12_VIEWPORT gpV;
+        gpV.Width = vpWidth;gpV.Height = vpHeight;
+        gpV.MinDepth = 0.95f;gpV.MaxDepth = 1;
+        gpV.TopLeftX = 0;gpV.TopLeftY = 0;
+        dCommandList->RSSetViewports(1, &gpV);
+        oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        gpV.Width = vpWidth;gpV.Height = vpHeight;
+        gpV.MinDepth = 0;gpV.MaxDepth = 1;
+        gpV.TopLeftX = 0;gpV.TopLeftY = 0;
+        dCommandList->RSSetViewports(1, &gpV);
+    }
    
 
-    //try to hijack games pipeline (unity), doesn't work if game caches it offline (ue5)
-    if (currentStride == 9999 || currentRootSigID == 9999) {
+    //this would be classic wallhack, but doesn't work if game caches pipeline offline ect. (ue5)
+    //try to hijack games pipeline (unity)
+    if (currentStride == -9999 || currentRootSigID == -9999 || twoDigitSize == -9999) {
         // 1. Get the PSO that should be currently active for this command list
         {
             std::lock_guard<std::mutex> lock(commandListPSOMutex);
@@ -254,7 +274,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
     /*
     //try green custom shader, requires GreenOverlay.hlsl
-    if (currentRootIndex == ? && (currentStride == 9999 || currentRootSigID == countnum))
+    if (currentRootIndex == ? && (currentStride == countnum || currentRootSigID == countnum))
     {
         if(g_greenPSO)
         dCommandList->SetPipelineState(g_greenPSO.Get());
@@ -272,7 +292,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
     /*
     //try to fook textures to green
-    if (currentRootIndex == ? && currentStride == countnum || currentRootSigID == countnum) {
+    if (currentRootIndex == ? && (currentStride == countnum || currentRootSigID == countnum)) {
 
         float mColor[] = { 0.0f, 1.0f, 0.0f, 0.0f }; // Green
         dCommandList->ClearRenderTargetView(g_RTVHandle, mColor, 0, nullptr);
@@ -295,10 +315,11 @@ void STDMETHODCALLTYPE hkDrawInstanced(ID3D12GraphicsCommandList* dCommandList, 
 
 void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,UINT NumViewports,const D3D12_VIEWPORT* pViewports) {
 
-    if (NumViewports > 0) {
-        gpV = *pViewports;
+    if (NumViewports > 0 && pViewports != nullptr && pViewports[0].Height > 100) {
+        std::lock_guard<std::mutex> lock(gViewportMutex);  // thread safety
+        gViewportMap[dCommandList] = pViewports[0];        // store viewport per command list
     }
-
+    
     return oRSSetViewports(dCommandList, NumViewports, pViewports);  // Call original function
 }
 
