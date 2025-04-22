@@ -1,6 +1,6 @@
-﻿/////////////////////////
-// D3D12 Wallhack 2025 //
-/////////////////////////
+﻿///////////////////////////////
+// D3D12 Wallhack 2025 by N7 //
+///////////////////////////////
 
 #include "main.h"
 
@@ -99,6 +99,11 @@ LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
     case WM_KEYDOWN: {
         switch (wParam) {
+
+        case VK_INSERT: //insert key
+            wallh = !wallh;
+            break;
+
         case VK_OEM_COMMA: //, key
             countnum--;
             break;
@@ -175,9 +180,10 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
     
     // Retrieve state from TLS
-    UINT currentStride = tls_commandListState.currentStride0 +tls_commandListState.currentStride1 + tls_commandListState.currentStride2 + tls_commandListState.currentStride3;
-    UINT currentiSize = tls_commandListState.currentiSize;
-    DXGI_FORMAT currentiFormat = tls_commandListState.currentIndexFormat;
+    UINT currentSize0 = t_cLS.currentSize0;
+    UINT currentStride = t_cLS.currentStride0 + t_cLS.currentStride1 + t_cLS.currentStride2 + t_cLS.currentStride3 + t_cLS.currentStride4;
+    UINT currentiSize = t_cLS.currentiSize;
+    DXGI_FORMAT currentiFormat = t_cLS.currentIndexFormat;
     //int twoDigitSize = getTwoDigitValue(currentiSize);
     int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
 
@@ -194,16 +200,17 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         }
     }
 
-    // Read the atomic variable once for consistent checking within this function call
-    UINT currentRootIndex = g_lastSetRootParameterIndex.load(std::memory_order_relaxed);
 
-    //1. use keys comma (,) and period (.) to cycle through textures
-    //2. log current values by pressing END
-    if (vkENDkeydown && (currentStride == countnum || currentRootSigID == countnum || twoDigitSize == countnum)) {
-        Log("countnum == %d && IndexCountPerInstance == %d && currentStride == %d && currentRootIndex == %d && twoDigitiSize == %d && currentiSize == %d && currentiFormat == %d && currentRootSigID == %d",
-            countnum, IndexCountPerInstance, currentStride, currentRootIndex, twoDigitSize, currentiSize, currentiFormat, currentRootSigID);
+    //rootparameterindex
+    UINT rootIndex = UINT_MAX;
+    {
+        std::lock_guard<std::mutex> lock(g_rootParamIndexMapMutex);
+        auto it = g_rootParamIndexMap.find(dCommandList);
+        if (it != g_rootParamIndexMap.end())
+            rootIndex = it->second;
     }
   
+
     //viewport
     float vpWidth = 0.0f;
     float vpHeight = 0.0f;
@@ -216,11 +223,13 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         }
     }
 
+
     //wallhack
-    if(currentStride == countnum || currentRootSigID == countnum || twoDigitSize == countnum) {
+    //if(wallh)
+    if (currentStride == countnum || rootIndex == countnum || twoDigitSize == countnum) {
         D3D12_VIEWPORT gpV;
         gpV.Width = vpWidth;gpV.Height = vpHeight;
-        gpV.MinDepth = 0.95f;gpV.MaxDepth = 1;
+        gpV.MinDepth = 1.0f;gpV.MaxDepth = 1;
         gpV.TopLeftX = 0;gpV.TopLeftY = 0;
         dCommandList->RSSetViewports(1, &gpV);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
@@ -228,6 +237,14 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         gpV.MinDepth = 0;gpV.MaxDepth = 1;
         gpV.TopLeftX = 0;gpV.TopLeftY = 0;
         dCommandList->RSSetViewports(1, &gpV);
+    }
+
+
+    //1. use keys comma (,) and period (.) to cycle through textures
+    //2. log current values by pressing END
+    if (vkENDkeydown && (currentStride == countnum || rootIndex == countnum || twoDigitSize == countnum)) {
+        Log("countnum == %d && IndexCountPerInstance == %d && currentStride == %d && rootIndex == %d && twoDigitiSize == %d && currentiSize == %d && currentiFormat == %d && currentRootSigID == %d",
+            countnum, IndexCountPerInstance, currentStride, rootIndex, twoDigitSize, currentiSize, currentiFormat, currentRootSigID);
     }
    
 
@@ -273,8 +290,8 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     }
 
     /*
-    //try green custom shader, requires GreenOverlay.hlsl
-    if (currentRootIndex == ? && (currentStride == countnum || currentRootSigID == countnum))
+    //green custom shader test
+    if(currentStride == countnum || rootIndex == countnum || twoDigitSize == countnum)
     {
         if(g_greenPSO)
         dCommandList->SetPipelineState(g_greenPSO.Get());
@@ -292,7 +309,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
     /*
     //try to fook textures to green
-    if (currentRootIndex == ? && (currentStride == countnum || currentRootSigID == countnum)) {
+    if(currentStride == countnum || rootIndex == countnum || twoDigitSize == countnum) {
 
         float mColor[] = { 0.0f, 1.0f, 0.0f, 0.0f }; // Green
         dCommandList->ClearRenderTargetView(g_RTVHandle, mColor, 0, nullptr);
@@ -346,13 +363,10 @@ void STDMETHODCALLTYPE hkSetGraphicsRootSignature(ID3D12GraphicsCommandList* dCo
 
 void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
 
-    // Store the last set index. The value right before the draw call.
-    g_lastSetRootParameterIndex.store(RootParameterIndex, std::memory_order_relaxed);
-
-    //gRootParameterMap[dCommandList] = RootParameterIndex;
-
-    //gRootParameterIndex = RootParameterIndex;
-    //gBufferLocation = BufferLocation;
+    {
+        std::lock_guard<std::mutex> lock(g_rootParamIndexMapMutex);
+        g_rootParamIndexMap[dCommandList] = RootParameterIndex;
+    }
 
     return oSetGraphicsRootConstantBufferView(dCommandList, RootParameterIndex, BufferLocation);
 }
@@ -361,15 +375,18 @@ void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommand
 
 void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
 
-     if (NumViews > 0 && pViews != nullptr) { 
-         if(pViews[0].StrideInBytes <= 120)
-        tls_commandListState.currentStride0 = pViews[0].StrideInBytes;
-         if (pViews[1].StrideInBytes <= 120)
-        tls_commandListState.currentStride1 = pViews[1].StrideInBytes;
-         if (pViews[2].StrideInBytes <= 120)
-        tls_commandListState.currentStride2 = pViews[2].StrideInBytes;
-         if (pViews[3].StrideInBytes <= 120)
-        tls_commandListState.currentStride3 = pViews[3].StrideInBytes;
+    if (NumViews > 0 && pViews != nullptr) {
+        if (pViews[0].StrideInBytes <= 120)
+            t_cLS.currentStride0 = pViews[0].StrideInBytes;
+        if (pViews[1].StrideInBytes <= 120)
+            t_cLS.currentStride1 = pViews[1].StrideInBytes;
+        if (pViews[2].StrideInBytes <= 120)
+            t_cLS.currentStride2 = pViews[2].StrideInBytes;
+        if (pViews[3].StrideInBytes <= 120)
+            t_cLS.currentStride3 = pViews[3].StrideInBytes;
+        if (pViews[4].StrideInBytes <= 120)
+            t_cLS.currentStride4 = pViews[4].StrideInBytes;
+        t_cLS.currentSize0 = pViews[0].SizeInBytes;
     }
 
     return oIASetVertexBuffers(dCommandList, StartSlot, NumViews, pViews);
@@ -380,11 +397,11 @@ void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandL
 void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView)
 {
     if (pView != nullptr) {
-        tls_commandListState.currentIndexFormat = pView->Format;
-        tls_commandListState.currentiSize = pView->SizeInBytes;
+        t_cLS.currentIndexFormat = pView->Format;
+        t_cLS.currentiSize = pView->SizeInBytes;
     }
     else {
-        tls_commandListState.currentIndexFormat = DXGI_FORMAT_UNKNOWN;
+        t_cLS.currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     }
     
     return oIASetIndexBuffer(dCommandList, pView);
@@ -605,15 +622,15 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
 	bool InitHook = false;
 	while (InitHook == false) {
 		if (DirectX12::Init() == true) {
-			CreateHook(54, (void**)&oExecuteCommandLists, hkExecuteCommandLists);
-			CreateHook(140, (void**)&oPresent, hkPresent);
+			//CreateHook(54, (void**)&oExecuteCommandLists, hkExecuteCommandLists);
+			//CreateHook(140, (void**)&oPresent, hkPresent);
 			CreateHook(85, (void**)&oDrawIndexedInstanced, hkDrawIndexedInstanced);
-            CreateHook(84, (void**)&oDrawInstanced, hkDrawInstanced);
+            //CreateHook(84, (void**)&oDrawInstanced, hkDrawInstanced);
             CreateHook(93, (void**)&oRSSetViewports, hkRSSetViewports);
             CreateHook(110, (void**)&oSetGraphicsRootConstantBufferView, hkSetGraphicsRootConstantBufferView);
 			CreateHook(116, (void**)&oIASetVertexBuffers, hkIASetVertexBuffers);
 			CreateHook(115, (void**)&oIASetIndexBuffer, hkIASetIndexBuffer);
-            CreateHook(118, (void**)&oOMSetRenderTargets, hkOMSetRenderTargets);
+            //CreateHook(118, (void**)&oOMSetRenderTargets, hkOMSetRenderTargets);
             CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState);
             CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState);
             CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);

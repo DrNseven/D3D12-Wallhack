@@ -34,6 +34,7 @@ using namespace DirectX;
 //=========================================================================================================================//
 
 //globals
+bool wallh = 1;
 bool ShowMenu = false;
 ComPtr<ID3D12Device> pDevice = nullptr;
 D3D12_CPU_DESCRIPTOR_HANDLE g_RTVHandle = {}; // For Render Target View (RTV)
@@ -42,7 +43,7 @@ ID3D12PipelineState* g_CurrentPSO = nullptr;
 //D3D12_GPU_VIRTUAL_ADDRESS gBufferLocation;
 //ID3D12DescriptorHeap* g_CurrentDescriptorHeap = nullptr;
 ID3D12CommandQueue* commandQueue;
-UINT countnum = -1;
+UINT countnum = 100;
 
 
 //rootsignature
@@ -52,20 +53,22 @@ std::mutex rootSigMutex;
 UINT nextRootSigID = 1;
 
 //rootparameterindex
-std::atomic<UINT> g_lastSetRootParameterIndex = UINT_MAX;
-//std::unordered_map<ID3D12GraphicsCommandList*, UINT> gRootParameterMap;
+std::unordered_map<ID3D12GraphicsCommandList*, UINT> g_rootParamIndexMap;
+std::mutex g_rootParamIndexMapMutex;
 
 //Stride, iSize, iFormat
 struct CommandListState {
+	UINT currentSize0 = 0;
 	UINT currentStride0 = 0;
 	UINT currentStride1 = 0;
 	UINT currentStride2 = 0;
 	UINT currentStride3 = 0;
+	UINT currentStride4 = 0;
 	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
 	UINT currentiSize = 0;
 	// Potentially add other states you need
 };
-thread_local CommandListState tls_commandListState; // Thread-local storage
+thread_local CommandListState t_cLS; // Thread-local storage
 
 //setpipelinestate
 // Global map for green variants
@@ -384,25 +387,41 @@ int getTwoDigitValue(int value) {
 // TEST code below
 
 // --- Use ComPtr for globals ---
-ComPtr<ID3D12Device> g_pDevice = nullptr; // Store the device globally if needed elsewhere
 ComPtr<ID3D12RootSignature> g_rootSig = nullptr;
 ComPtr<ID3D12PipelineState> g_greenPSO = nullptr;
 
+const char* GreenOverlayHLSL = R"(
+struct VS_OUTPUT { float4 Pos : SV_POSITION; };
+
+VS_OUTPUT mainVS(uint VertID : SV_VertexID) {
+    VS_OUTPUT output = (VS_OUTPUT)0;
+    float2 pos = float2((VertID << 1) & 2, VertID & 2);
+    output.Pos = float4(pos * 2.0f - 1.0f, 0.0f, 1.0f);
+    output.Pos.y = -output.Pos.y;
+    return output;
+}
+
+float4 mainPS(VS_OUTPUT input) : SV_TARGET {
+    return float4(0.0f, 1.0f, 0.0f, 1.0f);
+}
+)";
+
+
+
 bool InitGreenOverlayPipeline(ID3D12Device* device, ID3D12RootSignature** ppRootSig, ID3D12PipelineState** ppPSO)
 {
-	// Ensure output pointers are valid and initialize them to nullptr
 	if (!ppRootSig || !ppPSO || !device) {
-		//Log("ERROR: InitGreenOverlayPipeline called with null device or output pointers.");
 		if (ppRootSig) *ppRootSig = nullptr;
 		if (ppPSO) *ppPSO = nullptr;
 		return false;
 	}
+
 	*ppRootSig = nullptr;
 	*ppPSO = nullptr;
 
 	HRESULT hr;
-	ComPtr<ID3D12RootSignature> tempRootSig = nullptr; // Use local ComPtr for RAII
-	ComPtr<ID3D12PipelineState> tempPSO = nullptr;     // Use local ComPtr for RAII
+	ComPtr<ID3D12RootSignature> tempRootSig = nullptr;
+	ComPtr<ID3D12PipelineState> tempPSO = nullptr;
 	ComPtr<ID3DBlob> rsBlob = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
 	ComPtr<ID3DBlob> vsBlob = nullptr;
@@ -410,153 +429,72 @@ bool InitGreenOverlayPipeline(ID3D12Device* device, ID3D12RootSignature** ppRoot
 	ComPtr<ID3DBlob> vsErrorBlob = nullptr;
 	ComPtr<ID3DBlob> psErrorBlob = nullptr;
 
-	// --- 1. Create Empty Root Signature ---
-	//Log("Creating Root Signature...");
 	D3D12_ROOT_SIGNATURE_DESC rsDesc = {};
 	rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
 	hr = D3D12SerializeRootSignature(&rsDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &errorBlob);
-	if (FAILED(hr)) {
-		if (errorBlob) {
-			//Log("Failed to serialize root signature: %s", (char*)errorBlob->GetBufferPointer());
-		}
-		else {
-			//Log("Failed to serialize root signature, HRESULT: 0x%08X", hr);
-		}
-		return false; // Cannot proceed
-	}
-	if (!rsBlob) {
-		//Log("Failed to serialize root signature: Blob is null despite success HRESULT.");
-		return false;
-	}
+	if (FAILED(hr) || !rsBlob) return false;
 
 	hr = device->CreateRootSignature(0, rsBlob->GetBufferPointer(), rsBlob->GetBufferSize(), IID_PPV_ARGS(&tempRootSig));
-	if (FAILED(hr)) {
-		//Log("Failed to create root signature, HRESULT: 0x%08X", hr);
-		return false; // Cannot proceed
-	}
-	tempRootSig->SetName(L"GreenOverlay RootSig"); // Optional: Name for debugging
-	//Log("Root Signature Created: %p", tempRootSig.Get());
+	if (FAILED(hr)) return false;
 
+	tempRootSig->SetName(L"GreenOverlay RootSig");
 
-	// --- 2. Compile HLSL Shaders ---
-	//Log("Compiling Shaders...");
-	// Compiler flags
 	UINT compileFlags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS;
 #ifdef _DEBUG
-	// Enable debug info and disable optimizations in debug builds
 	compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
 #else
-	// Enable optimizations in release builds
 	compileFlags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
 #endif
 
-	// Ensure GreenOverlay.hlsl is in the correct path (game exe) relative to the executable
-	// or provide an absolute path.
-	// The HLSL should contain mainVS and mainPS entry points.
-	// A minimal example for a fullscreen triangle:
-	/*
-	// GreenOverlay.hlsl
-	struct VS_OUTPUT { float4 Pos : SV_POSITION; };
+	hr = D3DCompile(GreenOverlayHLSL, strlen(GreenOverlayHLSL), nullptr, nullptr, nullptr,
+		"mainVS", "vs_5_0", compileFlags, 0, &vsBlob, &vsErrorBlob);
+	if (FAILED(hr) || !vsBlob) return false;
 
-	VS_OUTPUT mainVS(uint VertID : SV_VertexID) {
-		VS_OUTPUT output = (VS_OUTPUT)0;
-		// Generate fullscreen triangle verts directly
-		float2 pos = float2((VertID << 1) & 2, VertID & 2);
-		output.Pos = float4(pos * 2.0f - 1.0f, 0.0f, 1.0f);
-		output.Pos.y = -output.Pos.y; // Flip Y for typical screen coords
-		return output;
-	}
+	hr = D3DCompile(GreenOverlayHLSL, strlen(GreenOverlayHLSL), nullptr, nullptr, nullptr,
+		"mainPS", "ps_5_0", compileFlags, 0, &psBlob, &psErrorBlob);
+	if (FAILED(hr) || !psBlob) return false;
 
-	float4 mainPS(VS_OUTPUT input) : SV_TARGET {
-		return float4(0.0f, 1.0f, 0.0f, 1.0f); // Solid Green
-	}
-	*/
-
-	hr = D3DCompileFromFile(L"GreenOverlay.hlsl", nullptr, nullptr, "mainVS", "vs_5_0", compileFlags, 0, &vsBlob, &vsErrorBlob);
-	if (FAILED(hr)) {
-		if (vsErrorBlob) {
-			//Log("Failed to compile Vertex Shader: %s", (char*)vsErrorBlob->GetBufferPointer());
-		}
-		else {
-			//Log("Failed to compile Vertex Shader (file not found or other error), HRESULT: 0x%08X", hr);
-		}
-		return false; // tempRootSig will auto-release via ComPtr
-	}
-	if (!vsBlob) {
-		//Log("Failed to compile Vertex Shader: Blob is null despite success HRESULT.");
-		return false;
-	}
-
-	hr = D3DCompileFromFile(L"GreenOverlay.hlsl", nullptr, nullptr, "mainPS", "ps_5_0", compileFlags, 0, &psBlob, &psErrorBlob);
-	if (FAILED(hr)) {
-		if (psErrorBlob) {
-			//Log("Failed to compile Pixel Shader: %s", (char*)psErrorBlob->GetBufferPointer());
-		}
-		else {
-			//Log("Failed to compile Pixel Shader (file not found or other error), HRESULT: 0x%08X", hr);
-		}
-		return false; // tempRootSig will auto-release via ComPtr
-	}
-	if (!psBlob) {
-		//Log("Failed to compile Pixel Shader: Blob is null despite success HRESULT.");
-		return false;
-	}
-	//Log("Shaders Compiled Successfully.");
-
-
-	// --- 3. Create Graphics Pipeline State Object ---
-	//Log("Creating Graphics Pipeline State...");
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC desc = {};
-	desc.pRootSignature = tempRootSig.Get(); // Use the successfully created root signature
+	desc.pRootSignature = tempRootSig.Get();
 	desc.VS = { vsBlob->GetBufferPointer(), vsBlob->GetBufferSize() };
 	desc.PS = { psBlob->GetBufferPointer(), psBlob->GetBufferSize() };
 
-	// --- Blend State ---
-	// Set up for additive blending (Green + Background)
-	// If you want opaque green, set BlendEnable = FALSE and leave others default
-	desc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // Start with default
+	desc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	desc.BlendState.RenderTarget[0].BlendEnable = FALSE;
-	desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;       // PS output (source color)
-	desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;      // RT content (destination color)
-	desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;     // Source + Destination
-	desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;  // Use source alpha
-	desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO; // Ignore destination alpha
-	desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;    // Add alpha (though likely not used)
-	desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_GREEN| D3D12_COLOR_WRITE_ENABLE_ALPHA; //D3D12_COLOR_WRITE_ENABLE_ALL; // Allow writing all channels
+	desc.BlendState.IndependentBlendEnable = FALSE;
+	desc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+	desc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+	desc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+	desc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+	desc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
+	desc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	desc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_GREEN | D3D12_COLOR_WRITE_ENABLE_ALPHA;
 
 	desc.SampleMask = UINT_MAX;
 	desc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	// Disable culling for a simple fullscreen triangle/quad overlay
 	desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 
-	// --- Depth Stencil State ---
 	desc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	// Disable depth testing/writing for an overlay that should draw on top
 	desc.DepthStencilState.DepthEnable = FALSE;
 	desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	desc.DepthStencilState.StencilEnable = FALSE; // Ensure stencil is off too
+	desc.DepthStencilState.StencilEnable = FALSE;
+	desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
 
-	desc.InputLayout = {}; // No input elements from vertex buffer for this shader
+	desc.InputLayout = {};
 	desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 	desc.NumRenderTargets = 1;
-	desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM; // Common format, adjust if game uses different backbuffer (e.g., R10G10B10A2_UNORM, R16G16B16A16_FLOAT)
-	desc.DSVFormat = DXGI_FORMAT_UNKNOWN; // Valid because DepthEnable is FALSE
+	desc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
 	desc.SampleDesc.Count = 1;
-	desc.SampleDesc.Quality = 0; // Standard quality level
+	desc.SampleDesc.Quality = 0;
 
-	// --- Create PSO ---
 	hr = device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(&tempPSO));
-	if (FAILED(hr)) {
-		Log("Failed to create Graphics Pipeline State, HRESULT: 0x%08X", hr);
-		return false; // tempRootSig will auto-release via ComPtr
-	}
-	tempPSO->SetName(L"GreenOverlay PSO"); // Optional: Name for debugging
-	//Log("Graphics Pipeline State Created: %p", tempPSO.Get());
+	if (FAILED(hr)) return false;
 
-	// --- Success ---
-	//Log("InitGreenOverlayPipeline completed successfully!");
-	*ppRootSig = tempRootSig.Detach(); // Transfer ownership to output pointer
-	*ppPSO = tempPSO.Detach();       // Transfer ownership to output pointer
-	return true; // Indicate success
+	tempPSO->SetName(L"GreenOverlay PSO");
+
+	*ppRootSig = tempRootSig.Detach();
+	*ppPSO = tempPSO.Detach();
+	return true;
 }
