@@ -43,7 +43,7 @@ ID3D12PipelineState* g_CurrentPSO = nullptr;
 //D3D12_GPU_VIRTUAL_ADDRESS gBufferLocation;
 //ID3D12DescriptorHeap* g_CurrentDescriptorHeap = nullptr;
 ID3D12CommandQueue* commandQueue;
-UINT countnum = 100;
+UINT countnum = -1;
 
 
 //rootsignature
