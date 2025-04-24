@@ -85,6 +85,15 @@ SetComputeRootConstantBufferView oSetComputeRootConstantBufferView = nullptr;
 typedef HRESULT(STDMETHODCALLTYPE* CreateConstantBufferView)(ID3D12Device* pDevice, const D3D12_CONSTANT_BUFFER_VIEW_DESC* pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor);
 CreateConstantBufferView oCreateConstantBufferView = nullptr;
 
+typedef HRESULT(STDMETHODCALLTYPE* ResolveQueryData)(ID3D12GraphicsCommandList* self,
+    ID3D12QueryHeap* pQueryHeap,
+    D3D12_QUERY_TYPE Type,
+    UINT StartIndex,
+    UINT NumQueries,
+    ID3D12Resource* pDestinationBuffer,
+    UINT64 AlignedDestinationBufferOffset);
+ResolveQueryData oResolveQueryData = nullptr;
+
 //=========================================================================================================================//
 
 bool vkENDkeydown = false;
@@ -227,6 +236,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     //wallhack
     //if(wallh)
     if (currentStride == countnum || rootIndex == countnum || twoDigitSize == countnum) {
+    //if ((currentStride == 32|| currentStride == 40 || currentStride == 48 || currentStride == 52) && (IndexCountPerInstance > 100)) { //oblivion remastered
         D3D12_VIEWPORT gpV;
         gpV.Width = vpWidth;gpV.Height = vpHeight;
         gpV.MinDepth = 1.0f;gpV.MaxDepth = 1;
@@ -587,6 +597,110 @@ void STDMETHODCALLTYPE hkSetGraphicsRootShaderResourceView(ID3D12GraphicsCommand
 
 //=========================================================================================================================//
 
+void STDMETHODCALLTYPE hkResolveQueryData(
+    ID3D12GraphicsCommandList* self,
+    ID3D12QueryHeap* pQueryHeap,
+    D3D12_QUERY_TYPE Type,
+    UINT StartIndex,
+    UINT NumQueries,
+    ID3D12Resource* pDestinationBuffer,
+    UINT64 AlignedDestinationBufferOffset)
+{
+    if (Type == D3D12_QUERY_TYPE_OCCLUSION)
+    {
+        // Intercept occlusion queries. Instead of letting the GPU resolve the actual
+        // visibility count, we manually write '1' (visible) into the destination
+        // buffer for each query result on the CPU. This effectively disables
+        // occlusion culling based on these queries.
+
+        if (!pDestinationBuffer) {
+            //Log("hkResolveQueryData: pDestinationBuffer is NULL for occlusion query!\n");
+            // Cannot proceed, but also shouldn't call original as we intend to overwrite.
+            // This path indicates an upstream problem if hit.
+            return;
+        }
+
+        // Map the destination buffer for CPU writing
+        void* mappedData = nullptr;
+        // Specify zero range for read, as we are only writing.
+        const D3D12_RANGE readRange = {};
+        HRESULT hr = pDestinationBuffer->Map(0, &readRange, &mappedData);
+
+        if (SUCCEEDED(hr))
+        {
+            // Calculate the starting address for writing query results
+            // Occlusion results are UINT64.
+            UINT64* writePtr = (UINT64*)((BYTE*)mappedData + AlignedDestinationBufferOffset);
+
+            // Write '1' for each query result, forcing "visible" status.
+            for (UINT i = 0; i < NumQueries; ++i) {
+                writePtr[i] = 1;
+            }
+
+            // Specify the range written by the CPU. This is important for performance.
+            const D3D12_RANGE writtenRange = {
+                AlignedDestinationBufferOffset,
+                AlignedDestinationBufferOffset + sizeof(UINT64) * NumQueries
+            };
+            pDestinationBuffer->Unmap(0, &writtenRange);
+
+            // We have manually populated the buffer, so DO NOT call the original
+            // ResolveQueryData, as that would overwrite our '1's with the actual
+            // GPU results (or potentially cause issues if the buffer state isn't COPY_DEST).
+            return;
+        }
+        else
+        {
+            // Log the error if mapping failed
+            //Log("hkResolveQueryData: Failed to map destination buffer for occlusion query! HRESULT: 0x%X\n", hr);
+            // If Map failed, we cannot write. Skipping the original call means the
+            // buffer won't contain valid results, but calling it seems wrong too.
+            // Returning here effectively skips the resolve.
+            return;
+        }
+    }
+
+    // For any query type other than occlusion, pass the call to the original function.
+    oResolveQueryData(self, pQueryHeap, Type, StartIndex, NumQueries, pDestinationBuffer, AlignedDestinationBufferOffset);
+}
+
+/*
+void STDMETHODCALLTYPE hkResolveQueryData(
+    ID3D12GraphicsCommandList* self,
+    ID3D12QueryHeap* pQueryHeap,
+    D3D12_QUERY_TYPE Type,
+    UINT StartIndex,
+    UINT NumQueries,
+    ID3D12Resource* pDestinationBuffer,
+    UINT64 AlignedDestinationBufferOffset)
+{
+    if (Type == D3D12_QUERY_TYPE_OCCLUSION) {
+        // Map the destination buffer
+        void* mappedData = nullptr;
+        D3D12_RANGE readRange = {}; // We won't read from it
+        HRESULT hr = pDestinationBuffer->Map(0, &readRange, &mappedData);
+
+        if (SUCCEEDED(hr)) {
+            UINT64* writePtr = (UINT64*)((BYTE*)mappedData + AlignedDestinationBufferOffset);
+            for (UINT i = 0; i < NumQueries; ++i) {
+                writePtr[i] = 1; // Force visibility
+            }
+
+            D3D12_RANGE writtenRange = { AlignedDestinationBufferOffset, AlignedDestinationBufferOffset + sizeof(UINT64) * NumQueries };
+            pDestinationBuffer->Unmap(0, &writtenRange);
+        }
+
+        // Skip calling the original ResolveQueryData
+        return;
+    }
+
+    // Call the original method for other query types
+    oResolveQueryData(self, pQueryHeap, Type, StartIndex, NumQueries, pDestinationBuffer, AlignedDestinationBufferOffset);
+}
+*/
+
+//=========================================================================================================================//
+
 DWORD WINAPI MainThread(LPVOID lpParameter) {
 
 	bool WindowFocus = false;
@@ -637,7 +751,7 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             //CreateHook(39, (void**)&oCreateQueryHeap, hkCreateQueryHeap);
             //CreateHook(124, (void**)&oBeginQuery, hkBeginQuery);
             //CreateHook(125, (void**)&oEndQuery, hkEndQuery);
-            //CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData);
+            CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData);
             //CreateHook(109, (void**)&oSetComputeRootConstantBufferView, hkSetComputeRootConstantBufferView);
             //CreateHook(17, (void**)&oCreateConstantBufferView, hkCreateConstantBufferView);
 			//CreateHook(18, (void**)&oCreateShaderResourceView, hkCreateShaderResourceView);
