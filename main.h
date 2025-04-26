@@ -530,6 +530,7 @@ struct MyMaterialConstants // EXAMPLE STRUCTURE
 	float               specularPower; // Example other parameter (4 bytes)
 	float               metallic;      // Example other parameter (4 bytes)
 	DirectX::XMFLOAT2   uvScale;       // Example other parameter (8 bytes)
+	DirectX::XMFLOAT4   unknown;	   // The color we want to change (16 bytes)
 	// --- Padding ---
 	// Add padding manually to reach the next 256-byte boundary if needed.
 	// Calculate current size: 64 + 16 + 4 + 4 + 8 = 96 bytes.

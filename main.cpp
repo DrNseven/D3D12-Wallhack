@@ -253,11 +253,10 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     
     /*
     //Coloring
-    //This works in some ue5 games but can screw up wallhack if it is different from what the shader expects
-    //1. apply color first (ue5), currentRootSigID or rootIndex > 0 to avoid color flickering
+    //For some ue5 games, but needs right rootIndex or else it can screw up wallhack
+    //1. apply color first (ue5), use rootIndex > 0 to avoid color flickering
     if (Strides == countnum || twoDigitSize == countnum) //brute force models, hold . key
-        if (currentRootSigID > 0 && g_pCustomConstantBuffer && g_pMappedConstantBuffer)
-        //if (rootIndex > 0 && g_pCustomConstantBuffer && g_pMappedConstantBuffer)
+        if (rootIndex == countnum && g_pCustomConstantBuffer && g_pMappedConstantBuffer)
         {
             MyMaterialConstants constants = {}; // Zero initialize
 
@@ -267,7 +266,8 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             constants.metallic = 255; //0.1f;                            
             constants.uvScale = { 1.0f, 1.0f }; //1.0f                    
 
-            // Modify the color
+            // Modify the color (one of them may work, use the right rootIndex value to activate)
+            constants.unknown = { 0.0f, 1.0f, 0.0f, 1.0f }; // R, G, B, A
             constants.diffuseColor = { 0.0f, 1.0f, 0.0f, 1.0f }; // R, G, B, A
 
             // Copy the data structure into our mapped buffer
