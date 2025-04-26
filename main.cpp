@@ -49,16 +49,15 @@ typedef void (STDMETHODCALLTYPE* SetDescriptorHeaps)(ID3D12GraphicsCommandList* 
 SetDescriptorHeaps oSetDescriptorHeaps;
 
 typedef HRESULT(STDMETHODCALLTYPE* CreateCommittedResource)(
-    ID3D12Device* pDevice,
-    const D3D12_HEAP_DESC* pDesc,
-    const D3D12_HEAP_PROPERTIES* pHeapProperties,
-    const D3D12_RESOURCE_DESC* pResourceDesc,
-    D3D12_RESOURCE_STATES InitialResourceState,
-    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
-    REFIID riidResource,
-    void** ppvResource
-    );
-CreateCommittedResource oCreateCommittedResource = NULL;
+    ID3D12Device*,
+    const D3D12_HEAP_PROPERTIES*,
+    D3D12_HEAP_FLAGS,
+    const D3D12_RESOURCE_DESC*,
+    D3D12_RESOURCE_STATES,
+    const D3D12_CLEAR_VALUE*,
+    REFIID,
+    void**);
+CreateCommittedResource oCreateCommittedResource = nullptr;
 
 typedef HRESULT(STDMETHODCALLTYPE* CreatePlacedResource)(
     ID3D12Device* pDevice,
@@ -93,6 +92,15 @@ typedef HRESULT(STDMETHODCALLTYPE* ResolveQueryData)(ID3D12GraphicsCommandList* 
     ID3D12Resource* pDestinationBuffer,
     UINT64 AlignedDestinationBufferOffset);
 ResolveQueryData oResolveQueryData = nullptr;
+
+typedef HRESULT(STDMETHODCALLTYPE* CopyBufferRegion)(
+    ID3D12GraphicsCommandList* self,
+    ID3D12Resource* pDstBuffer,
+    UINT64 DstOffset,
+    ID3D12Resource* pSrcBuffer,
+    UINT64 SrcOffset,
+    UINT64 NumBytes);
+CopyBufferRegion oCopyBufferRegion = nullptr;
 
 //=========================================================================================================================//
 
@@ -184,19 +192,13 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             g_greenPSO = rawPSO;
         }
 
+        //colors stuff
+        CreateCustomConstantBuffer();
+
 		initialized = true;
 	}
 
     
-    // Retrieve state from TLS
-    UINT currentSize0 = t_cLS.currentSize0;
-    UINT currentStride = t_cLS.currentStride0 + t_cLS.currentStride1 + t_cLS.currentStride2 + t_cLS.currentStride3 + t_cLS.currentStride4;
-    UINT currentiSize = t_cLS.currentiSize;
-    DXGI_FORMAT currentiFormat = t_cLS.currentIndexFormat;
-    //int twoDigitSize = getTwoDigitValue(currentiSize);
-    int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
-
-
     //Rootsignature
     UINT currentRootSigID = 0;
     {
@@ -208,7 +210,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             }
         }
     }
-
+    
 
     //rootparameterindex
     UINT rootIndex = UINT_MAX;
@@ -218,7 +220,24 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         if (it != g_rootParamIndexMap.end())
             rootIndex = it->second;
     }
-  
+    
+
+    // Retrieve state from TLS
+    UINT StartSlot = t_cLS.StartSlot;
+    DXGI_FORMAT currentiFormat = t_cLS.currentIndexFormat;
+    UINT currentiSize = t_cLS.currentiSize/2;
+    // Sum all the current strides
+    UINT currentStride = 0;
+    for (int i = 0; i < 5; ++i) {
+        currentStride += t_cLS.vertexStrides[i];
+    }
+    //include StartSlot for Unity
+    UINT Strides = currentStride + StartSlot;
+    // For example, get the first buffer's size if needed
+    UINT currentvSize = t_cLS.vertexBufferSizes[0]/2;
+    //int twoDigitSize = getTwoDigitValue(currentiSize);
+    int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
+ 
 
     //viewport
     float vpWidth = 0.0f;
@@ -231,36 +250,74 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             vpHeight = it->second.Height;
         }
     }
+    
+    /*
+    //Coloring
+    //This works in some ue5 games but can screw up wallhack if it is different from what the shader expects
+    //1. apply color first (ue5), currentRootSigID or rootIndex > 0 to avoid color flickering
+    if (Strides == countnum || twoDigitSize == countnum) //brute force models, hold . key
+        if (currentRootSigID > 0 && g_pCustomConstantBuffer && g_pMappedConstantBuffer)
+        //if (rootIndex > 0 && g_pCustomConstantBuffer && g_pMappedConstantBuffer)
+        {
+            MyMaterialConstants constants = {}; // Zero initialize
+
+            // Fill with some data
+            DirectX::XMStoreFloat4x4(&constants.worldViewProj, DirectX::XMMatrixIdentity()); 
+            constants.specularPower = 255;//16.0f;                       
+            constants.metallic = 255; //0.1f;                            
+            constants.uvScale = { 1.0f, 1.0f }; //1.0f                    
+
+            // Modify the color
+            constants.diffuseColor = { 0.0f, 1.0f, 0.0f, 1.0f }; // R, G, B, A
+
+            // Copy the data structure into our mapped buffer
+            memcpy(g_pMappedConstantBuffer, &constants, sizeof(MyMaterialConstants));
+            // No need to unmap here as it was mapped persistently.
+
+            // --- Bind Our Buffer ---
+            // Get the GPU virtual address of our buffer
+            D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = g_pCustomConstantBuffer->GetGPUVirtualAddress();
+
+            // Set the root constant buffer view for the target parameter index
+            // This tells the GPU to use OUR buffer data for this draw call.
+            dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
+            //dCommandList->SetGraphicsRootConstantBufferView(countnum+9, bufferAddress);//8
+        }
+       */
+    
+        //2. apply wallhack after
+        if (Strides == countnum || twoDigitSize == countnum) { //brute force models, hold . key
+        //if ((currentStride == 32|| currentStride == 40 || currentStride == 48 || currentStride == 52) && (IndexCountPerInstance > 100)) { //oblivion remastered
+            D3D12_VIEWPORT viewport = {};
+            viewport.TopLeftX = 0;
+            viewport.TopLeftY = 0;
+            viewport.Width = vpWidth;
+            viewport.Height = vpHeight;
+            viewport.MinDepth = 0.9f; //or 1.0f
+            viewport.MaxDepth = 1.0f;
+            dCommandList->RSSetViewports(1, &viewport);
+
+            oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+            //reset the viewport
+            viewport.MinDepth = 0.0f;
+            dCommandList->RSSetViewports(1, &viewport);
+        }
 
 
-    //wallhack
-    //if(wallh)
-    if (currentStride == countnum || rootIndex == countnum || twoDigitSize == countnum) {
-    //if ((currentStride == 32|| currentStride == 40 || currentStride == 48 || currentStride == 52) && (IndexCountPerInstance > 100)) { //oblivion remastered
-        D3D12_VIEWPORT gpV;
-        gpV.Width = vpWidth;gpV.Height = vpHeight;
-        gpV.MinDepth = 1.0f;gpV.MaxDepth = 1;
-        gpV.TopLeftX = 0;gpV.TopLeftY = 0;
-        dCommandList->RSSetViewports(1, &gpV);
-        oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-        gpV.Width = vpWidth;gpV.Height = vpHeight;
-        gpV.MinDepth = 0;gpV.MaxDepth = 1;
-        gpV.TopLeftX = 0;gpV.TopLeftY = 0;
-        dCommandList->RSSetViewports(1, &gpV);
-    }
 
-
+    // Logger
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
-    if (vkENDkeydown && (currentStride == countnum || rootIndex == countnum || twoDigitSize == countnum)) {
-        Log("countnum == %d && IndexCountPerInstance == %d && currentStride == %d && rootIndex == %d && twoDigitiSize == %d && currentiSize == %d && currentiFormat == %d && currentRootSigID == %d",
-            countnum, IndexCountPerInstance, currentStride, rootIndex, twoDigitSize, currentiSize, currentiFormat, currentRootSigID);
+    if (vkENDkeydown && (Strides == countnum || rootIndex == countnum || twoDigitSize == countnum)) {
+        Log("countnum == %d && IndexCountPerInstance == %d && Strides == %d && rootIndex == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && currentRootSigID == %d && StartIndexLocation == %d",
+            countnum, IndexCountPerInstance, Strides, rootIndex, twoDigitSize, currentiSize, currentvSize, currentiFormat, currentRootSigID, StartIndexLocation);
     }
    
 
-    //this would be classic wallhack, but doesn't work if game caches pipeline offline ect. (ue5)
-    //try to hijack games pipeline (unity)
-    if (currentStride == -9999 || currentRootSigID == -9999 || twoDigitSize == -9999) {
+    //This is classic wallhack, but doesn't work if game caches pipeline offline ect. (ue5)
+    //Try to hijack games pipeline (unity)
+    if (Strides == 9999 || twoDigitSize == 9999) { //brute force models, hold . key
         // 1. Get the PSO that should be currently active for this command list
         {
             std::lock_guard<std::mutex> lock(commandListPSOMutex);
@@ -300,7 +357,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     }
 
     /*
-    //green custom shader test
+    //green custom shader test (bad)
     if(currentStride == countnum || rootIndex == countnum || twoDigitSize == countnum)
     {
         if(g_greenPSO)
@@ -318,7 +375,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     */
 
     /*
-    //try to fook textures to green
+    //try to fook textures to green (bad)
     if(currentStride == countnum || rootIndex == countnum || twoDigitSize == countnum) {
 
         float mColor[] = { 0.0f, 1.0f, 0.0f, 0.0f }; // Green
@@ -342,9 +399,9 @@ void STDMETHODCALLTYPE hkDrawInstanced(ID3D12GraphicsCommandList* dCommandList, 
 
 void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,UINT NumViewports,const D3D12_VIEWPORT* pViewports) {
 
-    if (NumViewports > 0 && pViewports != nullptr && pViewports[0].Height > 100) {
-        std::lock_guard<std::mutex> lock(gViewportMutex);  // thread safety
-        gViewportMap[dCommandList] = pViewports[0];        // store viewport per command list
+    if (NumViewports > 0 && pViewports) {
+        std::lock_guard<std::mutex> lock(gViewportMutex);
+        gViewportMap[dCommandList] = pViewports[0];  // assume single viewport
     }
     
     return oRSSetViewports(dCommandList, NumViewports, pViewports);  // Call original function
@@ -384,19 +441,20 @@ void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommand
 //=========================================================================================================================//
 
 void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
+    // Clear old values
+    for (int i = 0; i < 5; ++i) {
+        t_cLS.vertexStrides[i] = 0;
+        t_cLS.vertexBufferSizes[i] = 0;
+    }
 
-    if (NumViews > 0 && pViews != nullptr) {
-        if (pViews[0].StrideInBytes <= 120)
-            t_cLS.currentStride0 = pViews[0].StrideInBytes;
-        if (pViews[1].StrideInBytes <= 120)
-            t_cLS.currentStride1 = pViews[1].StrideInBytes;
-        if (pViews[2].StrideInBytes <= 120)
-            t_cLS.currentStride2 = pViews[2].StrideInBytes;
-        if (pViews[3].StrideInBytes <= 120)
-            t_cLS.currentStride3 = pViews[3].StrideInBytes;
-        if (pViews[4].StrideInBytes <= 120)
-            t_cLS.currentStride4 = pViews[4].StrideInBytes;
-        t_cLS.currentSize0 = pViews[0].SizeInBytes;
+    if (NumViews > 0 && pViews) {
+        for (UINT i = 0; i < NumViews && i < 5; ++i) {
+            if (pViews[i].StrideInBytes <= 120) { // Optional check
+                t_cLS.vertexStrides[i] = pViews[i].StrideInBytes;
+                t_cLS.vertexBufferSizes[i] = pViews[i].SizeInBytes;
+            }
+        }
+        t_cLS.StartSlot = StartSlot;
     }
 
     return oIASetVertexBuffers(dCommandList, StartSlot, NumViews, pViews);
@@ -548,18 +606,20 @@ void STDMETHODCALLTYPE hkSetDescriptorHeaps(ID3D12GraphicsCommandList* dCommandL
 
 //=========================================================================================================================//
 
-void STDMETHODCALLTYPE hkCreateCommittedResource(
-    ID3D12Device* pDevice,
-    const D3D12_HEAP_DESC* pDesc,
+HRESULT STDMETHODCALLTYPE hkCreateCommittedResource(
+    ID3D12Device* device,
     const D3D12_HEAP_PROPERTIES* pHeapProperties,
-    const D3D12_RESOURCE_DESC* pResourceDesc,
+    D3D12_HEAP_FLAGS HeapFlags,
+    const D3D12_RESOURCE_DESC* pDesc,
     D3D12_RESOURCE_STATES InitialResourceState,
     const D3D12_CLEAR_VALUE* pOptimizedClearValue,
     REFIID riidResource,
     void** ppvResource)
 {
-    oCreateCommittedResource(pDevice, pDesc, pHeapProperties, pResourceDesc, InitialResourceState, pOptimizedClearValue, riidResource, ppvResource);
+    
+    return oCreateCommittedResource(device, pHeapProperties, HeapFlags, pDesc, InitialResourceState, pOptimizedClearValue, riidResource, ppvResource);
 }
+
 
 //=========================================================================================================================//
 
@@ -597,6 +657,13 @@ void STDMETHODCALLTYPE hkSetGraphicsRootShaderResourceView(ID3D12GraphicsCommand
 
 //=========================================================================================================================//
 
+// --- Thread-Local Storage for Upload Buffer ---
+// Each thread recording commands will get its own instance of these variables.
+// This prevents race conditions when multiple threads call the hook concurrently.
+//thread_local ID3D12Resource* tls_pUploadBuffer = nullptr;
+//thread_local UINT64 tls_uploadBufferSize = 0;
+// --------------------------------------------
+
 void STDMETHODCALLTYPE hkResolveQueryData(
     ID3D12GraphicsCommandList* self,
     ID3D12QueryHeap* pQueryHeap,
@@ -606,6 +673,8 @@ void STDMETHODCALLTYPE hkResolveQueryData(
     ID3D12Resource* pDestinationBuffer,
     UINT64 AlignedDestinationBufferOffset)
 {
+    //lognospam(10, "ResolveQueryData");
+
     if (Type == D3D12_QUERY_TYPE_OCCLUSION)
     {
         // Intercept occlusion queries. Instead of letting the GPU resolve the actual
@@ -701,6 +770,53 @@ void STDMETHODCALLTYPE hkResolveQueryData(
 
 //=========================================================================================================================//
 
+void STDMETHODCALLTYPE hkCopyBufferRegion(
+    ID3D12GraphicsCommandList* self,
+    ID3D12Resource* pDstBuffer,
+    UINT64 DstOffset,
+    ID3D12Resource* pSrcBuffer,
+    UINT64 SrcOffset,
+    UINT64 NumBytes)
+{
+    /*
+    //lognospam(10, "CopyBufferRegion");
+
+    // Call original copy first
+    oCopyBufferRegion(self, pDstBuffer, DstOffset, pSrcBuffer, SrcOffset, NumBytes);
+
+    if (!pDstBuffer) return;
+
+    // Check if destination buffer is CPU-visible (UPLOAD)
+    D3D12_HEAP_PROPERTIES heapProps;
+    D3D12_HEAP_FLAGS heapFlags;
+    if (SUCCEEDED(pDstBuffer->GetHeapProperties(&heapProps, &heapFlags)) &&
+        heapProps.Type == D3D12_HEAP_TYPE_UPLOAD)
+    {
+        // Map and patch data to simulate visibility
+        void* mappedData = nullptr;
+        const D3D12_RANGE readRange = { (SIZE_T)DstOffset, (SIZE_T)(DstOffset + NumBytes) };
+        if (SUCCEEDED(pDstBuffer->Map(0, &readRange, &mappedData)))
+        {
+            // Patch all copied UINT64 values to 1
+            UINT64* data = (UINT64*)((BYTE*)mappedData + DstOffset);
+            UINT64 count = NumBytes / sizeof(UINT64);
+
+            for (UINT64 i = 0; i < count; ++i) {
+                data[i] = 1;
+            }
+
+            const D3D12_RANGE writtenRange = {
+                (SIZE_T)DstOffset,
+                (SIZE_T)(DstOffset + NumBytes)
+            };
+            pDstBuffer->Unmap(0, &writtenRange);
+        }
+    }
+    */
+}
+
+//=========================================================================================================================//
+
 DWORD WINAPI MainThread(LPVOID lpParameter) {
 
 	bool WindowFocus = false;
@@ -748,10 +864,11 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState);
             CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState);
             CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);
+            CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData);
             //CreateHook(39, (void**)&oCreateQueryHeap, hkCreateQueryHeap);
             //CreateHook(124, (void**)&oBeginQuery, hkBeginQuery);
             //CreateHook(125, (void**)&oEndQuery, hkEndQuery);
-            CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData);
+            //CreateHook(87, (void**)&oCopyBufferRegion, hkCopyBufferRegion);
             //CreateHook(109, (void**)&oSetComputeRootConstantBufferView, hkSetComputeRootConstantBufferView);
             //CreateHook(17, (void**)&oCreateConstantBufferView, hkCreateConstantBufferView);
 			//CreateHook(18, (void**)&oCreateShaderResourceView, hkCreateShaderResourceView);

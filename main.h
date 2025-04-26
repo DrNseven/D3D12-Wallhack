@@ -7,6 +7,7 @@
 #include <d3d12.h>
 #include "d3dx12.h"
 #include <d3dcompiler.h>
+#include <map>
 #include <unordered_map>
 #include <mutex>
 #include <array>      
@@ -56,19 +57,15 @@ UINT nextRootSigID = 1;
 std::unordered_map<ID3D12GraphicsCommandList*, UINT> g_rootParamIndexMap;
 std::mutex g_rootParamIndexMapMutex;
 
-//Stride, iSize, iFormat
+//Stride ect.
 struct CommandListState {
-	UINT currentSize0 = 0;
-	UINT currentStride0 = 0;
-	UINT currentStride1 = 0;
-	UINT currentStride2 = 0;
-	UINT currentStride3 = 0;
-	UINT currentStride4 = 0;
+	UINT vertexBufferSizes[5] = {};
+	UINT vertexStrides[5] = {};
 	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
 	UINT currentiSize = 0;
-	// Potentially add other states you need
+	UINT StartSlot = 0;
 };
-thread_local CommandListState t_cLS; // Thread-local storage
+thread_local CommandListState t_cLS;
 
 //setpipelinestate
 // Global map for green variants
@@ -84,6 +81,7 @@ bool swapped = false;
 //setviewport
 std::unordered_map<ID3D12GraphicsCommandList*, D3D12_VIEWPORT> gViewportMap;
 std::mutex gViewportMutex;
+
 
 //=========================================================================================================================//
 
@@ -112,6 +110,22 @@ void Log(const char* fmt, ...)
 	ofstream logfile(GetDirectoryFile((PCHAR)"log.txt"), ios::app);
 	if (logfile.is_open() && text)	logfile << text << endl;
 	logfile.close();
+}
+
+bool waitedOnce = false;
+void lognospam(int duration, const char* name)
+{
+	if (!waitedOnce)
+	{
+		int n;
+
+		for (n = 0; n < duration; n++)
+		{
+			if (GetTickCount() % 100)
+				Log(name);
+		}
+		waitedOnce = true;
+	}
 }
 
 //=========================================================================================================================//
@@ -498,3 +512,83 @@ bool InitGreenOverlayPipeline(ID3D12Device* device, ID3D12RootSignature** ppRoot
 	*ppPSO = tempPSO.Detach();
 	return true;
 }
+
+//=========================================================================================================================//
+
+// Custom resources for coloring
+ComPtr<ID3D12Resource> g_pCustomConstantBuffer = nullptr;
+UINT8* g_pMappedConstantBuffer = nullptr; // Pointer to mapped CPU-accessible memory
+UINT g_constantBufferSize = 0;
+
+// TODO: Define the EXACT structure of the constant buffer you're targeting.
+//       This MUST match what the shader expects. Size needs to be 256-byte aligned.
+//       This example assumes a simple structure. It's likely MUCH more complex.
+struct MyMaterialConstants // EXAMPLE STRUCTURE 
+{
+	DirectX::XMFLOAT4X4 worldViewProj; // Example matrix (64 bytes)
+	DirectX::XMFLOAT4   diffuseColor;  // The color we want to change (16 bytes)
+	float               specularPower; // Example other parameter (4 bytes)
+	float               metallic;      // Example other parameter (4 bytes)
+	DirectX::XMFLOAT2   uvScale;       // Example other parameter (8 bytes)
+	// --- Padding ---
+	// Add padding manually to reach the next 256-byte boundary if needed.
+	// Calculate current size: 64 + 16 + 4 + 4 + 8 = 96 bytes.
+	// Need 256 - 96 = 160 bytes of padding.
+	BYTE padding[160];
+}; // Total size = 256 bytes (EXAMPLE)
+
+// Creates our upload buffer resource
+bool CreateCustomConstantBuffer()
+{
+	if (!pDevice) return false;
+
+	// Calculate struct size, ensure alignment
+	g_constantBufferSize = (sizeof(MyMaterialConstants) + 255) & ~255; // Align to 256 bytes
+
+	D3D12_HEAP_PROPERTIES heapProps = {};
+	heapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // CPU write, GPU read
+	heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+	heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+
+	D3D12_RESOURCE_DESC resourceDesc = {};
+	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	resourceDesc.Alignment = 0;
+	resourceDesc.Width = g_constantBufferSize;
+	resourceDesc.Height = 1;
+	resourceDesc.DepthOrArraySize = 1;
+	resourceDesc.MipLevels = 1;
+	resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+	resourceDesc.SampleDesc.Count = 1;
+	resourceDesc.SampleDesc.Quality = 0;
+	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+	HRESULT hr = pDevice->CreateCommittedResource(
+		&heapProps,
+		D3D12_HEAP_FLAG_NONE,
+		&resourceDesc,
+		D3D12_RESOURCE_STATE_GENERIC_READ, // Initial state for upload heap
+		nullptr,
+		IID_PPV_ARGS(&g_pCustomConstantBuffer));
+
+	if (FAILED(hr)) {
+		Log("Failed to create custom constant buffer!");
+		return false;
+	}
+
+	g_pCustomConstantBuffer->SetName(L"CustomHookConstantBuffer");
+
+	// Map the buffer permanently. Upload heaps are CPU-accessible.
+	// We don't need to unmap unless we destroy the resource.
+	D3D12_RANGE readRange = { 0, 0 }; // We don't intend to read from CPU
+	hr = g_pCustomConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&g_pMappedConstantBuffer));
+
+	if (FAILED(hr)) {
+		Log("Failed to map custom constant buffer!");
+		g_pCustomConstantBuffer.Reset(); // Release the buffer if map failed
+		return false;
+	}
+
+	return true;
+}
+
