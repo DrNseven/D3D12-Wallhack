@@ -267,7 +267,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     size_t colorOffset = countnum + 1;       // bruteforce this value to change colors 0-300?
 
     // Only proceed if buffer is mapped and offsets are valid
-    if (Strides == countnum && twoDigitSize == countnum && rootIndex)
+    if ((Strides == countnum || twoDigitSize == countnum) && (rootIndex))
         if (g_pMappedConstantBuffer &&
             matrixOffset + sizeof(identity) <= g_constantBufferSize &&
             colorOffset + sizeof(newColor) <= g_constantBufferSize) {
@@ -288,7 +288,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     
 
         //2. apply wallhack after
-        if (Strides == countnum && twoDigitSize == countnum) { //brute force models, hold . key
+        if (Strides == countnum || twoDigitSize == countnum) { //brute force models, hold . key
         //if ((currentStride == 32|| currentStride == 40 || currentStride == 48 || currentStride == 52) && (IndexCountPerInstance > 100)) { //oblivion remastered
             D3D12_VIEWPORT viewport = {};
             viewport.TopLeftX = 0;
