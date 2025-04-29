@@ -163,11 +163,10 @@ void STDMETHODCALLTYPE hkExecuteCommandLists(ID3D12CommandQueue* queue, UINT Num
 
 //=========================================================================================================================//
 
-HRESULT APIENTRY hkPresent(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags) {
+HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
+{
 
-    //draw menu here
-
-	return oPresent(pSwapChain, SyncInterval, Flags);
+    return oPresent(pSwapChain, SyncInterval, Flags);
 }
 
 //=========================================================================================================================//
@@ -251,42 +250,45 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         }
     }
     
+
     /*
-    //Coloring
-    //For some ue5 games, but needs right rootIndex or else it can screw up wallhack
+    //COLORING
+    //For some ue5 games, but needs rootIndex and bruteforce colorOffset by using: colorOffset == countnum
     //1. apply color first (ue5), use rootIndex > 0 to avoid color flickering
-    if (Strides == countnum || twoDigitSize == countnum) //brute force models, hold . key
-        if (rootIndex == countnum && g_pCustomConstantBuffer && g_pMappedConstantBuffer)
-        {
-            MyMaterialConstants constants = {}; // Zero initialize
+    // Define the matrix
+    DirectX::XMFLOAT4X4 identity;
+    DirectX::XMStoreFloat4x4(&identity, DirectX::XMMatrixIdentity());
 
-            // Fill with some data
-            DirectX::XMStoreFloat4x4(&constants.worldViewProj, DirectX::XMMatrixIdentity()); 
-            constants.specularPower = 255;//16.0f;                       
-            constants.metallic = 255; //0.1f;                            
-            constants.uvScale = { 1.0f, 1.0f }; //1.0f                    
+    // Define the color
+    DirectX::XMFLOAT4 newColor = { 10.0f, 125.0f, 0.0f, 1.0f }; // Green
 
-            // Modify the color (one of them may work, use the right rootIndex value to activate)
-            constants.unknown = { 0.0f, 1.0f, 0.0f, 1.0f }; // R, G, B, A
-            constants.diffuseColor = { 0.0f, 1.0f, 0.0f, 1.0f }; // R, G, B, A
+    // Define the offsets (example values; these must be accurate)
+    size_t matrixOffset = 0;        // Identity matrix goes first
+    size_t colorOffset = countnum + 1;       // bruteforce this value to change colors 0-300?
 
-            // Copy the data structure into our mapped buffer
-            memcpy(g_pMappedConstantBuffer, &constants, sizeof(MyMaterialConstants));
-            // No need to unmap here as it was mapped persistently.
+    // Only proceed if buffer is mapped and offsets are valid
+    if (Strides == countnum && twoDigitSize == countnum && rootIndex)
+        if (g_pMappedConstantBuffer &&
+            matrixOffset + sizeof(identity) <= g_constantBufferSize &&
+            colorOffset + sizeof(newColor) <= g_constantBufferSize) {
 
-            // --- Bind Our Buffer ---
-            // Get the GPU virtual address of our buffer
+            // Copy identity matrix into buffer
+            memcpy(g_pMappedConstantBuffer + matrixOffset, &identity, sizeof(identity));
+
+            // Copy color into buffer
+            memcpy(g_pMappedConstantBuffer + colorOffset, &newColor, sizeof(newColor));
+
+            // Set GPU address
             D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = g_pCustomConstantBuffer->GetGPUVirtualAddress();
 
-            // Set the root constant buffer view for the target parameter index
-            // This tells the GPU to use OUR buffer data for this draw call.
+            // Bind the buffer
             dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
-            //dCommandList->SetGraphicsRootConstantBufferView(countnum+9, bufferAddress);//8
         }
-       */
+    */
     
+
         //2. apply wallhack after
-        if (Strides == countnum || twoDigitSize == countnum) { //brute force models, hold . key
+        if (Strides == countnum && twoDigitSize == countnum) { //brute force models, hold . key
         //if ((currentStride == 32|| currentStride == 40 || currentStride == 48 || currentStride == 52) && (IndexCountPerInstance > 100)) { //oblivion remastered
             D3D12_VIEWPORT viewport = {};
             viewport.TopLeftX = 0;
@@ -656,13 +658,6 @@ void STDMETHODCALLTYPE hkSetGraphicsRootShaderResourceView(ID3D12GraphicsCommand
 }
 
 //=========================================================================================================================//
-
-// --- Thread-Local Storage for Upload Buffer ---
-// Each thread recording commands will get its own instance of these variables.
-// This prevents race conditions when multiple threads call the hook concurrently.
-//thread_local ID3D12Resource* tls_pUploadBuffer = nullptr;
-//thread_local UINT64 tls_uploadBufferSize = 0;
-// --------------------------------------------
 
 void STDMETHODCALLTYPE hkResolveQueryData(
     ID3D12GraphicsCommandList* self,

@@ -525,17 +525,20 @@ UINT g_constantBufferSize = 0;
 //       This example assumes a simple structure. It's likely MUCH more complex.
 struct MyMaterialConstants // EXAMPLE STRUCTURE 
 {
+	//Can leave it empty for now, what matters more is bruteforcing colorOffset
+	/*
 	DirectX::XMFLOAT4X4 worldViewProj; // Example matrix (64 bytes)
-	DirectX::XMFLOAT4   diffuseColor;  // The color we want to change (16 bytes)
+	DirectX::XMFLOAT2   uvScale;       // Example other parameter (8 bytes)
+	DirectX::XMFLOAT2   uvScale2;      // Example other parameter (8 bytes)
 	float               specularPower; // Example other parameter (4 bytes)
 	float               metallic;      // Example other parameter (4 bytes)
-	DirectX::XMFLOAT2   uvScale;       // Example other parameter (8 bytes)
+	DirectX::XMFLOAT4   diffuseColor;  // The color we want to change (16 bytes)
 	DirectX::XMFLOAT4   unknown;	   // The color we want to change (16 bytes)
-	// --- Padding ---
-	// Add padding manually to reach the next 256-byte boundary if needed.
-	// Calculate current size: 64 + 16 + 4 + 4 + 8 = 96 bytes.
-	// Need 256 - 96 = 160 bytes of padding.
-	BYTE padding[160];
+	DirectX::XMFLOAT4   unknown2;	   // The color we want to change (16 bytes)
+	DirectX::XMFLOAT4   unknown3;	   // The color we want to change (16 bytes)
+	*/
+	BYTE padding[256 - (sizeof(DirectX::XMFLOAT4) * 4 + sizeof(float) * 12 + sizeof(DirectX::XMFLOAT4X4))];
+	//BYTE padding[4096 - (sizeof(DirectX::XMFLOAT4X4) + sizeof(DirectX::XMFLOAT4) + sizeof(float) * 2 + sizeof(DirectX::XMFLOAT2))];
 }; // Total size = 256 bytes (EXAMPLE)
 
 // Creates our upload buffer resource
@@ -592,4 +595,7 @@ bool CreateCustomConstantBuffer()
 
 	return true;
 }
+
+//=========================================================================================================================//
+
 
