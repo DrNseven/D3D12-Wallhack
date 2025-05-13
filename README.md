@@ -1,8 +1,9 @@
 # D3D12-Wallhack
 d3d12 wallhack, direct3d 12 wallhack, dx12 wallhack, d3d wallhack, wallhack
 
+Bruteforce Strides and rootIndex to find models
 Use keys comma(,) and period(.) to cycle through textures  
-Log selected values to log.txt by pressing END
+Press END to log wallhacked texture values to log.txt
 
 - added a way to color models for some ue5 games, unity can use the hijacked games pipeline
 - added a way to disable occlusion culling, works in some ue5 games
