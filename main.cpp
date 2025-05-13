@@ -232,6 +232,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     
 
     // Retrieve state from TLS
+    UINT NumViews = t_cLS.NumViews;
     UINT StartSlot = t_cLS.StartSlot;
     DXGI_FORMAT currentiFormat = t_cLS.currentIndexFormat;
     UINT currentiSize = t_cLS.currentiSize/2;
@@ -321,8 +322,8 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
     if (vkENDkeydown && (Strides == countnum || rootIndex == countnum || twoDigitSize == countnum)) {
-        Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d",
-            countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation);
+        Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d && NumViews == %d",
+            countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation, NumViews);
     }
    
 
