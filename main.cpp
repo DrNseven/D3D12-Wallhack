@@ -165,6 +165,7 @@ void STDMETHODCALLTYPE hkExecuteCommandLists(ID3D12CommandQueue* queue, UINT Num
 
 HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
 {
+    //present is not called in unity games
 
     return oPresent(pSwapChain, SyncInterval, Flags);
 }
@@ -183,41 +184,50 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 		}
 
         //load custom stuff
-        ID3D12RootSignature* rawRootSig = nullptr;
-        ID3D12PipelineState* rawPSO = nullptr;
-        bool initSuccess = InitGreenOverlayPipeline(pDevice.Get(), &rawRootSig, &rawPSO);
-        if (initSuccess && rawRootSig && rawPSO) {
-            g_rootSig = rawRootSig;
-            g_greenPSO = rawPSO;
-        }
+        //ID3D12RootSignature* rawRootSig = nullptr;
+        //ID3D12PipelineState* rawPSO = nullptr;
+        //bool initSuccess = InitGreenOverlayPipeline(pDevice.Get(), &rawRootSig, &rawPSO);
+        //if (initSuccess && rawRootSig && rawPSO) {
+            //g_rootSig = rawRootSig;
+            //g_greenPSO = rawPSO;
+        //}
 
-        //colors stuff
+        //color stuff
         CreateCustomConstantBuffer();
 
 		initialized = true;
 	}
 
     
-    //Rootsignature
-    UINT currentRootSigID = 0;
-    {
-        std::lock_guard<std::mutex> lock(rootSigMutex);
-        if (rootSignatures.find(dCommandList) != rootSignatures.end()) {
-            ID3D12RootSignature* currentRootSig = rootSignatures[dCommandList];
-            if (rootSigIDs.find(currentRootSig) != rootSigIDs.end()) {
-                currentRootSigID = rootSigIDs[currentRootSig];
+    //rootIndex
+    UINT rootIndex = UINT_MAX;
+    if (dCommandList) {
+        CommandListSpecificData retrievedData;
+        UINT dataSize = sizeof(retrievedData); // Pass the size of our buffer
+
+        HRESULT hr = dCommandList->GetPrivateData(MyCommandListPrivateDataGuid, &dataSize, &retrievedData);
+
+        if (SUCCEEDED(hr)) {
+            if (dataSize == sizeof(CommandListSpecificData)) {
+                // Successfully retrieved the struct and the size matches
+                rootIndex = retrievedData.lastCbvRootParameterIndex;
+                // You can also access other members if you added them:
+                // D3D12_GPU_VIRTUAL_ADDRESS loc = retrievedData.lastCbvBufferLocation;
+            }
+            else {
+                // Data was found, but the size doesn't match what we expect.
+                // This could happen if you change the struct definition
+                // and an older version of the hook stored data.
+                // Log("Warning: Private data size mismatch for GUID. Expected %u, got %u.", sizeof(CommandListSpecificData), dataSize);
+                rootIndex = UINT_MAX; // Or handle as an error
             }
         }
-    }
-    
-
-    //rootparameterindex
-    UINT rootIndex = UINT_MAX;
-    {
-        std::lock_guard<std::mutex> lock(g_rootParamIndexMapMutex);
-        auto it = g_rootParamIndexMap.find(dCommandList);
-        if (it != g_rootParamIndexMap.end())
-            rootIndex = it->second;
+        else {
+            // GetPrivateData failed (e.g., no data set for this GUID, or other error)
+            // hr might be DXGI_ERROR_NOT_FOUND if no data was set.
+            // Log("Failed to get private data or no data found. HRESULT: 0x%X", hr);
+            rootIndex = UINT_MAX; // Ensure it's default
+        }
     }
     
 
@@ -227,7 +237,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     UINT currentiSize = t_cLS.currentiSize/2;
     // Sum all the current strides
     UINT currentStride = 0;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 7; ++i) {
         currentStride += t_cLS.vertexStrides[i];
     }
     //include StartSlot for Unity
@@ -253,21 +263,21 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
     /*
     //COLORING
-    //For some ue5 games, but needs rootIndex and bruteforce colorOffset by using: colorOffset == countnum
+    //For some ue5 games, add rootIndex and bruteforce colorOffset by using: colorOffset == countnum
     //1. apply color first (ue5), use rootIndex > 0 to avoid color flickering
     // Define the matrix
     DirectX::XMFLOAT4X4 identity;
     DirectX::XMStoreFloat4x4(&identity, DirectX::XMMatrixIdentity());
 
     // Define the color
-    DirectX::XMFLOAT4 newColor = { 10.0f, 125.0f, 0.0f, 1.0f }; // Green
+    DirectX::XMFLOAT4 newColor = { 125.0f, 125.0f, 125.0f, 1.0f }; // Green
 
     // Define the offsets (example values; these must be accurate)
-    size_t matrixOffset = 0;        // Identity matrix goes first
-    size_t colorOffset = countnum + 1;       // bruteforce this value to change colors 0-300?
+    size_t matrixOffset = 0;        // Identity matrix, bruteforce this too if colors not working
+    size_t colorOffset = countnum;  // bruteforce this value to change colors 0-200?
 
     // Only proceed if buffer is mapped and offsets are valid
-    if ((Strides == countnum || twoDigitSize == countnum) && (rootIndex))
+    if ((Strides == countnum || rootIndex == countnum || twoDigitSize == countnum) && (rootIndex))
         if (g_pMappedConstantBuffer &&
             matrixOffset + sizeof(identity) <= g_constantBufferSize &&
             colorOffset + sizeof(newColor) <= g_constantBufferSize) {
@@ -287,24 +297,23 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     */
     
 
-        //2. apply wallhack after
-        if (Strides == countnum || twoDigitSize == countnum) { //brute force models, hold . key
-        //if ((currentStride == 32|| currentStride == 40 || currentStride == 48 || currentStride == 52) && (IndexCountPerInstance > 100)) { //oblivion remastered
-            D3D12_VIEWPORT viewport = {};
-            viewport.TopLeftX = 0;
-            viewport.TopLeftY = 0;
-            viewport.Width = vpWidth;
-            viewport.Height = vpHeight;
-            viewport.MinDepth = 0.9f; //or 1.0f
-            viewport.MaxDepth = 1.0f;
-            dCommandList->RSSetViewports(1, &viewport);
+    //2. apply wallhack 
+    if (Strides == countnum || rootIndex == countnum /*|| twoDigitSize == countnum*/) { //brute force models, hold . key
+        D3D12_VIEWPORT viewport = {};
+        viewport.TopLeftX = 0;
+        viewport.TopLeftY = 0;
+        viewport.Width = vpWidth;
+        viewport.Height = vpHeight;
+        viewport.MinDepth = 0.9f; //or 1.0f
+        viewport.MaxDepth = 1.0f;
+        dCommandList->RSSetViewports(1, &viewport);
 
-            oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
 
-            //reset the viewport
-            viewport.MinDepth = 0.0f;
-            dCommandList->RSSetViewports(1, &viewport);
-        }
+        //reset the viewport
+        viewport.MinDepth = 0.0f;
+        dCommandList->RSSetViewports(1, &viewport);
+    }
 
 
 
@@ -312,14 +321,14 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
     if (vkENDkeydown && (Strides == countnum || rootIndex == countnum || twoDigitSize == countnum)) {
-        Log("countnum == %d && IndexCountPerInstance == %d && Strides == %d && rootIndex == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && currentRootSigID == %d && StartIndexLocation == %d",
-            countnum, IndexCountPerInstance, Strides, rootIndex, twoDigitSize, currentiSize, currentvSize, currentiFormat, currentRootSigID, StartIndexLocation);
+        Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d",
+            countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation);
     }
    
 
     //This is classic wallhack, but doesn't work if game caches pipeline offline ect. (ue5)
     //Try to hijack games pipeline (unity)
-    if (Strides == 9999 || twoDigitSize == 9999) { //brute force models, hold . key
+    if (Strides == 9999 || rootIndex == 9999) { //brute force values
         // 1. Get the PSO that should be currently active for this command list
         {
             std::lock_guard<std::mutex> lock(commandListPSOMutex);
@@ -411,30 +420,32 @@ void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,
 
 //=========================================================================================================================//
 
-void STDMETHODCALLTYPE hkSetGraphicsRootSignature(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature) {
-
-    if (dCommandList && pRootSignature) {
-        std::lock_guard<std::mutex> lock(rootSigMutex);
-
-        // If root signature is not yet assigned an ID, give it one
-        if (rootSigIDs.find(pRootSignature) == rootSigIDs.end()) {
-            rootSigIDs[pRootSignature] = nextRootSigID++;
-        }
-
-        // Store the root signature for this command list
-        rootSignatures[dCommandList] = pRootSignature;
-    }
-
-    return oSetGraphicsRootSignature(dCommandList, pRootSignature);
-}
-
-//=========================================================================================================================//
-
 void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
 
-    {
-        std::lock_guard<std::mutex> lock(g_rootParamIndexMapMutex);
-        g_rootParamIndexMap[dCommandList] = RootParameterIndex;
+    if (dCommandList) {
+        CommandListSpecificData dataToStore;
+
+        // --- Optional: Retrieve existing data if you need to merge/update complex state ---
+        // For this simple case of just "lastCbvRootParameterIndex", overwriting is fine.
+        // If CommandListSpecificData was more complex (e.g. a map), you might do:
+        // UINT existingDataSize = sizeof(dataToStore);
+        // HRESULT hrGet = dCommandList->GetPrivateData(MyCommandListPrivateDataGuid, &existingDataSize, &dataToStore);
+        // if (SUCCEEDED(hrGet) && existingDataSize == sizeof(CommandListSpecificData)) {
+        //     // Successfully retrieved existing data, now update it
+        // } else {
+        //     // No existing data or size mismatch, dataToStore is already default initialized
+        // }
+        // --- End Optional ---
+
+        // Populate the data
+        dataToStore.lastCbvRootParameterIndex = RootParameterIndex;
+        // dataToStore.lastCbvBufferLocation = BufferLocation; // If you added this to the struct
+
+        // Store the struct. SetPrivateData makes a copy.
+        HRESULT hrSet = dCommandList->SetPrivateData(MyCommandListPrivateDataGuid, sizeof(CommandListSpecificData), &dataToStore);
+        // if (FAILED(hrSet)) {
+        //     Log("Failed to set private data. HRESULT: 0x%X", hrSet);
+        // }
     }
 
     return oSetGraphicsRootConstantBufferView(dCommandList, RootParameterIndex, BufferLocation);
@@ -444,19 +455,20 @@ void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommand
 
 void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
     // Clear old values
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 7; ++i) {
         t_cLS.vertexStrides[i] = 0;
         t_cLS.vertexBufferSizes[i] = 0;
     }
 
     if (NumViews > 0 && pViews) {
-        for (UINT i = 0; i < NumViews && i < 5; ++i) {
+        for (UINT i = 0; i < NumViews && i < 7; ++i) {
             if (pViews[i].StrideInBytes <= 120) { // Optional check
                 t_cLS.vertexStrides[i] = pViews[i].StrideInBytes;
                 t_cLS.vertexBufferSizes[i] = pViews[i].SizeInBytes;
             }
         }
         t_cLS.StartSlot = StartSlot;
+        t_cLS.NumViews = NumViews;
     }
 
     return oIASetVertexBuffers(dCommandList, StartSlot, NumViews, pViews);
@@ -651,10 +663,16 @@ HRESULT STDMETHODCALLTYPE hkCreateConstantBufferView(ID3D12Device* pDevice, cons
 
 //=========================================================================================================================//
 
-//not called
 void STDMETHODCALLTYPE hkSetGraphicsRootShaderResourceView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation)
 {
 	return oSetGraphicsRootShaderResourceView(dCommandList, RootParameterIndex, BufferLocation);
+}
+
+//=========================================================================================================================//
+
+void STDMETHODCALLTYPE hkSetGraphicsRootSignature(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature) {
+
+    return oSetGraphicsRootSignature(dCommandList, pRootSignature);
 }
 
 //=========================================================================================================================//
@@ -668,7 +686,7 @@ void STDMETHODCALLTYPE hkResolveQueryData(
     ID3D12Resource* pDestinationBuffer,
     UINT64 AlignedDestinationBufferOffset)
 {
-    //lognospam(10, "ResolveQueryData");
+    //lognospam(3, "ResolveQueryData");
 
     if (Type == D3D12_QUERY_TYPE_OCCLUSION)
     {
@@ -858,7 +876,7 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             //CreateHook(118, (void**)&oOMSetRenderTargets, hkOMSetRenderTargets);
             CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState);
             CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState);
-            CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);
+            //CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);
             CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData);
             //CreateHook(39, (void**)&oCreateQueryHeap, hkCreateQueryHeap);
             //CreateHook(124, (void**)&oBeginQuery, hkBeginQuery);
@@ -874,7 +892,6 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
 
             static bool wndproc_initialized = false;
             if (!wndproc_initialized) {
-                //Process::WndProc = (WNDPROC)SetWindowLongPtr(Process::Hwnd, GWLP_WNDPROC, (__int3264)(LONG_PTR)WndProc);
                 Process::WndProc = (WNDPROC)SetWindowLongPtr(Process::Hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(WndProc));
 
                 wndproc_initialized = true;

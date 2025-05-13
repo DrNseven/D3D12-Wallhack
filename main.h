@@ -13,6 +13,8 @@
 #include <array>      
 #include <cstdint>
 #include <unordered_set>
+#include <guiddef.h>    // For GUID
+#include <comdef.h>     // For _com_ptr_t (optional, for smart COM pointers)
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "dxguid.lib")
@@ -46,24 +48,31 @@ ID3D12PipelineState* g_CurrentPSO = nullptr;
 ID3D12CommandQueue* commandQueue;
 UINT countnum = -1;
 
-
-//rootsignature
-std::unordered_map<ID3D12RootSignature*, UINT> rootSigIDs;
-std::unordered_map<ID3D12GraphicsCommandList*, ID3D12RootSignature*> rootSignatures;
-std::mutex rootSigMutex;
-UINT nextRootSigID = 1;
-
 //rootparameterindex
-std::unordered_map<ID3D12GraphicsCommandList*, UINT> g_rootParamIndexMap;
-std::mutex g_rootParamIndexMapMutex;
+//Generate this using a GUID generator (e.g., Visual Studio's Tools -> Create GUID)
+//{E21A228C-786F-4432-B97E-D48E4A0F78FB} - example
+static const GUID MyCommandListPrivateDataGuid =
+{ 0xe21a228c, 0x786f, 0x4432, { 0xb9, 0x7e, 0xd4, 0x8e, 0x4a, 0xf, 0x78, 0xfb } };
+
+// Struct to hold the data associated with the command list
+struct CommandListSpecificData {
+	UINT lastCbvRootParameterIndex = UINT_MAX;
+	// You could add more here if needed, for example:
+	// D3D12_GPU_VIRTUAL_ADDRESS lastCbvBufferLocation;
+	// int someOtherState;
+
+	// Default constructor
+	CommandListSpecificData() : lastCbvRootParameterIndex(UINT_MAX) {}
+};
 
 //Stride ect.
 struct CommandListState {
-	UINT vertexBufferSizes[5] = {};
-	UINT vertexStrides[5] = {};
+	UINT vertexBufferSizes[7] = {};
+	UINT vertexStrides[7] = {};
 	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
 	UINT currentiSize = 0;
 	UINT StartSlot = 0;
+	UINT NumViews = 0;
 };
 thread_local CommandListState t_cLS;
 
@@ -525,7 +534,7 @@ UINT g_constantBufferSize = 0;
 //       This example assumes a simple structure. It's likely MUCH more complex.
 struct MyMaterialConstants // EXAMPLE STRUCTURE 
 {
-	//Can leave it empty for now, what matters more is bruteforcing colorOffset
+	//Can leave empty for now, what matters more is bruteforcing colorOffset
 	/*
 	DirectX::XMFLOAT4X4 worldViewProj; // Example matrix (64 bytes)
 	DirectX::XMFLOAT2   uvScale;       // Example other parameter (8 bytes)
