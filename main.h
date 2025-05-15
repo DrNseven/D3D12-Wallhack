@@ -58,10 +58,6 @@ static const GUID MyCommandListPrivateDataGuid =
 struct CommandListSpecificData {
 	UINT lastCbvRootParameterIndex = UINT_MAX;
 	// Add more here if needed
-	int rDimension = 0;
-	int rFormat = 0;
-	int rWidth = 0;
-	int rFlags = 0;
 
 	// Default constructor
 	CommandListSpecificData() : lastCbvRootParameterIndex(UINT_MAX) {}

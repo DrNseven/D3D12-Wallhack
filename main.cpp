@@ -202,10 +202,6 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     
     //rootIndex
     UINT rootIndex = UINT_MAX;
-    int rDimension = 0;
-    int rFormat = 0;
-    int rWidth = 0;
-    int rFlags = 0;
     if (dCommandList) {
         CommandListSpecificData retrievedData;
         UINT dataSize = sizeof(retrievedData); // Pass the size of our buffer
@@ -216,19 +212,11 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             if (dataSize == sizeof(CommandListSpecificData)) {
                 // Successfully retrieved the struct and the size matches
                 rootIndex = retrievedData.lastCbvRootParameterIndex;
-                rDimension = retrievedData.rDimension;
-                rFormat = retrievedData.rFormat;
-                rWidth = retrievedData.rWidth;
-                rFlags = retrievedData.rFlags;
             }
             else {
                 // Data was found, but the size doesn't match what we expect.
                 // Log("Warning: Private data size mismatch for GUID. Expected %u, got %u.", sizeof(CommandListSpecificData), dataSize);
                 rootIndex = UINT_MAX; // Or handle as an error
-                int rDimension = 0;
-                int rFormat = 0;
-                int rWidth = 0;
-                int rFlags = 0;
             }
         }
         else {
@@ -236,10 +224,6 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             // hr might be DXGI_ERROR_NOT_FOUND if no data was set.
             // Log("Failed to get private data or no data found. HRESULT: 0x%X", hr);
             rootIndex = UINT_MAX; // Ensure it's default
-            int rDimension = 0;
-            int rFormat = 0;
-            int rWidth = 0;
-            int rFlags = 0;
         }
     }
     
@@ -336,8 +320,8 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
     if (vkENDkeydown && (Strides == countnum || rootIndex == countnum || twoDigitSize == countnum)) {
-        Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d && NumViews == %d && rDimension == %d && rFormat == %d && rWidth == %d && rFlags == %d",
-            countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation, NumViews, rDimension, rFormat, rWidth, rFlags);
+        Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d && NumViews == %d",
+            countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation, NumViews);
     }
     
 
@@ -465,6 +449,7 @@ HRESULT STDMETHODCALLTYPE hkCreateCommittedResource(
 ) {
     HRESULT hr = oCreateCommittedResource(pDevice, pDesc, pHeapProperties, pResourceDesc, InitialResourceState, pOptimizedClearValue, riidResource, ppvResource);
 
+    /*
     if (SUCCEEDED(hr)) {
         g_pResource = *reinterpret_cast<ID3D12Resource**>(ppvResource);
 
@@ -474,15 +459,16 @@ HRESULT STDMETHODCALLTYPE hkCreateCommittedResource(
 
             // Check if the resource is a buffer
             //if (resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER && resourceDesc.Width >= 256) {
+            if (resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
                 goodresource = g_pResource;
                 //Log("1. Buffer created with Width: %llu\n", resourceDesc.Width);
-            //}
+            }
         }
     }
     else {
         //Log("Error: *ppvResource is nullptr after CreateCommittedResource!\n");
     }
-
+    */
     return hr;
 }
 
@@ -493,27 +479,22 @@ void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommand
     if (dCommandList) {
         CommandListSpecificData dataToStore;
 
-        D3D12_RESOURCE_DESC desc = goodresource->GetDesc();
-
         // Populate the data
         dataToStore.lastCbvRootParameterIndex = RootParameterIndex;
-        dataToStore.rDimension = desc.Dimension;
-        dataToStore.rFormat = desc.Format;
-        dataToStore.rWidth = desc.Width;
-        dataToStore.rFlags = desc.Flags;
 
         // Store the struct. SetPrivateData makes a copy.
         HRESULT hrSet = dCommandList->SetPrivateData(MyCommandListPrivateDataGuid, sizeof(CommandListSpecificData), &dataToStore);
     }
 
-
-   //try to log matrix
+    /*
+    //try to log matrix
     if (goodresource && Strides == 9999) {
-        D3D12_RESOURCE_DESC desc = goodresource->GetDesc();
+       D3D12_RESOURCE_DESC desc = goodresource->GetDesc();
 
-        //Constant buffer size in bytes. Adjust as needed.
-        ReadConstantBufferWithMapUnmap(goodresource, desc.Width);
+       //Constant buffer size in bytes. Adjust as needed.
+       ReadConstantBufferWithMapUnmap(goodresource, desc.Width);
     }
+    */
 
     /*
     //maybe transformation matrix, projection or view
