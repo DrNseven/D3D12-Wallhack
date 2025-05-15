@@ -49,7 +49,7 @@ ID3D12CommandQueue* commandQueue;
 UINT countnum = -1;
 
 //rootparameterindex
-//Generate this using a GUID generator (e.g., Visual Studio's Tools -> Create GUID)
+//Optional, generate this using a GUID generator (e.g., Visual Studio's Tools -> Create GUID)
 //{E21A228C-786F-4432-B97E-D48E4A0F78FB} - example
 static const GUID MyCommandListPrivateDataGuid =
 { 0xe21a228c, 0x786f, 0x4432, { 0xb9, 0x7e, 0xd4, 0x8e, 0x4a, 0xf, 0x78, 0xfb } };
@@ -57,15 +57,18 @@ static const GUID MyCommandListPrivateDataGuid =
 // Struct to hold the data associated with the command list
 struct CommandListSpecificData {
 	UINT lastCbvRootParameterIndex = UINT_MAX;
-	// You could add more here if needed, for example:
-	// D3D12_GPU_VIRTUAL_ADDRESS lastCbvBufferLocation;
-	// int someOtherState;
+	// Add more here if needed
+	int rDimension = 0;
+	int rFormat = 0;
+	int rWidth = 0;
+	int rFlags = 0;
 
 	// Default constructor
 	CommandListSpecificData() : lastCbvRootParameterIndex(UINT_MAX) {}
 };
 
 //Stride ect.
+UINT Strides;
 struct CommandListState {
 	UINT vertexBufferSizes[7] = {};
 	UINT vertexStrides[7] = {};
@@ -91,6 +94,9 @@ bool swapped = false;
 std::unordered_map<ID3D12GraphicsCommandList*, D3D12_VIEWPORT> gViewportMap;
 std::mutex gViewportMutex;
 
+//resource
+ID3D12Resource* g_pResource;
+ID3D12Resource* goodresource;
 
 //=========================================================================================================================//
 
@@ -136,6 +142,215 @@ void lognospam(int duration, const char* name)
 		waitedOnce = true;
 	}
 }
+
+struct Vec3 { float x, y, z; };
+struct Vec2 { float x, y; };
+
+bool WorldToScreen(const float* matrix, const Vec3& worldPos, Vec2& screenPos, float screenWidth, float screenHeight)
+{
+	using namespace DirectX;
+
+	//XMMATRIX viewProj = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(matrix));
+	XMMATRIX viewProj = XMMatrixTranspose(XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(matrix))); //or transpose
+	XMVECTOR pos = XMVectorSet(worldPos.x, worldPos.y, worldPos.z, 1.0f);
+	XMVECTOR transformed = XMVector4Transform(pos, viewProj);
+
+	XMFLOAT4 clipSpace;
+	XMStoreFloat4(&clipSpace, transformed);
+
+	if (clipSpace.w < 0.001f)
+		return false;
+
+	float invW = 1.0f / clipSpace.w;
+	float ndcX = clipSpace.x * invW;
+	float ndcY = clipSpace.y * invW;
+
+	screenPos.x = (ndcX * 0.5f + 0.5f) * screenWidth;
+	screenPos.y = (1.0f - (ndcY * 0.5f + 0.5f)) * screenHeight;
+
+	return true;
+}
+
+//experimental/slow & unstable, warning: will kill your fps 
+void ReadConstantBufferWithMapUnmap(ID3D12Resource* constantBufferResource, UINT constantBufferSize) {
+	void* mappedData;
+	D3D12_RANGE readRange = { 0, constantBufferSize };
+	D3D12_RANGE writtenRange = { 0, 0 };
+
+	HRESULT hr = constantBufferResource->Map(0, &readRange, &mappedData);
+
+	if (SUCCEEDED(hr)) {
+		unsigned char* buffer = new unsigned char[constantBufferSize];
+		memcpy(buffer, mappedData, constantBufferSize);
+
+		float* matrixData = (float*)buffer;
+
+		// Log matrix
+		//Log("2. INFO: Constant Buffer Data (Matrix):");
+		for (int i = 0; i < 4; ++i) {
+			std::string rowLog;
+			for (int j = 0; j < 4; ++j) {
+				char temp[64];
+				sprintf_s(temp, 64, "%f ", matrixData[i * 4 + j]);
+				rowLog += temp;
+			}
+			Log("3. INFO: %s", rowLog.c_str());
+		}
+
+		// World position to test
+		Vec3 testPos = { 0.0f, 0.0f, 0.0f }; // Replace with actual world pos
+		Vec2 screenPos;
+
+		float screenWidth = 1920.0f;
+		float screenHeight = 1080.0f;
+
+		if (WorldToScreen(matrixData, testPos, screenPos, screenWidth, screenHeight)) {
+			//if (GetAsyncKeyState(VK_F10) & 1)
+			Log("W2S success: x=%.1f, y=%.1f", screenPos.x, screenPos.y);
+		}
+		//else {
+			//Log("W2S failed: behind camera");
+		//}
+
+		constantBufferResource->Unmap(0, &writtenRange);
+		delete[] buffer;
+	}
+	else {
+		//Log("ERROR: Map failed in ReadConstantBufferWithMapUnmap. HR = %x", hr);
+	}
+}
+
+/*
+//crash
+void FastReadConstantBuffer(ID3D12Resource* constantBufferResource, UINT constantBufferSize) {
+	if (!constantBufferResource || constantBufferSize == 0) {
+		return;
+	}
+
+	D3D12_HEAP_PROPERTIES heapProps;
+	D3D12_HEAP_FLAGS heapFlags;
+	// It's good practice to check the HRESULT of GetHeapProperties
+	if (FAILED(constantBufferResource->GetHeapProperties(&heapProps, &heapFlags))) {
+		//Log("ERROR: GetHeapProperties failed for resource 0x%p.", (void*)constantBufferResource);
+		return;
+	}
+
+	// Only attempt to map UPLOAD heap resources (CPU-visible for direct read)
+	if (heapProps.Type != D3D12_HEAP_TYPE_UPLOAD) {
+		// Log("INFO: Skipping map for non-UPLOAD heap resource 0x%p, HeapType: %d", (void*)constantBufferResource, heapProps.Type);
+		return; // Cannot directly map DEFAULT or READBACK (for writing from CPU)
+	}
+
+	void* pMappedData = nullptr;
+	// For UPLOAD heaps, the readRange parameter to Map is often optional if reading the whole buffer,
+	// but it's good practice to specify it. The system might ignore it for UPLOAD heaps.
+	D3D12_RANGE readRange = { 0, constantBufferSize };
+	// For UPLOAD heap, if you are ONLY reading, the CPU cache behavior might be better if you pass a valid readRange.
+	// If you pass nullptr for readRange, it implies you might read the entire resource.
+
+	HRESULT hr = constantBufferResource->Map(0, &readRange, &pMappedData); // Or use nullptr for pReadRange if always reading whole buffer
+
+	if (SUCCEEDED(hr) && pMappedData) {
+		const float* matrixData = reinterpret_cast<const float*>(pMappedData);
+
+		// --- Your WorldToScreen Logic ---
+		static int frameCounter = 0; // Be careful with statics in hooked functions if they can be called from multiple threads
+		frameCounter++;
+		if (frameCounter >= 100) { // Log every 100 calls to this function (if it's a UPLOAD buffer)
+			frameCounter = 0;
+
+			Vec3 testPos = { 0.0f, 0.0f, 0.0f }; // World origin
+			Vec2 screenPos;
+			// Ensure constantBufferSize is large enough for a 4x4 matrix (16 floats)
+			if (constantBufferSize >= (16 * sizeof(float))) {
+				if (WorldToScreen(matrixData, testPos, screenPos, 1920.0f, 1080.0f)) {
+					Log("W2S: x=%.1f, y=%.1f (Resource: 0x%p)", screenPos.x, screenPos.y, (void*)constantBufferResource);
+				}
+				else {
+					// Log("W2S: Point behind camera or W <= 0 (Resource: 0x%p)", (void*)constantBufferResource);
+				}
+			}
+			else {
+				// Log("WARN: Constant buffer size %u is too small for a 4x4 matrix. (Resource: 0x%p)", constantBufferSize, (void*)constantBufferResource);
+			}
+		}
+		// --- End WorldToScreen Logic ---
+
+		// IMPORTANT: Unmap the resource IMMEDIATELY after you are done reading from pMappedData
+		//D3D12_RANGE writtenRange = { 0, 0 }; // We only read, so no bytes were written by the CPU
+		//constantBufferResource->Unmap(0, &writtenRange);
+	}
+	else {
+		Log("ERROR: Map failed for resource 0x%p. HR = 0x%X", (void*)constantBufferResource, hr);
+	}
+}
+*/
+
+/*
+//crash
+void FastReadConstantBuffer(ID3D12Resource* constantBufferResource, UINT constantBufferSize) {
+	if (!constantBufferResource || constantBufferSize == 0) {
+		return;
+	}
+
+	D3D12_HEAP_PROPERTIES heapProps;
+	D3D12_HEAP_FLAGS heapFlags;
+	// It's good practice to check the HRESULT of GetHeapProperties
+	if (FAILED(constantBufferResource->GetHeapProperties(&heapProps, &heapFlags))) {
+		Log("ERROR: GetHeapProperties failed for resource 0x%p.", (void*)constantBufferResource);
+		return;
+	}
+
+	// Only attempt to map UPLOAD heap resources (CPU-visible for direct read)
+	if (heapProps.Type != D3D12_HEAP_TYPE_UPLOAD) {
+		// Log("INFO: Skipping map for non-UPLOAD heap resource 0x%p, HeapType: %d", (void*)constantBufferResource, heapProps.Type);
+		return; // Cannot directly map DEFAULT or READBACK (for writing from CPU)
+	}
+
+	void* pMappedData = nullptr;
+	// For UPLOAD heaps, the readRange parameter to Map is often optional if reading the whole buffer,
+	// but it's good practice to specify it. The system might ignore it for UPLOAD heaps.
+	D3D12_RANGE readRange = { 0, constantBufferSize };
+	// For UPLOAD heap, if you are ONLY reading, the CPU cache behavior might be better if you pass a valid readRange.
+	// If you pass nullptr for readRange, it implies you might read the entire resource.
+
+	HRESULT hr = constantBufferResource->Map(0, &readRange, &pMappedData); // Or use nullptr for pReadRange if always reading whole buffer
+
+	if (SUCCEEDED(hr) && pMappedData) {
+		const float* matrixData = reinterpret_cast<const float*>(pMappedData);
+
+		// --- Your WorldToScreen Logic ---
+		static int frameCounter = 0; // Be careful with statics in hooked functions if they can be called from multiple threads
+		frameCounter++;
+		if (frameCounter >= 100) { // Log every 100 calls to this function (if it's a UPLOAD buffer)
+			frameCounter = 0;
+
+			Vec3 testPos = { 0.0f, 0.0f, 0.0f }; // World origin
+			Vec2 screenPos;
+			// Ensure constantBufferSize is large enough for a 4x4 matrix (16 floats)
+			if (constantBufferSize >= (16 * sizeof(float))) {
+				if (WorldToScreen(matrixData, testPos, screenPos, 1920.0f, 1080.0f)) {
+					Log("W2S: x=%.1f, y=%.1f (Resource: 0x%p)", screenPos.x, screenPos.y, (void*)constantBufferResource);
+				}
+				else {
+					// Log("W2S: Point behind camera or W <= 0 (Resource: 0x%p)", (void*)constantBufferResource);
+				}
+			}
+			else {
+				// Log("WARN: Constant buffer size %u is too small for a 4x4 matrix. (Resource: 0x%p)", constantBufferSize, (void*)constantBufferResource);
+			}
+		}
+		// --- End WorldToScreen Logic ---
+
+		// IMPORTANT: Unmap the resource IMMEDIATELY after you are done reading from pMappedData
+		D3D12_RANGE writtenRange = { 0, 0 }; // We only read, so no bytes were written by the CPU
+		constantBufferResource->Unmap(0, &writtenRange);
+	}
+	else {
+		Log("ERROR: Map failed for resource 0x%p. HR = 0x%X", (void*)constantBufferResource, hr);
+	}
+}
+*/
 
 //=========================================================================================================================//
 

@@ -49,15 +49,16 @@ typedef void (STDMETHODCALLTYPE* SetDescriptorHeaps)(ID3D12GraphicsCommandList* 
 SetDescriptorHeaps oSetDescriptorHeaps;
 
 typedef HRESULT(STDMETHODCALLTYPE* CreateCommittedResource)(
-    ID3D12Device*,
-    const D3D12_HEAP_PROPERTIES*,
-    D3D12_HEAP_FLAGS,
-    const D3D12_RESOURCE_DESC*,
-    D3D12_RESOURCE_STATES,
-    const D3D12_CLEAR_VALUE*,
-    REFIID,
-    void**);
-CreateCommittedResource oCreateCommittedResource = nullptr;
+    ID3D12Device* pDevice,
+    const D3D12_HEAP_DESC* pDesc,
+    const D3D12_HEAP_PROPERTIES* pHeapProperties, 
+    const D3D12_RESOURCE_DESC* pResourceDesc,    
+    D3D12_RESOURCE_STATES InitialResourceState,
+    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
+    REFIID riidResource,
+    void** ppvResource
+    );
+CreateCommittedResource oCreateCommittedResource = NULL;
 
 typedef HRESULT(STDMETHODCALLTYPE* CreatePlacedResource)(
     ID3D12Device* pDevice,
@@ -201,6 +202,10 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     
     //rootIndex
     UINT rootIndex = UINT_MAX;
+    int rDimension = 0;
+    int rFormat = 0;
+    int rWidth = 0;
+    int rFlags = 0;
     if (dCommandList) {
         CommandListSpecificData retrievedData;
         UINT dataSize = sizeof(retrievedData); // Pass the size of our buffer
@@ -211,15 +216,18 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             if (dataSize == sizeof(CommandListSpecificData)) {
                 // Successfully retrieved the struct and the size matches
                 rootIndex = retrievedData.lastCbvRootParameterIndex;
+                rFormat = retrievedData.rFormat;
                 // You can also access other members if you added them:
                 // D3D12_GPU_VIRTUAL_ADDRESS loc = retrievedData.lastCbvBufferLocation;
             }
             else {
                 // Data was found, but the size doesn't match what we expect.
-                // This could happen if you change the struct definition
-                // and an older version of the hook stored data.
                 // Log("Warning: Private data size mismatch for GUID. Expected %u, got %u.", sizeof(CommandListSpecificData), dataSize);
                 rootIndex = UINT_MAX; // Or handle as an error
+                int rDimension = 0;
+                int rFormat = 0;
+                int rWidth = 0;
+                int rFlags = 0;
             }
         }
         else {
@@ -227,6 +235,10 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             // hr might be DXGI_ERROR_NOT_FOUND if no data was set.
             // Log("Failed to get private data or no data found. HRESULT: 0x%X", hr);
             rootIndex = UINT_MAX; // Ensure it's default
+            int rDimension = 0;
+            int rFormat = 0;
+            int rWidth = 0;
+            int rFlags = 0;
         }
     }
     
@@ -242,7 +254,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         currentStride += t_cLS.vertexStrides[i];
     }
     //include StartSlot for Unity
-    UINT Strides = currentStride + StartSlot;
+    Strides = currentStride + StartSlot;
     // For example, get the first buffer's size if needed
     UINT currentvSize = t_cLS.vertexBufferSizes[0]/2;
     //int twoDigitSize = getTwoDigitValue(currentiSize);
@@ -299,7 +311,8 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     
 
     //2. apply wallhack 
-    if (Strides == countnum || rootIndex == countnum /*|| twoDigitSize == countnum*/) { //brute force models, hold . key
+    if (Strides == countnum || rootIndex == countnum /* || twoDigitSize == countnum*/) {
+    //if ((Strides == 40 || Strides == 48) && (rootIndex == countnum && IndexCountPerInstance > 9)) { //brute force models, hold . key
         D3D12_VIEWPORT viewport = {};
         viewport.TopLeftX = 0;
         viewport.TopLeftY = 0;
@@ -322,10 +335,10 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
     if (vkENDkeydown && (Strides == countnum || rootIndex == countnum || twoDigitSize == countnum)) {
-        Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d && NumViews == %d",
-            countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation, NumViews);
+        Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d && NumViews == %d && rDimension == %d && rFormat == %d && rWidth == %d && rFlags == %d",
+            countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation, NumViews, rDimension, rFormat, rWidth, rFlags);
     }
-   
+    
 
     //This is classic wallhack, but doesn't work if game caches pipeline offline ect. (ue5)
     //Try to hijack games pipeline (unity)
@@ -421,33 +434,100 @@ void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,
 
 //=========================================================================================================================//
 
+HRESULT STDMETHODCALLTYPE hkCreatePlacedResource(
+    ID3D12Device* pDevice,
+    ID3D12Heap* pHeap,
+    UINT64                    HeapOffset,
+    const D3D12_RESOURCE_DESC* pDesc,
+    D3D12_RESOURCE_STATES     InitialState,
+    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
+    REFIID                    riid,
+    void** ppvResource
+) {
+
+    HRESULT hr = oCreatePlacedResource(pDevice, pHeap, HeapOffset, pDesc, InitialState, pOptimizedClearValue, riid, ppvResource);
+
+    return hr;
+}
+
+//=========================================================================================================================//
+
+HRESULT STDMETHODCALLTYPE hkCreateCommittedResource(
+    ID3D12Device* pDevice,
+    const D3D12_HEAP_DESC* pDesc,
+    const D3D12_HEAP_PROPERTIES* pHeapProperties,
+    const D3D12_RESOURCE_DESC* pResourceDesc,
+    D3D12_RESOURCE_STATES InitialResourceState,
+    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
+    REFIID riidResource,
+    void** ppvResource
+) {
+    HRESULT hr = oCreateCommittedResource(pDevice, pDesc, pHeapProperties, pResourceDesc, InitialResourceState, pOptimizedClearValue, riidResource, ppvResource);
+
+    if (SUCCEEDED(hr)) {
+        g_pResource = *reinterpret_cast<ID3D12Resource**>(ppvResource);
+
+        // Ensure it's a valid resource
+        if (g_pResource != nullptr) {
+            D3D12_RESOURCE_DESC resourceDesc = g_pResource->GetDesc();
+
+            // Check if the resource is a buffer
+            //if (resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER && resourceDesc.Width >= 256) {
+                goodresource = g_pResource;
+                //Log("1. Buffer created with Width: %llu\n", resourceDesc.Width);
+            //}
+        }
+    }
+    else {
+        //Log("Error: *ppvResource is nullptr after CreateCommittedResource!\n");
+    }
+
+    return hr;
+}
+
+//=========================================================================================================================//
+
 void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
 
     if (dCommandList) {
         CommandListSpecificData dataToStore;
 
-        // --- Optional: Retrieve existing data if you need to merge/update complex state ---
-        // For this simple case of just "lastCbvRootParameterIndex", overwriting is fine.
-        // If CommandListSpecificData was more complex (e.g. a map), you might do:
-        // UINT existingDataSize = sizeof(dataToStore);
-        // HRESULT hrGet = dCommandList->GetPrivateData(MyCommandListPrivateDataGuid, &existingDataSize, &dataToStore);
-        // if (SUCCEEDED(hrGet) && existingDataSize == sizeof(CommandListSpecificData)) {
-        //     // Successfully retrieved existing data, now update it
-        // } else {
-        //     // No existing data or size mismatch, dataToStore is already default initialized
-        // }
-        // --- End Optional ---
+        D3D12_RESOURCE_DESC desc = goodresource->GetDesc();
 
         // Populate the data
         dataToStore.lastCbvRootParameterIndex = RootParameterIndex;
-        // dataToStore.lastCbvBufferLocation = BufferLocation; // If you added this to the struct
+        dataToStore.rDimension = desc.Dimension;
+        dataToStore.rFormat = desc.Format;
+        dataToStore.rWidth = desc.Width;
+        dataToStore.rFlags = desc.Flags;
 
         // Store the struct. SetPrivateData makes a copy.
         HRESULT hrSet = dCommandList->SetPrivateData(MyCommandListPrivateDataGuid, sizeof(CommandListSpecificData), &dataToStore);
-        // if (FAILED(hrSet)) {
-        //     Log("Failed to set private data. HRESULT: 0x%X", hrSet);
-        // }
     }
+
+
+   //try to log matrix
+    if (goodresource && Strides == 9999) {
+        D3D12_RESOURCE_DESC desc = goodresource->GetDesc();
+
+        //Constant buffer size in bytes. Adjust as needed.
+        ReadConstantBufferWithMapUnmap(goodresource, desc.Width);
+    }
+
+    /*
+    //maybe transformation matrix, projection or view
+    INFO: Constant Buffer Data (Matrix):
+    INFO: 0.000000 0.000000 0.999985 0.000000
+    INFO: 0.000000 0.000000 1.000000 1.000000
+    INFO: 1.000000 1.000000 -1.000000 1.000000
+    INFO: 1.000000 -1.000000 1.000000 1.000000
+
+    INFO: Constant Buffer Data (Matrix):
+    INFO: 0.000000 0.000000 0.000000 -0.308071
+    INFO: -0.173205 0.300300 1.000000 1.000000
+    INFO: 1.000000 1.000000 0.000000 0.000000
+    INFO: 0.000000 0.000000 0.000000 0.000000
+    */
 
     return oSetGraphicsRootConstantBufferView(dCommandList, RootParameterIndex, BufferLocation);
 }
@@ -617,41 +697,6 @@ void STDMETHODCALLTYPE hkCreateShaderResourceView(ID3D12Device* device,ID3D12Res
 void STDMETHODCALLTYPE hkSetDescriptorHeaps(ID3D12GraphicsCommandList* dCommandList,UINT NumDescriptorHeaps,ID3D12DescriptorHeap* const* ppDescriptorHeaps)
 {
 	return oSetDescriptorHeaps(dCommandList, NumDescriptorHeaps, ppDescriptorHeaps);
-}
-
-//=========================================================================================================================//
-
-HRESULT STDMETHODCALLTYPE hkCreateCommittedResource(
-    ID3D12Device* device,
-    const D3D12_HEAP_PROPERTIES* pHeapProperties,
-    D3D12_HEAP_FLAGS HeapFlags,
-    const D3D12_RESOURCE_DESC* pDesc,
-    D3D12_RESOURCE_STATES InitialResourceState,
-    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
-    REFIID riidResource,
-    void** ppvResource)
-{
-    
-    return oCreateCommittedResource(device, pHeapProperties, HeapFlags, pDesc, InitialResourceState, pOptimizedClearValue, riidResource, ppvResource);
-}
-
-
-//=========================================================================================================================//
-
-HRESULT STDMETHODCALLTYPE hkCreatePlacedResource(
-    ID3D12Device* pDevice,
-    ID3D12Heap* pHeap,
-    UINT64                    HeapOffset,
-    const D3D12_RESOURCE_DESC* pDesc,
-    D3D12_RESOURCE_STATES     InitialState,
-    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
-    REFIID                    riid,
-    void** ppvResource
-) {
-
-    HRESULT hr = oCreatePlacedResource(pDevice, pHeap, HeapOffset, pDesc, InitialState, pOptimizedClearValue, riid, ppvResource);
-
-    return hr;
 }
 
 //=========================================================================================================================//
@@ -871,14 +916,15 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
 			CreateHook(85, (void**)&oDrawIndexedInstanced, hkDrawIndexedInstanced);
             //CreateHook(84, (void**)&oDrawInstanced, hkDrawInstanced);
             CreateHook(93, (void**)&oRSSetViewports, hkRSSetViewports);
+            CreateHook(27, (void**)&oCreateCommittedResource, hkCreateCommittedResource);
             CreateHook(110, (void**)&oSetGraphicsRootConstantBufferView, hkSetGraphicsRootConstantBufferView);
 			CreateHook(116, (void**)&oIASetVertexBuffers, hkIASetVertexBuffers);
 			CreateHook(115, (void**)&oIASetIndexBuffer, hkIASetIndexBuffer);
-            //CreateHook(118, (void**)&oOMSetRenderTargets, hkOMSetRenderTargets);
             CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState);
             CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState);
-            //CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);
             CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData);
+            //CreateHook(118, (void**)&oOMSetRenderTargets, hkOMSetRenderTargets);
+            //CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);
             //CreateHook(39, (void**)&oCreateQueryHeap, hkCreateQueryHeap);
             //CreateHook(124, (void**)&oBeginQuery, hkBeginQuery);
             //CreateHook(125, (void**)&oEndQuery, hkEndQuery);
@@ -886,8 +932,7 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             //CreateHook(109, (void**)&oSetComputeRootConstantBufferView, hkSetComputeRootConstantBufferView);
             //CreateHook(17, (void**)&oCreateConstantBufferView, hkCreateConstantBufferView);
 			//CreateHook(18, (void**)&oCreateShaderResourceView, hkCreateShaderResourceView);
-			//CreateHook(100, (void**)&oSetDescriptorHeaps, hkSetDescriptorHeaps);	    
-			//CreateHook(27, (void**)&oCreateCommittedResource, hkCreateCommittedResource);
+			//CreateHook(100, (void**)&oSetDescriptorHeaps, hkSetDescriptorHeaps);
             //CreateHook(29, (void**)&oCreatePlacedResource, hkCreatePlacedResource);
 			//CreateHook(112, (void**)&oSetGraphicsRootShaderResourceView, hkSetGraphicsRootShaderResourceView);
 
