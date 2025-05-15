@@ -216,9 +216,10 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             if (dataSize == sizeof(CommandListSpecificData)) {
                 // Successfully retrieved the struct and the size matches
                 rootIndex = retrievedData.lastCbvRootParameterIndex;
+                rDimension = retrievedData.rDimension;
                 rFormat = retrievedData.rFormat;
-                // You can also access other members if you added them:
-                // D3D12_GPU_VIRTUAL_ADDRESS loc = retrievedData.lastCbvBufferLocation;
+                rWidth = retrievedData.rWidth;
+                rFlags = retrievedData.rFlags;
             }
             else {
                 // Data was found, but the size doesn't match what we expect.
