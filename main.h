@@ -64,7 +64,6 @@ struct CommandListSpecificData {
 };
 
 //Stride ect.
-UINT Strides;
 struct CommandListState {
 	UINT vertexBufferSizes[7] = {};
 	UINT vertexStrides[7] = {};
