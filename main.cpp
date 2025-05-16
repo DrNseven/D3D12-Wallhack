@@ -239,7 +239,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         currentStride += t_cLS.vertexStrides[i];
     }
     //include StartSlot for Unity
-    Strides = currentStride + StartSlot;
+    UINT Strides = currentStride + StartSlot;
     // For example, get the first buffer's size if needed
     UINT currentvSize = t_cLS.vertexBufferSizes[0]/2;
     //int twoDigitSize = getTwoDigitValue(currentiSize);
