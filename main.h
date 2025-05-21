@@ -756,8 +756,8 @@ struct MyMaterialConstants // EXAMPLE STRUCTURE
 	DirectX::XMFLOAT4   unknown2;	   // The color we want to change (16 bytes)
 	DirectX::XMFLOAT4   unknown3;	   // The color we want to change (16 bytes)
 	*/
-	BYTE padding[256 - (sizeof(DirectX::XMFLOAT4) * 4 + sizeof(float) * 12 + sizeof(DirectX::XMFLOAT4X4))];
-	//BYTE padding[4096 - (sizeof(DirectX::XMFLOAT4X4) + sizeof(DirectX::XMFLOAT4) + sizeof(float) * 2 + sizeof(DirectX::XMFLOAT2))];
+	//BYTE padding[256 - (sizeof(DirectX::XMFLOAT4) * 4 + sizeof(float) * 12 + sizeof(DirectX::XMFLOAT4X4))];
+	BYTE padding[4096 - (sizeof(DirectX::XMFLOAT4X4) + sizeof(DirectX::XMFLOAT4) + sizeof(float) * 2 + sizeof(DirectX::XMFLOAT2))];//more likely to find color
 }; // Total size = 256 bytes (EXAMPLE)
 
 // Creates our upload buffer resource
