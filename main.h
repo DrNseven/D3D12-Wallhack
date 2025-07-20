@@ -49,24 +49,20 @@ ID3D12CommandQueue* commandQueue;
 UINT countnum = -1;
 
 //rootparameterindex
-//Optional, generate this using a GUID generator (e.g., Visual Studio's Tools -> Create GUID)
-//{E21A228C-786F-4432-B97E-D48E4A0F78FB} - example
-static const GUID MyCommandListPrivateDataGuid =
-{ 0xe21a228c, 0x786f, 0x4432, { 0xb9, 0x7e, 0xd4, 0x8e, 0x4a, 0xf, 0x78, 0xfb } };
-
-// Struct to hold the data associated with the command list
-struct CommandListSpecificData {
-	UINT lastCbvRootParameterIndex = UINT_MAX;
-	// Add more here if needed
-
-	// Default constructor
-	CommandListSpecificData() : lastCbvRootParameterIndex(UINT_MAX) {}
+// The same struct to hold our data
+struct CommandListStateR {
+    UINT lastCbvRootParameterIndex = UINT_MAX;
+    // Add any other state you need to track per-command-list here
 };
+// Global map and a mutex to protect it
+std::unordered_map<ID3D12GraphicsCommandList*, CommandListStateR> g_CommandListStateMap;
+std::mutex g_CommandListStateMutex;
+
 
 //Stride ect.
 struct CommandListState {
 	UINT vertexBufferSizes[7] = {};
-	UINT vertexStrides[7] = {};
+	UINT vStrides[7] = {};
 	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
 	UINT currentiSize = 0;
 	UINT StartSlot = 0;
@@ -816,5 +812,47 @@ bool CreateCustomConstantBuffer()
 }
 
 //=========================================================================================================================//
-
-
+/*
+// Pre-compiled HLSL bytecode for a simple pixel shader that returns solid green.
+// HLSL Source:
+// float4 main() : SV_TARGET { return float4(0.0f, 1.0f, 0.0f, 1.0f); }
+const unsigned char g_pGreenShaderBytecode[] =
+{
+	68,  88,  66,  67,  83, 159, 137,  95, 127, 240, 169,  95,
+	33, 111, 227, 112, 168, 192, 234, 115,   1,   0,   0,   0,
+	44,   1,   0,   0,   5,   0,   0,   0,  60,   0,   0,   0,
+	80,   0,   0,   0, 140,   0,   0,   0, 200,   0,   0,   0,
+	240,   0,   0,   0,  83,  72,  68,  82,  68,   0,   0,   0,
+	5,   0,   0,   0,   0,   4, 254, 255,   0,   1,   0,   0,
+	82,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0, 102, 108,  116,  52,   0,  79,  83,  71,
+	78,  36,   0,   0,   0,   1,   0,   0,   0,   8,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	12,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	110,  97, 109, 101,   0, 109,  97, 105, 110,   0,  83,  86,
+	95,  84,  65,  82,  71,  69,  84,   0,   0, 171,  73,  83,
+	71,  78,  36,   0,   0,   0,   1,   0,   0,   0,   8,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	12,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	110,  97, 109, 101,   0, 109,  97, 105, 110,   0, 171, 171,
+	73,  67,  66,  80,  40,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,  83,  84,  65,  84, 140,   0,   0,   0,
+	19,   0,   0,   0,   2,   0,   0,   0,   0,   0,   0,   0,
+	4,   0,   0,   0, 255, 255, 255, 255,   0,   0,   0,   0,
+	255, 255, 255, 255,   0,   0,   0,   0,  67,   0,  13,  13,
+	67,   0,  13,  13,   0,   0,   0,   0,   1,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+	0,   0,   0,   0
+};
+*/
