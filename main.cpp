@@ -264,7 +264,8 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     // Wallhack
     if (wallh)
     if (Strides == countnum || rootIndex == countnum) {
-    //if (t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 4 && t_cLS.vStrides[3] == 4 && t_cLS.vStrides[4] == 8 && t_cLS.vStrides[5] == 24 && t_cLS.vStrides[6] == 99) {//test
+    //if (Strides == 28 && rootIndex == 8) { //game 1
+    //if (t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 4 && t_cLS.vStrides[3] == 4 && t_cLS.vStrides[4] == 8 && t_cLS.vStrides[5] == 24 && t_cLS.vStrides[6] == 0) {//game 2
         D3D12_VIEWPORT viewport = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
         dCommandList->RSSetViewports(1, &viewport);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
