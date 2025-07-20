@@ -48,29 +48,19 @@ ID3D12PipelineState* g_CurrentPSO = nullptr;
 ID3D12CommandQueue* commandQueue;
 UINT countnum = -1;
 
-
-//rootparameterindex
-// The same struct to hold our data
-struct CommandListStateR {
-    UINT lastCbvRootParameterIndex = UINT_MAX;
-	UINT lastCbvRootParameterIndex2 = UINT_MAX;
-    // Add any other state you need to track per-command-list here
-};
-// Global map and a mutex to protect it
-std::unordered_map<ID3D12GraphicsCommandList*, CommandListStateR> g_CommandListStateMap;
-std::mutex g_CommandListStateMutex;
-
-
-//Stride ect.
-struct CommandListState {
-	UINT vertexBufferSizes[7] = {};
-	UINT vStrides[7] = {};
-	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
-	UINT currentiSize = 0;
+// Thread-local cache 
+thread_local struct {
+	UINT lastCbvRootParameterIndex = UINT_MAX;
+	UINT lastCbvRootParameterIndex2 = UINT_MAX; // Reserved for future use
 	UINT StartSlot = 0;
 	UINT NumViews = 0;
-};
-thread_local CommandListState t_cLS;
+	UINT vStrides[7] = { 0 };
+	UINT vertexBufferSizes[7] = { 0 };
+	UINT cachedStrideSum = 0;
+	D3D12_VIEWPORT currentViewport = {};
+	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
+	UINT currentiSize = 0;
+} t_cLS;
 
 
 //setpipelinestate

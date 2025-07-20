@@ -180,49 +180,13 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         initialized = true;
     }
 
+    // Read cached values from TLS
+    UINT rootIndex = t_cLS.lastCbvRootParameterIndex;
+    UINT rootIndex2 = t_cLS.lastCbvRootParameterIndex2;
+    UINT Strides = t_cLS.cachedStrideSum + t_cLS.StartSlot;
 
-    // Get rotIndex/shader index
-    UINT rootIndex = UINT_MAX; // Default value
-    UINT rootIndex2 = UINT_MAX;
-    if (dCommandList) {
-        // Lock the mutex before accessing the global map
-        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
-
-        // Find the state associated with this command list
-        auto it = g_CommandListStateMap.find(dCommandList);
-        if (it != g_CommandListStateMap.end()) {
-            // Found it! Retrieve the data.
-            rootIndex = it->second.lastCbvRootParameterIndex; 
-            rootIndex2 = it->second.lastCbvRootParameterIndex2;
-        }
-    }
-
-
-    // Read TLS values cached, to help with model recognition
-    //const UINT NumViews = t_cLS.NumViews;
-    const UINT StartSlot = t_cLS.StartSlot;
-    //const DXGI_FORMAT currentiFormat = t_cLS.currentIndexFormat;
-    //const UINT currentiSize = t_cLS.currentiSize / 2;
-
-    UINT currentStride = 0;
-    for (int i = 0; i < 7; ++i)
-        currentStride += t_cLS.vStrides[i];
-
-    UINT Strides = currentStride + StartSlot;
-    //UINT currentvSize = t_cLS.vertexBufferSizes[0] / 2;
-    //int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
-
-
-
-    // Lock-free viewport read (snapshot copy)
-    float vpWidth = 0.0f, vpHeight = 0.0f;
-    {
-        auto it = gViewportMap.find(dCommandList);
-        if (it != gViewportMap.end()) {
-            vpWidth = it->second.Width;
-            vpHeight = it->second.Height;
-        }
-    }
+    float vpWidth = t_cLS.currentViewport.Width;
+    float vpHeight = t_cLS.currentViewport.Height;
 
 
     /*
@@ -255,17 +219,17 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
     
     // Wallhack
-    if (wallh)
-    if(Strides == countnum) {
+    if (wallh && Strides == countnum) {
     //if (t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 4 && t_cLS.vStrides[3] == 4 && t_cLS.vStrides[4] == 8 && t_cLS.vStrides[5] == 24 && t_cLS.vStrides[6] == 0) {//test
         D3D12_VIEWPORT vp = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
         dCommandList->RSSetViewports(1, &vp);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
 
+        // Reset viewport
         vp.MinDepth = 0.0f;
         dCommandList->RSSetViewports(1, &vp);
+        //return; // avoid double draw call
     }
-   
 
 
     // Logger
@@ -337,8 +301,7 @@ void STDMETHODCALLTYPE hkDrawInstanced(ID3D12GraphicsCommandList* dCommandList, 
 void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,UINT NumViewports,const D3D12_VIEWPORT* pViewports) {
 
     if (NumViewports > 0 && pViewports) {
-        std::lock_guard<std::mutex> lock(gViewportMutex);
-        gViewportMap[dCommandList] = pViewports[0];  // assume single viewport
+        t_cLS.currentViewport = pViewports[0];  // fast copy to thread-local
     }
     
     return oRSSetViewports(dCommandList, NumViewports, pViewports);  // Call original function
@@ -348,14 +311,7 @@ void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,
 
 void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
 
-    if (dCommandList) {
-        // Lock the mutex before accessing the global map
-        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
-
-        // Get our state struct for this command list (or create it if it's the first time)
-        // The [] operator conveniently handles creation for us.
-        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex = RootParameterIndex;
-    }
+    t_cLS.lastCbvRootParameterIndex = RootParameterIndex;
 
     /*
     //try to log matrix (unity)
@@ -388,17 +344,8 @@ void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommand
 //=========================================================================================================================//
 
 void STDMETHODCALLTYPE hkSetGraphicsRootDescriptorTable(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
-    // Hook logic here
-    //Log("2");
 
-    if (dCommandList) {
-        // Lock the mutex before accessing the global map
-        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
-
-        // Get our state struct for this command list (or create it if it's the first time)
-        // The [] operator conveniently handles creation for us.
-        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex2 = RootParameterIndex;
-    }
+    t_cLS.lastCbvRootParameterIndex2 = RootParameterIndex;
 
     return oSetGraphicsRootDescriptorTable(dCommandList, RootParameterIndex, BaseDescriptor);
 }
@@ -406,17 +353,20 @@ void STDMETHODCALLTYPE hkSetGraphicsRootDescriptorTable(ID3D12GraphicsCommandLis
 //=========================================================================================================================//
 
 void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
-    // Clear old values
+    // Reset stride and size data
     for (int i = 0; i < 7; ++i) {
         t_cLS.vStrides[i] = 0;
         t_cLS.vertexBufferSizes[i] = 0;
     }
 
+    t_cLS.cachedStrideSum = 0;
+
     if (NumViews > 0 && pViews) {
         for (UINT i = 0; i < NumViews && i < 7; ++i) {
-            if (pViews[i].StrideInBytes <= 120) { // Optional check
+            if (pViews[i].StrideInBytes <= 120) { // sanity check
                 t_cLS.vStrides[i] = pViews[i].StrideInBytes;
                 t_cLS.vertexBufferSizes[i] = pViews[i].SizeInBytes;
+                t_cLS.cachedStrideSum += pViews[i].StrideInBytes;
             }
         }
         t_cLS.StartSlot = StartSlot;
@@ -430,6 +380,7 @@ void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandL
 
 void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView)
 {
+    /*
     //optional
     if (pView != nullptr) {
         t_cLS.currentIndexFormat = pView->Format;
@@ -438,7 +389,7 @@ void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandLis
     else {
         t_cLS.currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     }
-
+    */
     return oIASetIndexBuffer(dCommandList, pView);
 }
 
@@ -519,131 +470,6 @@ void STDMETHODCALLTYPE hkOMSetRenderTargets(
 
     return oOMSetRenderTargets(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
 }
-
-//=========================================================================================================================//
-
-/*
-//usually useless
-// SetComputeRootDescriptorTable
-typedef void (STDMETHODCALLTYPE* SetComputeRootDescriptorTable)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor);
-SetComputeRootDescriptorTable oSetComputeRootDescriptorTable;
-
-void STDMETHODCALLTYPE hkSetComputeRootDescriptorTable(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
-    // Hook logic here
-    //Log("2");
-
-    if (dCommandList) {
-        // Lock the mutex before accessing the global map
-        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
-
-        // Get our state struct for this command list (or create it if it's the first time)
-        // The [] operator conveniently handles creation for us.
-        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex3 = RootParameterIndex;
-    }
-
-    return oSetComputeRootDescriptorTable(dCommandList, RootParameterIndex, BaseDescriptor);
-}
-
-// SetComputeRootConstantBufferView
-typedef void (STDMETHODCALLTYPE* SetComputeRootConstantBufferView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
-SetComputeRootConstantBufferView oSetComputeRootConstantBufferView;
-
-void STDMETHODCALLTYPE hkSetComputeRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
-    // Hook logic here
-    //Log("4");
-
-    if (dCommandList) {
-        // Lock the mutex before accessing the global map
-        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
-
-        // Get our state struct for this command list (or create it if it's the first time)
-        // The [] operator conveniently handles creation for us.
-        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex4 = RootParameterIndex;
-    }
-
-    return oSetComputeRootConstantBufferView(dCommandList, RootParameterIndex, BufferLocation);
-}
-
-// SetComputeRootShaderResourceView
-typedef void (STDMETHODCALLTYPE* SetComputeRootShaderResourceView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS SRVLocation);
-SetComputeRootShaderResourceView oSetComputeRootShaderResourceView;
-
-void STDMETHODCALLTYPE hkSetComputeRootShaderResourceView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS SRVLocation) {
-    // Hook logic here
-    Log("5");
-
-    if (dCommandList) {
-        // Lock the mutex before accessing the global map
-        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
-
-        // Get our state struct for this command list (or create it if it's the first time)
-        // The [] operator conveniently handles creation for us.
-        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex5 = RootParameterIndex;
-    }
-
-    return oSetComputeRootShaderResourceView(dCommandList, RootParameterIndex, SRVLocation);
-}
-
-// SetGraphicsRootShaderResourceView
-typedef void (STDMETHODCALLTYPE* SetGraphicsRootShaderResourceView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS SRVLocation);
-SetGraphicsRootShaderResourceView oSetGraphicsRootShaderResourceView;
-
-void STDMETHODCALLTYPE hkSetGraphicsRootShaderResourceView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS SRVLocation) {
-    // Hook logic here
-    Log("6");
-
-    if (dCommandList) {
-        // Lock the mutex before accessing the global map
-        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
-
-        // Get our state struct for this command list (or create it if it's the first time)
-        // The [] operator conveniently handles creation for us.
-        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex6 = RootParameterIndex;
-    }
-
-    return oSetGraphicsRootShaderResourceView(dCommandList, RootParameterIndex, SRVLocation);
-}
-
-// SetComputeRootUnorderedAccessView
-typedef void (STDMETHODCALLTYPE* SetComputeRootUnorderedAccessView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS UAVLocation);
-SetComputeRootUnorderedAccessView oSetComputeRootUnorderedAccessView;
-
-void STDMETHODCALLTYPE hkSetComputeRootUnorderedAccessView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS UAVLocation) {
-    // Hook logic here
-    Log("7");
-
-    if (dCommandList) {
-        // Lock the mutex before accessing the global map
-        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
-
-        // Get our state struct for this command list (or create it if it's the first time)
-        // The [] operator conveniently handles creation for us.
-        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex7 = RootParameterIndex;
-    }
-
-    return oSetComputeRootUnorderedAccessView(dCommandList, RootParameterIndex, UAVLocation);
-}
-
-// SetGraphicsRootUnorderedAccessView
-typedef void (STDMETHODCALLTYPE* SetGraphicsRootUnorderedAccessView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS UAVLocation);
-SetGraphicsRootUnorderedAccessView oSetGraphicsRootUnorderedAccessView;
-
-void STDMETHODCALLTYPE hkSetGraphicsRootUnorderedAccessView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS UAVLocation) {
-    // Hook logic here
-    Log("8");
-
-    if (dCommandList) {
-        // Lock the mutex before accessing the global map
-        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
-
-        // Get our state struct for this command list (or create it if it's the first time)
-        // The [] operator conveniently handles creation for us.
-        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex8 = RootParameterIndex;
-    }
-
-    return oSetGraphicsRootUnorderedAccessView(dCommandList, RootParameterIndex, UAVLocation);
-}
-*/
 
 //=========================================================================================================================//
 
