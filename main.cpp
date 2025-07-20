@@ -21,11 +21,12 @@ DrawInstanced oDrawInstanced = NULL;
 typedef void (STDMETHODCALLTYPE* RSSetViewportsFunc)(ID3D12GraphicsCommandList* dCommandList, UINT NumViewports, const D3D12_VIEWPORT* pViewports);
 RSSetViewportsFunc oRSSetViewports = nullptr;
 
-typedef void (STDMETHODCALLTYPE* SetGraphicsRootSignature)(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature);
-SetGraphicsRootSignature oSetGraphicsRootSignature = nullptr;
-
 typedef void (STDMETHODCALLTYPE* SetGraphicsRootConstantBufferView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
 SetGraphicsRootConstantBufferView oSetGraphicsRootConstantBufferView;
+
+typedef void (STDMETHODCALLTYPE* SetGraphicsRootDescriptorTable)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor);
+SetGraphicsRootDescriptorTable oSetGraphicsRootDescriptorTable;
+
 
 typedef void(STDMETHODCALLTYPE* OMSetRenderTargets)(ID3D12GraphicsCommandList* dCommandList, UINT NumRenderTargetDescriptors, const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors, BOOL RTsSingleHandleToDescriptorRange, const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor);
 OMSetRenderTargets oOMSetRenderTargets = NULL;
@@ -71,16 +72,6 @@ typedef HRESULT(STDMETHODCALLTYPE* CreatePlacedResource)(
     void** ppvResource
     );
 CreatePlacedResource oCreatePlacedResource = NULL;
-
-typedef void (STDMETHODCALLTYPE* SetGraphicsRootShaderResourceView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
-SetGraphicsRootShaderResourceView oSetGraphicsRootShaderResourceView;
-
-typedef void (STDMETHODCALLTYPE* SetComputeRootConstantBufferView)(
-    ID3D12GraphicsCommandList* pCommandList,
-    UINT RootParameterIndex,
-    D3D12_GPU_VIRTUAL_ADDRESS BufferLocation
-    );
-SetComputeRootConstantBufferView oSetComputeRootConstantBufferView = nullptr;
 
 typedef HRESULT(STDMETHODCALLTYPE* CreateConstantBufferView)(ID3D12Device* pDevice, const D3D12_CONSTANT_BUFFER_VIEW_DESC* pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor);
 CreateConstantBufferView oCreateConstantBufferView = nullptr;
@@ -192,6 +183,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
     // Get rotIndex/shader index
     UINT rootIndex = UINT_MAX; // Default value
+    UINT rootIndex2 = UINT_MAX;
     if (dCommandList) {
         // Lock the mutex before accessing the global map
         std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
@@ -200,24 +192,25 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         auto it = g_CommandListStateMap.find(dCommandList);
         if (it != g_CommandListStateMap.end()) {
             // Found it! Retrieve the data.
-            rootIndex = it->second.lastCbvRootParameterIndex;
+            rootIndex = it->second.lastCbvRootParameterIndex; 
+            rootIndex2 = it->second.lastCbvRootParameterIndex2;
         }
     }
 
 
     // Read TLS values cached, to help with model recognition
-    const UINT NumViews = t_cLS.NumViews;
+    //const UINT NumViews = t_cLS.NumViews;
     const UINT StartSlot = t_cLS.StartSlot;
-    const DXGI_FORMAT currentiFormat = t_cLS.currentIndexFormat;
-    const UINT currentiSize = t_cLS.currentiSize / 2;
+    //const DXGI_FORMAT currentiFormat = t_cLS.currentIndexFormat;
+    //const UINT currentiSize = t_cLS.currentiSize / 2;
 
     UINT currentStride = 0;
     for (int i = 0; i < 7; ++i)
         currentStride += t_cLS.vStrides[i];
 
     UINT Strides = currentStride + StartSlot;
-    UINT currentvSize = t_cLS.vertexBufferSizes[0] / 2;
-    int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
+    //UINT currentvSize = t_cLS.vertexBufferSizes[0] / 2;
+    //int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
 
 
 
@@ -263,15 +256,14 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     
     // Wallhack
     if (wallh)
-    if (Strides == countnum || rootIndex == countnum) {
-    //if (Strides == 28 && rootIndex == 8) { //game 1
-    //if (t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 4 && t_cLS.vStrides[3] == 4 && t_cLS.vStrides[4] == 8 && t_cLS.vStrides[5] == 24 && t_cLS.vStrides[6] == 0) {//game 2
-        D3D12_VIEWPORT viewport = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
-        dCommandList->RSSetViewports(1, &viewport);
+    if(Strides == countnum) {
+    //if (t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 4 && t_cLS.vStrides[3] == 4 && t_cLS.vStrides[4] == 8 && t_cLS.vStrides[5] == 24 && t_cLS.vStrides[6] == 0) {//test
+        D3D12_VIEWPORT vp = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
+        dCommandList->RSSetViewports(1, &vp);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
 
-        viewport.MinDepth = 0.0f;
-        dCommandList->RSSetViewports(1, &viewport);
+        vp.MinDepth = 0.0f;
+        dCommandList->RSSetViewports(1, &vp);
     }
    
 
@@ -279,9 +271,9 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     // Logger
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
-    if (vkENDkeydown && (Strides == countnum || rootIndex == countnum || twoDigitSize == countnum)) {
-        Log("Strides == %d && rootIndex == %d && t_cLS.vStrides[0] == %d && t_cLS.vStrides[1] == %d && t_cLS.vStrides[2] == %d && t_cLS.vStrides[3] == %d && t_cLS.vStrides[4] == %d && t_cLS.vStrides[5] == %d && t_cLS.vStrides[6] == %d && IndexCountPerInstance == %d",
-            Strides, rootIndex, t_cLS.vStrides[0], t_cLS.vStrides[1], t_cLS.vStrides[2], t_cLS.vStrides[3], t_cLS.vStrides[4], t_cLS.vStrides[5], t_cLS.vStrides[6], IndexCountPerInstance);
+    if (vkENDkeydown && (Strides == countnum)) {
+        Log("Strides == %d && t_cLS.vStrides[0] == %d && t_cLS.vStrides[1] == %d && t_cLS.vStrides[2] == %d && t_cLS.vStrides[3] == %d && t_cLS.vStrides[4] == %d && t_cLS.vStrides[5] == %d && t_cLS.vStrides[6] == %d && IndexCountPerInstance == %d && rootIndex == %d && rootIndex2 == %d",
+            Strides, t_cLS.vStrides[0], t_cLS.vStrides[1], t_cLS.vStrides[2], t_cLS.vStrides[3], t_cLS.vStrides[4], t_cLS.vStrides[5], t_cLS.vStrides[6], IndexCountPerInstance, rootIndex, rootIndex2);
         //Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d && NumViews == %d", 
         //countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation, NumViews);
     }
@@ -354,61 +346,6 @@ void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,
 
 //=========================================================================================================================//
 
-HRESULT STDMETHODCALLTYPE hkCreatePlacedResource(
-    ID3D12Device* pDevice,
-    ID3D12Heap* pHeap,
-    UINT64                    HeapOffset,
-    const D3D12_RESOURCE_DESC* pDesc,
-    D3D12_RESOURCE_STATES     InitialState,
-    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
-    REFIID                    riid,
-    void** ppvResource
-) {
-
-    HRESULT hr = oCreatePlacedResource(pDevice, pHeap, HeapOffset, pDesc, InitialState, pOptimizedClearValue, riid, ppvResource);
-
-    return hr;
-}
-
-//=========================================================================================================================//
-
-HRESULT STDMETHODCALLTYPE hkCreateCommittedResource(
-    ID3D12Device* pDevice,
-    const D3D12_HEAP_DESC* pDesc,
-    const D3D12_HEAP_PROPERTIES* pHeapProperties,
-    const D3D12_RESOURCE_DESC* pResourceDesc,
-    D3D12_RESOURCE_STATES InitialResourceState,
-    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
-    REFIID riidResource,
-    void** ppvResource
-) {
-    HRESULT hr = oCreateCommittedResource(pDevice, pDesc, pHeapProperties, pResourceDesc, InitialResourceState, pOptimizedClearValue, riidResource, ppvResource);
-
-    /*
-    if (SUCCEEDED(hr)) {
-        g_pResource = *reinterpret_cast<ID3D12Resource**>(ppvResource);
-
-        // Ensure it's a valid resource
-        if (g_pResource != nullptr) {
-            D3D12_RESOURCE_DESC resourceDesc = g_pResource->GetDesc();
-
-            // Check if the resource is a buffer
-            //if (resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER && resourceDesc.Width >= 256) {
-            if (resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
-                goodresource = g_pResource;
-                //Log("1. Buffer created with Width: %llu\n", resourceDesc.Width);
-            }
-        }
-    }
-    else {
-        //Log("Error: *ppvResource is nullptr after CreateCommittedResource!\n");
-    }
-    */
-    return hr;
-}
-
-//=========================================================================================================================//
-
 void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
 
     if (dCommandList) {
@@ -450,6 +387,24 @@ void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommand
 
 //=========================================================================================================================//
 
+void STDMETHODCALLTYPE hkSetGraphicsRootDescriptorTable(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
+    // Hook logic here
+    //Log("2");
+
+    if (dCommandList) {
+        // Lock the mutex before accessing the global map
+        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
+
+        // Get our state struct for this command list (or create it if it's the first time)
+        // The [] operator conveniently handles creation for us.
+        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex2 = RootParameterIndex;
+    }
+
+    return oSetGraphicsRootDescriptorTable(dCommandList, RootParameterIndex, BaseDescriptor);
+}
+
+//=========================================================================================================================//
+
 void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
     // Clear old values
     for (int i = 0; i < 7; ++i) {
@@ -475,7 +430,6 @@ void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandL
 
 void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView)
 {
-    /*
     //optional
     if (pView != nullptr) {
         t_cLS.currentIndexFormat = pView->Format;
@@ -484,8 +438,63 @@ void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandLis
     else {
         t_cLS.currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     }
-    */
+
     return oIASetIndexBuffer(dCommandList, pView);
+}
+
+//=========================================================================================================================//
+
+HRESULT STDMETHODCALLTYPE hkCreateCommittedResource(
+    ID3D12Device* pDevice,
+    const D3D12_HEAP_DESC* pDesc,
+    const D3D12_HEAP_PROPERTIES* pHeapProperties,
+    const D3D12_RESOURCE_DESC* pResourceDesc,
+    D3D12_RESOURCE_STATES InitialResourceState,
+    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
+    REFIID riidResource,
+    void** ppvResource
+) {
+    HRESULT hr = oCreateCommittedResource(pDevice, pDesc, pHeapProperties, pResourceDesc, InitialResourceState, pOptimizedClearValue, riidResource, ppvResource);
+
+    /*
+    if (SUCCEEDED(hr)) {
+        g_pResource = *reinterpret_cast<ID3D12Resource**>(ppvResource);
+
+        // Ensure it's a valid resource
+        if (g_pResource != nullptr) {
+            D3D12_RESOURCE_DESC resourceDesc = g_pResource->GetDesc();
+
+            // Check if the resource is a buffer
+            //if (resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER && resourceDesc.Width >= 256) {
+            if (resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
+                goodresource = g_pResource;
+                //Log("1. Buffer created with Width: %llu\n", resourceDesc.Width);
+            }
+        }
+    }
+    else {
+        //Log("Error: *ppvResource is nullptr after CreateCommittedResource!\n");
+    }
+    */
+    return hr;
+}
+
+//=========================================================================================================================//
+
+HRESULT STDMETHODCALLTYPE hkCreatePlacedResource(
+    ID3D12Device* pDevice,
+    ID3D12Heap* pHeap,
+    UINT64                    HeapOffset,
+    const D3D12_RESOURCE_DESC* pDesc,
+    D3D12_RESOURCE_STATES     InitialState,
+    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
+    REFIID                    riid,
+    void** ppvResource
+) {
+
+    HRESULT hr = oCreatePlacedResource(pDevice, pHeap, HeapOffset, pDesc, InitialState, pOptimizedClearValue, riid, ppvResource);
+
+    return hr;
 }
 
 //=========================================================================================================================//
@@ -510,6 +519,131 @@ void STDMETHODCALLTYPE hkOMSetRenderTargets(
 
     return oOMSetRenderTargets(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
 }
+
+//=========================================================================================================================//
+
+/*
+//usually useless
+// SetComputeRootDescriptorTable
+typedef void (STDMETHODCALLTYPE* SetComputeRootDescriptorTable)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor);
+SetComputeRootDescriptorTable oSetComputeRootDescriptorTable;
+
+void STDMETHODCALLTYPE hkSetComputeRootDescriptorTable(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
+    // Hook logic here
+    //Log("2");
+
+    if (dCommandList) {
+        // Lock the mutex before accessing the global map
+        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
+
+        // Get our state struct for this command list (or create it if it's the first time)
+        // The [] operator conveniently handles creation for us.
+        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex3 = RootParameterIndex;
+    }
+
+    return oSetComputeRootDescriptorTable(dCommandList, RootParameterIndex, BaseDescriptor);
+}
+
+// SetComputeRootConstantBufferView
+typedef void (STDMETHODCALLTYPE* SetComputeRootConstantBufferView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
+SetComputeRootConstantBufferView oSetComputeRootConstantBufferView;
+
+void STDMETHODCALLTYPE hkSetComputeRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
+    // Hook logic here
+    //Log("4");
+
+    if (dCommandList) {
+        // Lock the mutex before accessing the global map
+        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
+
+        // Get our state struct for this command list (or create it if it's the first time)
+        // The [] operator conveniently handles creation for us.
+        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex4 = RootParameterIndex;
+    }
+
+    return oSetComputeRootConstantBufferView(dCommandList, RootParameterIndex, BufferLocation);
+}
+
+// SetComputeRootShaderResourceView
+typedef void (STDMETHODCALLTYPE* SetComputeRootShaderResourceView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS SRVLocation);
+SetComputeRootShaderResourceView oSetComputeRootShaderResourceView;
+
+void STDMETHODCALLTYPE hkSetComputeRootShaderResourceView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS SRVLocation) {
+    // Hook logic here
+    Log("5");
+
+    if (dCommandList) {
+        // Lock the mutex before accessing the global map
+        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
+
+        // Get our state struct for this command list (or create it if it's the first time)
+        // The [] operator conveniently handles creation for us.
+        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex5 = RootParameterIndex;
+    }
+
+    return oSetComputeRootShaderResourceView(dCommandList, RootParameterIndex, SRVLocation);
+}
+
+// SetGraphicsRootShaderResourceView
+typedef void (STDMETHODCALLTYPE* SetGraphicsRootShaderResourceView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS SRVLocation);
+SetGraphicsRootShaderResourceView oSetGraphicsRootShaderResourceView;
+
+void STDMETHODCALLTYPE hkSetGraphicsRootShaderResourceView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS SRVLocation) {
+    // Hook logic here
+    Log("6");
+
+    if (dCommandList) {
+        // Lock the mutex before accessing the global map
+        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
+
+        // Get our state struct for this command list (or create it if it's the first time)
+        // The [] operator conveniently handles creation for us.
+        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex6 = RootParameterIndex;
+    }
+
+    return oSetGraphicsRootShaderResourceView(dCommandList, RootParameterIndex, SRVLocation);
+}
+
+// SetComputeRootUnorderedAccessView
+typedef void (STDMETHODCALLTYPE* SetComputeRootUnorderedAccessView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS UAVLocation);
+SetComputeRootUnorderedAccessView oSetComputeRootUnorderedAccessView;
+
+void STDMETHODCALLTYPE hkSetComputeRootUnorderedAccessView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS UAVLocation) {
+    // Hook logic here
+    Log("7");
+
+    if (dCommandList) {
+        // Lock the mutex before accessing the global map
+        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
+
+        // Get our state struct for this command list (or create it if it's the first time)
+        // The [] operator conveniently handles creation for us.
+        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex7 = RootParameterIndex;
+    }
+
+    return oSetComputeRootUnorderedAccessView(dCommandList, RootParameterIndex, UAVLocation);
+}
+
+// SetGraphicsRootUnorderedAccessView
+typedef void (STDMETHODCALLTYPE* SetGraphicsRootUnorderedAccessView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS UAVLocation);
+SetGraphicsRootUnorderedAccessView oSetGraphicsRootUnorderedAccessView;
+
+void STDMETHODCALLTYPE hkSetGraphicsRootUnorderedAccessView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS UAVLocation) {
+    // Hook logic here
+    Log("8");
+
+    if (dCommandList) {
+        // Lock the mutex before accessing the global map
+        std::lock_guard<std::mutex> lock(g_CommandListStateMutex);
+
+        // Get our state struct for this command list (or create it if it's the first time)
+        // The [] operator conveniently handles creation for us.
+        g_CommandListStateMap[dCommandList].lastCbvRootParameterIndex8 = RootParameterIndex;
+    }
+
+    return oSetGraphicsRootUnorderedAccessView(dCommandList, RootParameterIndex, UAVLocation);
+}
+*/
 
 //=========================================================================================================================//
 
@@ -647,13 +781,6 @@ void STDMETHODCALLTYPE hkSetPipelineState(ID3D12GraphicsCommandList* dCommandLis
 
 //=========================================================================================================================//
 
-void STDMETHODCALLTYPE hkSetComputeRootConstantBufferView(ID3D12GraphicsCommandList* pCommandList,UINT RootParameterIndex,D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
-    
-    return oSetComputeRootConstantBufferView(pCommandList, RootParameterIndex, BufferLocation);
-}
-
-//=========================================================================================================================//
-
 void STDMETHODCALLTYPE hkCreateShaderResourceView(ID3D12Device* device,ID3D12Resource* resource,const D3D12_SHADER_RESOURCE_VIEW_DESC* desc,D3D12_CPU_DESCRIPTOR_HANDLE handle) {
 
 	return oCreateShaderResourceView(device, resource, desc, handle);
@@ -672,20 +799,6 @@ void STDMETHODCALLTYPE hkSetDescriptorHeaps(ID3D12GraphicsCommandList* dCommandL
 HRESULT STDMETHODCALLTYPE hkCreateConstantBufferView(ID3D12Device* pDevice, const D3D12_CONSTANT_BUFFER_VIEW_DESC* pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) {
 
     return oCreateConstantBufferView(pDevice, pDesc, DestDescriptor);
-}
-
-//=========================================================================================================================//
-
-void STDMETHODCALLTYPE hkSetGraphicsRootShaderResourceView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation)
-{
-	return oSetGraphicsRootShaderResourceView(dCommandList, RootParameterIndex, BufferLocation);
-}
-
-//=========================================================================================================================//
-
-void STDMETHODCALLTYPE hkSetGraphicsRootSignature(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature) {
-
-    return oSetGraphicsRootSignature(dCommandList, pRootSignature);
 }
 
 //=========================================================================================================================//
@@ -881,11 +994,18 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             CreateHook(85, (void**)&oDrawIndexedInstanced, hkDrawIndexedInstanced);
             CreateHook(93, (void**)&oRSSetViewports, hkRSSetViewports);
             CreateHook(110, (void**)&oSetGraphicsRootConstantBufferView, hkSetGraphicsRootConstantBufferView);
+            CreateHook(104, (void**)&oSetGraphicsRootDescriptorTable, hkSetGraphicsRootDescriptorTable);
             CreateHook(116, (void**)&oIASetVertexBuffers, hkIASetVertexBuffers);
             CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData); //disable if not needed
             // CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState); //enable if game is unity
             // CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState); //enable if game is unity
- 
+            
+            //CreateHook(103, (void**)&oSetComputeRootDescriptorTable, hkSetComputeRootDescriptorTable);
+            //CreateHook(109, (void**)&oSetComputeRootConstantBufferView, hkSetComputeRootConstantBufferView);
+            //CreateHook(111, (void**)&oSetComputeRootShaderResourceView, hkSetComputeRootShaderResourceView);
+            //CreateHook(112, (void**)&oSetGraphicsRootShaderResourceView, hkSetGraphicsRootShaderResourceView);
+            //CreateHook(113, (void**)&oSetComputeRootUnorderedAccessView, hkSetComputeRootUnorderedAccessView);
+            //CreateHook(114, (void**)&oSetGraphicsRootUnorderedAccessView, hkSetGraphicsRootUnorderedAccessView);      
 			//CreateHook(54, (void**)&oExecuteCommandLists, hkExecuteCommandLists);
 			//CreateHook(140, (void**)&oPresent, hkPresent);	
             //CreateHook(84, (void**)&oDrawInstanced, hkDrawInstanced);   
@@ -1050,18 +1170,18 @@ extern "C" __declspec(dllexport) int NextHook(int code, WPARAM wParam, LPARAM lP
 //[100] SetDescriptorHeaps
 //[101] SetComputeRootSignature
 //[102] SetGraphicsRootSignature
-//[103] SetComputeRootDescriptorTable <-
-//[104] SetGraphicsRootDescriptorTable <--
+//[103] SetComputeRootDescriptorTable 
+//[104] SetGraphicsRootDescriptorTable 
 //[105] SetComputeRoot32BitConstant
 //[106] SetGraphicsRoot32BitConstant
 //[107] SetComputeRoot32BitConstants
 //[108] SetGraphicsRoot32BitConstants
-//[109] SetComputeRootConstantBufferView <-
-//[110] SetGraphicsRootConstantBufferView <--
-//[111] SetComputeRootShaderResourceView <-
-//[112] SetGraphicsRootShaderResourceView <--
-//[113] SetComputeRootUnorderedAccessView <-
-//[114] SetGraphicsRootUnorderedAccessView <--
+//[109] SetComputeRootConstantBufferView 
+//[110] SetGraphicsRootConstantBufferView 
+//[111] SetComputeRootShaderResourceView 
+//[112] SetGraphicsRootShaderResourceView 
+//[113] SetComputeRootUnorderedAccessView 
+//[114] SetGraphicsRootUnorderedAccessView 
 //[115] IASetIndexBuffer
 //[116] IASetVertexBuffers
 //[117] SOSetTargets

@@ -48,10 +48,12 @@ ID3D12PipelineState* g_CurrentPSO = nullptr;
 ID3D12CommandQueue* commandQueue;
 UINT countnum = -1;
 
+
 //rootparameterindex
 // The same struct to hold our data
 struct CommandListStateR {
     UINT lastCbvRootParameterIndex = UINT_MAX;
+	UINT lastCbvRootParameterIndex2 = UINT_MAX;
     // Add any other state you need to track per-command-list here
 };
 // Global map and a mutex to protect it
@@ -70,6 +72,7 @@ struct CommandListState {
 };
 thread_local CommandListState t_cLS;
 
+
 //setpipelinestate
 // Global map for green variants
 std::unordered_map<ID3D12PipelineState*, ID3D12PipelineState*> greenVariants;
@@ -81,9 +84,11 @@ ID3D12PipelineState* originalPSO = nullptr;
 ID3D12PipelineState* greenPSO = nullptr;
 bool swapped = false;
 
+
 //setviewport
 std::unordered_map<ID3D12GraphicsCommandList*, D3D12_VIEWPORT> gViewportMap;
 std::mutex gViewportMutex;
+
 
 //resource
 ID3D12Resource* g_pResource;
@@ -133,6 +138,91 @@ void lognospam(int duration, const char* name)
 		waitedOnce = true;
 	}
 }
+
+//=========================================================================================================================//
+
+// Custom resources for coloring
+ComPtr<ID3D12Resource> g_pCustomConstantBuffer = nullptr;
+UINT8* g_pMappedConstantBuffer = nullptr; // Pointer to mapped CPU-accessible memory
+UINT g_constantBufferSize = 0;
+
+// TODO: Define the EXACT structure of the constant buffer you're targeting.
+//       This MUST match what the shader expects. Size needs to be 256-byte aligned.
+//       This example assumes a simple structure. It's likely MUCH more complex.
+struct MyMaterialConstants // EXAMPLE STRUCTURE 
+{
+	//Can leave empty for now, what matters more is bruteforcing colorOffset
+	/*
+	DirectX::XMFLOAT4X4 worldViewProj; // Example matrix (64 bytes)
+	DirectX::XMFLOAT2   uvScale;       // Example other parameter (8 bytes)
+	DirectX::XMFLOAT2   uvScale2;      // Example other parameter (8 bytes)
+	float               specularPower; // Example other parameter (4 bytes)
+	float               metallic;      // Example other parameter (4 bytes)
+	DirectX::XMFLOAT4   diffuseColor;  // The color we want to change (16 bytes)
+	DirectX::XMFLOAT4   unknown;	   // The color we want to change (16 bytes)
+	DirectX::XMFLOAT4   unknown2;	   // The color we want to change (16 bytes)
+	DirectX::XMFLOAT4   unknown3;	   // The color we want to change (16 bytes)
+	*/
+	//BYTE padding[256 - (sizeof(DirectX::XMFLOAT4) * 4 + sizeof(float) * 12 + sizeof(DirectX::XMFLOAT4X4))];
+	BYTE padding[4096 - (sizeof(DirectX::XMFLOAT4X4) + sizeof(DirectX::XMFLOAT4) + sizeof(float) * 2 + sizeof(DirectX::XMFLOAT2))];//more likely to find color
+}; // Total size = 256 bytes (EXAMPLE)
+
+// Creates our upload buffer resource
+bool CreateCustomConstantBuffer()
+{
+	if (!pDevice) return false;
+
+	// Calculate struct size, ensure alignment
+	g_constantBufferSize = (sizeof(MyMaterialConstants) + 255) & ~255; // Align to 256 bytes
+
+	D3D12_HEAP_PROPERTIES heapProps = {};
+	heapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // CPU write, GPU read
+	heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+	heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+
+	D3D12_RESOURCE_DESC resourceDesc = {};
+	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+	resourceDesc.Alignment = 0;
+	resourceDesc.Width = g_constantBufferSize;
+	resourceDesc.Height = 1;
+	resourceDesc.DepthOrArraySize = 1;
+	resourceDesc.MipLevels = 1;
+	resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+	resourceDesc.SampleDesc.Count = 1;
+	resourceDesc.SampleDesc.Quality = 0;
+	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+	resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+	HRESULT hr = pDevice->CreateCommittedResource(
+		&heapProps,
+		D3D12_HEAP_FLAG_NONE,
+		&resourceDesc,
+		D3D12_RESOURCE_STATE_GENERIC_READ, // Initial state for upload heap
+		nullptr,
+		IID_PPV_ARGS(&g_pCustomConstantBuffer));
+
+	if (FAILED(hr)) {
+		Log("Failed to create custom constant buffer!");
+		return false;
+	}
+
+	g_pCustomConstantBuffer->SetName(L"CustomHookConstantBuffer");
+
+	// Map the buffer permanently. Upload heaps are CPU-accessible.
+	// We don't need to unmap unless we destroy the resource.
+	D3D12_RANGE readRange = { 0, 0 }; // We don't intend to read from CPU
+	hr = g_pCustomConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&g_pMappedConstantBuffer));
+
+	if (FAILED(hr)) {
+		Log("Failed to map custom constant buffer!");
+		g_pCustomConstantBuffer.Reset(); // Release the buffer if map failed
+		return false;
+	}
+
+	return true;
+}
+
+//=========================================================================================================================//
 
 struct Vec3 { float x, y, z; };
 struct Vec2 { float x, y; };
@@ -725,89 +815,6 @@ bool InitGreenOverlayPipeline(ID3D12Device* device, ID3D12RootSignature** ppRoot
 
 	*ppRootSig = tempRootSig.Detach();
 	*ppPSO = tempPSO.Detach();
-	return true;
-}
-
-//=========================================================================================================================//
-
-// Custom resources for coloring
-ComPtr<ID3D12Resource> g_pCustomConstantBuffer = nullptr;
-UINT8* g_pMappedConstantBuffer = nullptr; // Pointer to mapped CPU-accessible memory
-UINT g_constantBufferSize = 0;
-
-// TODO: Define the EXACT structure of the constant buffer you're targeting.
-//       This MUST match what the shader expects. Size needs to be 256-byte aligned.
-//       This example assumes a simple structure. It's likely MUCH more complex.
-struct MyMaterialConstants // EXAMPLE STRUCTURE 
-{
-	//Can leave empty for now, what matters more is bruteforcing colorOffset
-	/*
-	DirectX::XMFLOAT4X4 worldViewProj; // Example matrix (64 bytes)
-	DirectX::XMFLOAT2   uvScale;       // Example other parameter (8 bytes)
-	DirectX::XMFLOAT2   uvScale2;      // Example other parameter (8 bytes)
-	float               specularPower; // Example other parameter (4 bytes)
-	float               metallic;      // Example other parameter (4 bytes)
-	DirectX::XMFLOAT4   diffuseColor;  // The color we want to change (16 bytes)
-	DirectX::XMFLOAT4   unknown;	   // The color we want to change (16 bytes)
-	DirectX::XMFLOAT4   unknown2;	   // The color we want to change (16 bytes)
-	DirectX::XMFLOAT4   unknown3;	   // The color we want to change (16 bytes)
-	*/
-	//BYTE padding[256 - (sizeof(DirectX::XMFLOAT4) * 4 + sizeof(float) * 12 + sizeof(DirectX::XMFLOAT4X4))];
-	BYTE padding[4096 - (sizeof(DirectX::XMFLOAT4X4) + sizeof(DirectX::XMFLOAT4) + sizeof(float) * 2 + sizeof(DirectX::XMFLOAT2))];//more likely to find color
-}; // Total size = 256 bytes (EXAMPLE)
-
-// Creates our upload buffer resource
-bool CreateCustomConstantBuffer()
-{
-	if (!pDevice) return false;
-
-	// Calculate struct size, ensure alignment
-	g_constantBufferSize = (sizeof(MyMaterialConstants) + 255) & ~255; // Align to 256 bytes
-
-	D3D12_HEAP_PROPERTIES heapProps = {};
-	heapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // CPU write, GPU read
-	heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-	heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-
-	D3D12_RESOURCE_DESC resourceDesc = {};
-	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-	resourceDesc.Alignment = 0;
-	resourceDesc.Width = g_constantBufferSize;
-	resourceDesc.Height = 1;
-	resourceDesc.DepthOrArraySize = 1;
-	resourceDesc.MipLevels = 1;
-	resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
-	resourceDesc.SampleDesc.Count = 1;
-	resourceDesc.SampleDesc.Quality = 0;
-	resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-	resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-	HRESULT hr = pDevice->CreateCommittedResource(
-		&heapProps,
-		D3D12_HEAP_FLAG_NONE,
-		&resourceDesc,
-		D3D12_RESOURCE_STATE_GENERIC_READ, // Initial state for upload heap
-		nullptr,
-		IID_PPV_ARGS(&g_pCustomConstantBuffer));
-
-	if (FAILED(hr)) {
-		Log("Failed to create custom constant buffer!");
-		return false;
-	}
-
-	g_pCustomConstantBuffer->SetName(L"CustomHookConstantBuffer");
-
-	// Map the buffer permanently. Upload heaps are CPU-accessible.
-	// We don't need to unmap unless we destroy the resource.
-	D3D12_RANGE readRange = { 0, 0 }; // We don't intend to read from CPU
-	hr = g_pCustomConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&g_pMappedConstantBuffer));
-
-	if (FAILED(hr)) {
-		Log("Failed to map custom constant buffer!");
-		g_pCustomConstantBuffer.Reset(); // Release the buffer if map failed
-		return false;
-	}
-
 	return true;
 }
 
