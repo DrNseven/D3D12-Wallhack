@@ -27,7 +27,6 @@ SetGraphicsRootConstantBufferView oSetGraphicsRootConstantBufferView;
 typedef void (STDMETHODCALLTYPE* SetGraphicsRootDescriptorTable)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor);
 SetGraphicsRootDescriptorTable oSetGraphicsRootDescriptorTable;
 
-
 typedef void(STDMETHODCALLTYPE* OMSetRenderTargets)(ID3D12GraphicsCommandList* dCommandList, UINT NumRenderTargetDescriptors, const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors, BOOL RTsSingleHandleToDescriptorRange, const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor);
 OMSetRenderTargets oOMSetRenderTargets = NULL;
 
@@ -113,6 +112,10 @@ LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             wallh = !wallh;
             break;
 
+        case VK_HOME: //home key
+            colors = !colors;
+            break;
+
         case VK_OEM_COMMA: //, key
             countnum--;
             break;
@@ -163,42 +166,61 @@ HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
 }
 
 //=========================================================================================================================//
-
+bool initialized = false;
 void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dCommandList, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation) {
-
+    
     // One time initialization
-    static bool initialized = false;
-    static Microsoft::WRL::ComPtr<ID3D12Device> pDevice;
-    if (!initialized) {
+    if (!initialized && IndexCountPerInstance > 0 && InstanceCount > 0) {
         HRESULT hr = dCommandList->GetDevice(__uuidof(ID3D12Device), (void**)&pDevice);
         if (FAILED(hr)) {
-            Log("Failed to get ID3D12Device from command list, HRESULT: 0x%08X", hr);
-            return;
+            Log("GetDevice failed: 0x%08X", hr);
+            return oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
+        //Log("Got pDevice at %p", pDevice.Get());
 
-        CreateCustomConstantBuffer();  //for coloring with SetGraphicsRootConstantBufferView
-        initialized = true;
+        if (CreateCustomConstantBuffer()) {
+            initialized = true;
+            //Log("Constant buffer initialized");
+        }
+        else {
+            //Log("Failed to create constant buffer");
+        }
     }
+
 
     // Read cached values from TLS
     UINT rootIndex = t_cLS.lastCbvRootParameterIndex;
     UINT rootIndex2 = t_cLS.lastCbvRootParameterIndex2;
     UINT Strides = t_cLS.cachedStrideSum + t_cLS.StartSlot;
+    //int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
 
     float vpWidth = t_cLS.currentViewport.Width;
     float vpHeight = t_cLS.currentViewport.Height;
 
-
-    /*
-    // Color stuff by updating constant buffer (unreal engine)
-    if ((Strides == countnum || rootIndex == countnum || twoDigitSize == countnum) && rootIndex != UINT_MAX)
+    
+    if(colors)//off by default
+    if ((Strides == countnum) && rootIndex != UINT_MAX)
     {
         DirectX::XMFLOAT4X4 identity;
         DirectX::XMStoreFloat4x4(&identity, DirectX::XMMatrixIdentity());
 
-        DirectX::XMFLOAT4 newColor = { 125.0f, 75.0f, 25.0f, 5.0f };
+        // Define colors
+        DirectX::XMFLOAT4 ColorA = { 125.0f, 75.0f, 25.0f, 5.0f };
+        DirectX::XMFLOAT4 ColorB = { 125.0f, 75.0f, 25.0f, 5.0f };
+
         size_t matrixOffset = 0;
-        size_t colorOffset = countnum;
+        size_t colorOffset;
+        DirectX::XMFLOAT4 newColor;
+
+        // Choose color and offset based on stride pattern
+        if (t_cLS.vStrides[2] == 9999) {
+            colorOffset = 132; // example
+            newColor = ColorA;
+        }
+        else { // t_cLS.vStrides[2] == 8
+            colorOffset = countnum; // example, bruteforce this one
+            newColor = ColorB;
+        }
 
         if (g_pMappedConstantBuffer &&
             matrixOffset + sizeof(identity) <= g_constantBufferSize &&
@@ -215,29 +237,27 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
         }
     }
-    */
+
 
     
     // Wallhack
-    if (wallh && Strides == countnum) {
-    //if (t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 4 && t_cLS.vStrides[3] == 4 && t_cLS.vStrides[4] == 8 && t_cLS.vStrides[5] == 24 && t_cLS.vStrides[6] == 0) {//test
+    if (wallh)
+    if(Strides == countnum) { //lazy mode for logging, replace later with something like that below
+    //if((t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 4)||(t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 8)) { //test
         D3D12_VIEWPORT vp = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
         dCommandList->RSSetViewports(1, &vp);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-
-        // Reset viewport
         vp.MinDepth = 0.0f;
         dCommandList->RSSetViewports(1, &vp);
-        //return; // avoid double draw call
     }
 
-
+    
     // Logger
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
     if (vkENDkeydown && (Strides == countnum)) {
-        Log("Strides == %d && t_cLS.vStrides[0] == %d && t_cLS.vStrides[1] == %d && t_cLS.vStrides[2] == %d && t_cLS.vStrides[3] == %d && t_cLS.vStrides[4] == %d && t_cLS.vStrides[5] == %d && t_cLS.vStrides[6] == %d && IndexCountPerInstance == %d && rootIndex == %d && rootIndex2 == %d",
-            Strides, t_cLS.vStrides[0], t_cLS.vStrides[1], t_cLS.vStrides[2], t_cLS.vStrides[3], t_cLS.vStrides[4], t_cLS.vStrides[5], t_cLS.vStrides[6], IndexCountPerInstance, rootIndex, rootIndex2);
+        Log("Strides == %d && t_cLS.vStrides[0] == %d && t_cLS.vStrides[1] == %d && t_cLS.vStrides[2] == %d && t_cLS.vStrides[3] == %d && t_cLS.vStrides[4] == %d && t_cLS.vStrides[5] == %d && t_cLS.vStrides[6] == %d && IndexCountPerInstance == %d && rootIndex == %d && t_cLS.StartSlot == %d && t_cLS.vertexBufferSizes[0] == %d",
+            Strides, t_cLS.vStrides[0], t_cLS.vStrides[1], t_cLS.vStrides[2], t_cLS.vStrides[3], t_cLS.vStrides[4], t_cLS.vStrides[5], t_cLS.vStrides[6], IndexCountPerInstance, rootIndex, t_cLS.StartSlot, t_cLS.vertexBufferSizes[0]);
         //Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d && NumViews == %d", 
         //countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation, NumViews);
     }
@@ -820,7 +840,7 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             CreateHook(85, (void**)&oDrawIndexedInstanced, hkDrawIndexedInstanced);
             CreateHook(93, (void**)&oRSSetViewports, hkRSSetViewports);
             CreateHook(110, (void**)&oSetGraphicsRootConstantBufferView, hkSetGraphicsRootConstantBufferView);
-            CreateHook(104, (void**)&oSetGraphicsRootDescriptorTable, hkSetGraphicsRootDescriptorTable);
+            //CreateHook(104, (void**)&oSetGraphicsRootDescriptorTable, hkSetGraphicsRootDescriptorTable);
             CreateHook(116, (void**)&oIASetVertexBuffers, hkIASetVertexBuffers);
             CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData); //disable if not needed
             // CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState); //enable if game is unity

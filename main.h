@@ -38,6 +38,7 @@ using namespace DirectX;
 
 //globals
 bool wallh = 1;
+bool colors = 0;
 bool ShowMenu = false;
 ComPtr<ID3D12Device> pDevice = nullptr;
 D3D12_CPU_DESCRIPTOR_HANDLE g_RTVHandle = {}; // For Render Target View (RTV)
@@ -46,7 +47,7 @@ ID3D12PipelineState* g_CurrentPSO = nullptr;
 //D3D12_GPU_VIRTUAL_ADDRESS gBufferLocation;
 //ID3D12DescriptorHeap* g_CurrentDescriptorHeap = nullptr;
 ID3D12CommandQueue* commandQueue;
-UINT countnum = -1;
+UINT countnum = 196;
 
 // Thread-local cache 
 thread_local struct {
@@ -136,30 +137,16 @@ ComPtr<ID3D12Resource> g_pCustomConstantBuffer = nullptr;
 UINT8* g_pMappedConstantBuffer = nullptr; // Pointer to mapped CPU-accessible memory
 UINT g_constantBufferSize = 0;
 
-// TODO: Define the EXACT structure of the constant buffer you're targeting.
-//       This MUST match what the shader expects. Size needs to be 256-byte aligned.
-//       This example assumes a simple structure. It's likely MUCH more complex.
-struct MyMaterialConstants // EXAMPLE STRUCTURE 
+struct MyMaterialConstants 
 {
 	//Can leave empty for now, what matters more is bruteforcing colorOffset
-	/*
-	DirectX::XMFLOAT4X4 worldViewProj; // Example matrix (64 bytes)
-	DirectX::XMFLOAT2   uvScale;       // Example other parameter (8 bytes)
-	DirectX::XMFLOAT2   uvScale2;      // Example other parameter (8 bytes)
-	float               specularPower; // Example other parameter (4 bytes)
-	float               metallic;      // Example other parameter (4 bytes)
-	DirectX::XMFLOAT4   diffuseColor;  // The color we want to change (16 bytes)
-	DirectX::XMFLOAT4   unknown;	   // The color we want to change (16 bytes)
-	DirectX::XMFLOAT4   unknown2;	   // The color we want to change (16 bytes)
-	DirectX::XMFLOAT4   unknown3;	   // The color we want to change (16 bytes)
-	*/
-	//BYTE padding[256 - (sizeof(DirectX::XMFLOAT4) * 4 + sizeof(float) * 12 + sizeof(DirectX::XMFLOAT4X4))];
 	BYTE padding[4096 - (sizeof(DirectX::XMFLOAT4X4) + sizeof(DirectX::XMFLOAT4) + sizeof(float) * 2 + sizeof(DirectX::XMFLOAT2))];//more likely to find color
-}; // Total size = 256 bytes (EXAMPLE)
+}; // Total size = 4096 bytes
 
-// Creates our upload buffer resource
+// Creates our upload buffer resource (used for coloring)
 bool CreateCustomConstantBuffer()
 {
+	if (!pDevice) Log("!pDevice");
 	if (!pDevice) return false;
 
 	// Calculate struct size, ensure alignment
