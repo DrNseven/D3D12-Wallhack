@@ -35,6 +35,12 @@ typedef HRESULT(STDMETHODCALLTYPE* ResolveQueryData)(ID3D12GraphicsCommandList* 
     UINT64 AlignedDestinationBufferOffset);
 ResolveQueryData oResolveQueryData = nullptr;
 
+typedef HRESULT(STDMETHODCALLTYPE* CreateGraphicsPipelineState)(ID3D12Device* pDevice, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* pDesc, REFIID riid, void** ppPipelineState);
+CreateGraphicsPipelineState oCreateGraphicsPipelineState = NULL;
+
+typedef void(STDMETHODCALLTYPE* SetPipelineState)(ID3D12GraphicsCommandList* dCommandList, ID3D12PipelineState* pPipelineState);
+SetPipelineState oSetPipelineState = NULL;
+
 //=========================================================================================================================//
 
 bool vkENDkeydown = false;
@@ -108,7 +114,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
     // Read cached values from TLS
     UINT rootIndex = t_.lastCbvRootParameterIndex;
-    UINT Strides = t_.cachedStrideSum + t_.StartSlot;
+    UINT Strides = t_.fastStride + t_.StartSlot;
     //int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
     float vpWidth = t_.currentViewport.Width;
     float vpHeight = t_.currentViewport.Height;
@@ -170,6 +176,49 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     }
     
 
+   /*
+   //Classic wallhack example, not really used because doesn't work if game caches pipeline offline like UE5 ect. 
+   //Try to hijack games pipeline (unity engine)
+   if (Strides == countnum && rootIndex) { //brute force values
+       // 1. Get the PSO that should be currently active for this command list
+       {
+           std::lock_guard<std::mutex> lock(commandListPSOMutex);
+           auto it = currentCommandListPSO.find(dCommandList);
+           if (it != currentCommandListPSO.end()) {
+               originalPSO = it->second;
+           }
+       } // Release commandListPSOMutex lock
+
+       // 2. Find the green variant for this PSO
+       if (originalPSO) {
+           std::lock_guard<std::mutex> lock(pipelineMutex);
+           auto it = greenVariants.find(originalPSO);
+           if (it != greenVariants.end()) {
+               greenPSO = it->second;
+           }
+       } // Release pipelineMutex lock
+
+       // 3. If we found a green variant, swap to it
+       if (greenPSO) {
+           oSetPipelineState(dCommandList, greenPSO); // Set the green PSO
+           swapped = true;
+           //Log("DrawIndexedInstanced (IndexCount: %u): Swapped to Green PSO %p (Original: %p)", IndexCountPerInstance, greenPSO, originalPSO);
+       }
+       else {
+           //Log("DrawIndexedInstanced (IndexCount: %u): Target draw call, but Green PSO not found for Original PSO %p", IndexCountPerInstance, originalPSO);
+       }
+
+       // 4. Call the original draw function (with either original or green PSO active)
+       //oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+       // 5. If we swapped, restore the original PSO (removes colors too)
+       //if (swapped) {
+           //oSetPipelineState(dCommandList, originalPSO); // Restore the original PSO
+            //Log("DrawIndexedInstanced (IndexCount: %u): Restored Original PSO %p", IndexCountPerInstance, originalPSO);
+       //}
+   }
+   */
+
 	return oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
 }
 
@@ -214,11 +263,12 @@ void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandL
                 t_.Strides[i] = pViews[i].StrideInBytes;
                 strideData[i] = pViews[i].StrideInBytes;
                 t_.vertexBufferSizes[i] = pViews[i].SizeInBytes;
+                t_.cachedStrideSum += pViews[i].StrideInBytes;
             }
         }
 
         // Only hash meaningful data
-        t_.cachedStrideSum = fastStrideHash(strideData, NumViews);
+        t_.fastStride = fastStrideHash(strideData, NumViews);
     }
 
     /*
@@ -340,6 +390,77 @@ void STDMETHODCALLTYPE hkResolveQueryData(
 
 //=========================================================================================================================//
 
+HRESULT STDMETHODCALLTYPE hkCreateGraphicsPipelineState(ID3D12Device* pDevice, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* pDesc, REFIID riid, void** ppPipelineState)
+{
+    HRESULT hr = oCreateGraphicsPipelineState(pDevice, pDesc, riid, ppPipelineState);
+    if (FAILED(hr) || !ppPipelineState || !*ppPipelineState)
+        return hr;
+
+    ID3D12PipelineState* originalPSO = static_cast<ID3D12PipelineState*>(*ppPipelineState);
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC newDesc = *pDesc;
+
+    // Modify Blend State for green tint override (safe way)
+    if (newDesc.NumRenderTargets > 0) {
+        newDesc.BlendState.IndependentBlendEnable = TRUE;
+        auto& rtBlend = newDesc.BlendState.RenderTarget[0];
+        rtBlend.BlendEnable = TRUE;
+        rtBlend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+        rtBlend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+        rtBlend.BlendOp = D3D12_BLEND_OP_ADD;
+        rtBlend.SrcBlendAlpha = D3D12_BLEND_ONE;
+        rtBlend.DestBlendAlpha = D3D12_BLEND_ZERO;
+        rtBlend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+        rtBlend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_GREEN | D3D12_COLOR_WRITE_ENABLE_ALPHA;
+    }
+
+    // Optional: Wallhack logic
+    if (newDesc.DSVFormat != DXGI_FORMAT_UNKNOWN) {
+        // Only modify if wallhack mode is enabled
+        bool enableWallhack = true; // Set your own condition
+        if (enableWallhack) {
+            newDesc.DepthStencilState.DepthEnable = TRUE;
+            newDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        }
+    }
+
+    ID3D12PipelineState* greenPSO = nullptr;
+    HRESULT greenHr = oCreateGraphicsPipelineState(pDevice, &newDesc, riid, reinterpret_cast<void**>(&greenPSO));
+
+    if (SUCCEEDED(greenHr) && greenPSO) {
+        std::lock_guard<std::mutex> lock(pipelineMutex);
+        greenVariants[originalPSO] = greenPSO;
+    }
+    else if (greenPSO) {
+        greenPSO->Release(); // avoid leak
+    }
+
+    return hr;
+}
+
+//=========================================================================================================================//
+
+void STDMETHODCALLTYPE hkSetPipelineState(ID3D12GraphicsCommandList* dCommandList, ID3D12PipelineState* pPipelineState) {
+
+    // Track the PSO the application wants to set for this command list
+    if (pPipelineState) // Avoid storing nullptrs if the app does that
+    {
+        std::lock_guard<std::mutex> lock(commandListPSOMutex);
+        currentCommandListPSO[dCommandList] = pPipelineState;
+        //Log("Tracking PSO %p for CommandList %p", pPipelineState, dCommandList);//spams
+    }
+    else {
+        // Optionally remove the entry if PSO is set to null
+        std::lock_guard<std::mutex> lock(commandListPSOMutex);
+        currentCommandListPSO.erase(dCommandList);
+        //Log("Untracking PSO for CommandList %p (set to NULL)", dCommandList);
+    }
+
+    return oSetPipelineState(dCommandList, pPipelineState); // Call the original function
+}
+
+//=========================================================================================================================//
+
 DWORD WINAPI MainThread(LPVOID lpParameter) {
 
 	bool WindowFocus = false;
@@ -382,6 +503,8 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             CreateHook(115, (void**)&oIASetIndexBuffer, hkIASetIndexBuffer);
             CreateHook(104, (void**)&oSetGraphicsRootDescriptorTable, hkSetGraphicsRootDescriptorTable);
             CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData); //disable if not needed
+            // CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState); //if game is unity
+            // CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState); //if game is unity
 
             static bool wndproc_initialized = false;
             if (!wndproc_initialized) {

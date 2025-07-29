@@ -40,10 +40,22 @@ thread_local struct {
 	UINT Strides[7] = { 0 };
 	UINT vertexBufferSizes[7] = { 0 };
 	UINT cachedStrideSum = 0;
+	UINT fastStride = 0;
 	D3D12_VIEWPORT currentViewport = {};
 	UINT currentiSize = 0;
 	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
 } t_;
+
+//setpipelinestate
+// Global map for green variants
+std::unordered_map<ID3D12PipelineState*, ID3D12PipelineState*> greenVariants;
+std::mutex pipelineMutex;
+// Global map to track the last PSO set per command list
+std::unordered_map<ID3D12GraphicsCommandList*, ID3D12PipelineState*> currentCommandListPSO;
+std::mutex commandListPSOMutex;
+ID3D12PipelineState* originalPSO = nullptr;
+ID3D12PipelineState* greenPSO = nullptr;
+bool swapped = false;
 
 //=========================================================================================================================//
 
