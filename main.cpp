@@ -2,21 +2,14 @@
 // D3D12 Wallhack 2025 by N7 //
 ///////////////////////////////
 
+//project -> properties -> advanced -> Character Set -> Use Multi-Byte Character Set
+
 #include "main.h"
 
 //=========================================================================================================================//
 
-typedef void(STDMETHODCALLTYPE* ExecuteCommandLists)(ID3D12CommandQueue* queue, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
-ExecuteCommandLists oExecuteCommandLists = NULL;
-
-typedef HRESULT(STDMETHODCALLTYPE* Present12) (IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags);
-Present12 oPresent = NULL;
-
 typedef void(STDMETHODCALLTYPE* DrawIndexedInstanced)(ID3D12GraphicsCommandList* dCommandList, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation);
 DrawIndexedInstanced oDrawIndexedInstanced = NULL;
-
-typedef void(STDMETHODCALLTYPE* DrawInstanced)(ID3D12GraphicsCommandList* dCommandList, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation);
-DrawInstanced oDrawInstanced = NULL;
 
 typedef void (STDMETHODCALLTYPE* RSSetViewportsFunc)(ID3D12GraphicsCommandList* dCommandList, UINT NumViewports, const D3D12_VIEWPORT* pViewports);
 RSSetViewportsFunc oRSSetViewports = nullptr;
@@ -24,56 +17,14 @@ RSSetViewportsFunc oRSSetViewports = nullptr;
 typedef void (STDMETHODCALLTYPE* SetGraphicsRootConstantBufferView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
 SetGraphicsRootConstantBufferView oSetGraphicsRootConstantBufferView;
 
-typedef void (STDMETHODCALLTYPE* SetGraphicsRootDescriptorTable)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor);
-SetGraphicsRootDescriptorTable oSetGraphicsRootDescriptorTable;
-
-typedef void(STDMETHODCALLTYPE* OMSetRenderTargets)(ID3D12GraphicsCommandList* dCommandList, UINT NumRenderTargetDescriptors, const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors, BOOL RTsSingleHandleToDescriptorRange, const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor);
-OMSetRenderTargets oOMSetRenderTargets = NULL;
-
 typedef void(STDMETHODCALLTYPE* IASetVertexBuffers)(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews);
 IASetVertexBuffers oIASetVertexBuffers = NULL;
 
 typedef void(STDMETHODCALLTYPE* IASetIndexBuffer)(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
 IASetIndexBuffer oIASetIndexBuffer = NULL;
 
-typedef HRESULT(STDMETHODCALLTYPE* CreateGraphicsPipelineState)(ID3D12Device* pDevice, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* pDesc, REFIID riid, void** ppPipelineState);
-CreateGraphicsPipelineState oCreateGraphicsPipelineState = NULL;
-
-typedef void(STDMETHODCALLTYPE* SetPipelineState)(ID3D12GraphicsCommandList* dCommandList, ID3D12PipelineState* pPipelineState);
-SetPipelineState oSetPipelineState = NULL;
-
-typedef void (STDMETHODCALLTYPE* CreateShaderResourceView_t)(ID3D12Device*,ID3D12Resource*,const D3D12_SHADER_RESOURCE_VIEW_DESC*,D3D12_CPU_DESCRIPTOR_HANDLE);
-CreateShaderResourceView_t oCreateShaderResourceView = nullptr;
-
-typedef void (STDMETHODCALLTYPE* SetDescriptorHeaps)(ID3D12GraphicsCommandList* dCommandList, UINT NumDescriptorHeaps, ID3D12DescriptorHeap* const* ppDescriptorHeaps);
-SetDescriptorHeaps oSetDescriptorHeaps;
-
-typedef HRESULT(STDMETHODCALLTYPE* CreateCommittedResource)(
-    ID3D12Device* pDevice,
-    const D3D12_HEAP_DESC* pDesc,
-    const D3D12_HEAP_PROPERTIES* pHeapProperties, 
-    const D3D12_RESOURCE_DESC* pResourceDesc,    
-    D3D12_RESOURCE_STATES InitialResourceState,
-    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
-    REFIID riidResource,
-    void** ppvResource
-    );
-CreateCommittedResource oCreateCommittedResource = NULL;
-
-typedef HRESULT(STDMETHODCALLTYPE* CreatePlacedResource)(
-    ID3D12Device* pDevice,
-    ID3D12Heap* pHeap,
-    UINT64                    HeapOffset,
-    const D3D12_RESOURCE_DESC* pDesc,
-    D3D12_RESOURCE_STATES     InitialState,
-    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
-    REFIID                    riid,
-    void** ppvResource
-    );
-CreatePlacedResource oCreatePlacedResource = NULL;
-
-typedef HRESULT(STDMETHODCALLTYPE* CreateConstantBufferView)(ID3D12Device* pDevice, const D3D12_CONSTANT_BUFFER_VIEW_DESC* pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor);
-CreateConstantBufferView oCreateConstantBufferView = nullptr;
+typedef void (STDMETHODCALLTYPE* SetGraphicsRootDescriptorTable)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor);
+SetGraphicsRootDescriptorTable oSetGraphicsRootDescriptorTable;
 
 typedef HRESULT(STDMETHODCALLTYPE* ResolveQueryData)(ID3D12GraphicsCommandList* self,
     ID3D12QueryHeap* pQueryHeap,
@@ -84,32 +35,18 @@ typedef HRESULT(STDMETHODCALLTYPE* ResolveQueryData)(ID3D12GraphicsCommandList* 
     UINT64 AlignedDestinationBufferOffset);
 ResolveQueryData oResolveQueryData = nullptr;
 
-typedef HRESULT(STDMETHODCALLTYPE* CopyBufferRegion)(
-    ID3D12GraphicsCommandList* self,
-    ID3D12Resource* pDstBuffer,
-    UINT64 DstOffset,
-    ID3D12Resource* pSrcBuffer,
-    UINT64 SrcOffset,
-    UINT64 NumBytes);
-CopyBufferRegion oCopyBufferRegion = nullptr;
-
 //=========================================================================================================================//
 
 bool vkENDkeydown = false;
 
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    
-    if (ShowMenu) {
-        ImGui_ImplWin32_WndProcHandler(hwnd, uMsg, wParam, lParam); //ImGui gets first crack at the message
-    }
     
     switch (uMsg) {
     case WM_KEYDOWN: {
         switch (wParam) {
 
         case VK_INSERT: //insert key
-            wallh = !wallh;
+            wallhack = !wallhack;
             break;
 
         case VK_HOME: //home key
@@ -147,26 +84,8 @@ LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 }
 
 //=========================================================================================================================//
-
-void STDMETHODCALLTYPE hkExecuteCommandLists(ID3D12CommandQueue* queue, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists)
-{
-    if (!commandQueue)
-    commandQueue = queue;
-
-	return oExecuteCommandLists(queue, NumCommandLists, ppCommandLists);
-}
-
-//=========================================================================================================================//
-
-HRESULT __stdcall hkPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags)
-{
-    //present is not called in unity games
-
-    return oPresent(pSwapChain, SyncInterval, Flags);
-}
-
-//=========================================================================================================================//
 bool initialized = false;
+
 void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dCommandList, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation) {
     
     // One time initialization
@@ -176,7 +95,6 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             Log("GetDevice failed: 0x%08X", hr);
             return oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
-        //Log("Got pDevice at %p", pDevice.Get());
 
         if (CreateCustomConstantBuffer()) {
             initialized = true;
@@ -189,47 +107,36 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
 
     // Read cached values from TLS
-    UINT rootIndex = t_cLS.lastCbvRootParameterIndex;
-    UINT rootIndex2 = t_cLS.lastCbvRootParameterIndex2;
-    UINT Strides = t_cLS.cachedStrideSum + t_cLS.StartSlot;
+    UINT rootIndex = t_.lastCbvRootParameterIndex;
+    UINT Strides = t_.cachedStrideSum + t_.StartSlot;
     //int twoDigitSize = getTwoDigitValue(IndexCountPerInstance);
-
-    float vpWidth = t_cLS.currentViewport.Width;
-    float vpHeight = t_cLS.currentViewport.Height;
+    float vpWidth = t_.currentViewport.Width;
+    float vpHeight = t_.currentViewport.Height;
 
     
-    if(colors)//off by default
+    // Colors
+    if(colors) //disabled by default
     if ((Strides == countnum) && rootIndex != UINT_MAX)
     {
-        DirectX::XMFLOAT4X4 identity;
-        DirectX::XMStoreFloat4x4(&identity, DirectX::XMMatrixIdentity());
+        DirectX::XMFLOAT4 newColor = { 1.0f, 1.0f, 1.0f, 1.0f }; 
+        //DirectX::XMFLOAT3 newColor = { 1.0f, 0.0f, 1.0f };
 
-        // Define colors
-        DirectX::XMFLOAT4 ColorA = { 125.0f, 75.0f, 25.0f, 5.0f };
-        DirectX::XMFLOAT4 ColorB = { 125.0f, 75.0f, 25.0f, 5.0f };
-
-        size_t matrixOffset = 0;
-        size_t colorOffset;
-        DirectX::XMFLOAT4 newColor;
-
-        // Choose color and offset based on stride pattern
-        if (t_cLS.vStrides[2] == 9999) {
-            colorOffset = 132; // example
-            newColor = ColorA;
-        }
-        else { // t_cLS.vStrides[2] == 8
-            colorOffset = countnum; // example, bruteforce this one
-            newColor = ColorB;
-        }
+        // Multiply by 16 to step through 16-byte aligned addresses
+        size_t colorOffset = countnum * 16; //bruteforce this value to find colors
 
         if (g_pMappedConstantBuffer &&
-            matrixOffset + sizeof(identity) <= g_constantBufferSize &&
             colorOffset + sizeof(newColor) <= g_constantBufferSize)
         {
+            // To prevent writing every frame, only write when the offset changes
             static size_t lastColorOffset = SIZE_MAX;
-            if (lastColorOffset != colorOffset) {  // Only update if changed
-                memcpy(g_pMappedConstantBuffer + matrixOffset, &identity, sizeof(identity));
+            if (lastColorOffset != colorOffset)
+            {
+                // Nuke the buffer to remove all old animation/transform data (optional)
+                //memset(g_pMappedConstantBuffer, 0, g_constantBufferSize);
+
+                // Write the color at the offset
                 memcpy(g_pMappedConstantBuffer + colorOffset, &newColor, sizeof(newColor));
+
                 lastColorOffset = colorOffset;
             }
 
@@ -239,11 +146,11 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     }
 
 
-    
     // Wallhack
-    if (wallh)
-    if(Strides == countnum) { //lazy mode for logging, replace later with something like that below
-    //if((t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 4)||(t_cLS.vStrides[0] == 12 && t_cLS.vStrides[1] == 8 && t_cLS.vStrides[2] == 8)) { //test
+    if (wallhack)
+    if (Strides == countnum /*|| twoDigitSize == countnum*/) { //Strides is used for bruteforcing, replace later with something similar bel
+    //if ((t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 4) || (t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 8)) { //modelrec example
+
         D3D12_VIEWPORT vp = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
         dCommandList->RSSetViewports(1, &vp);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
@@ -251,69 +158,19 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         dCommandList->RSSetViewports(1, &vp);
     }
 
+
     
     // Logger
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
-    if (vkENDkeydown && (Strides == countnum)) {
-        Log("Strides == %d && t_cLS.vStrides[0] == %d && t_cLS.vStrides[1] == %d && t_cLS.vStrides[2] == %d && t_cLS.vStrides[3] == %d && t_cLS.vStrides[4] == %d && t_cLS.vStrides[5] == %d && t_cLS.vStrides[6] == %d && IndexCountPerInstance == %d && rootIndex == %d && t_cLS.StartSlot == %d && t_cLS.vertexBufferSizes[0] == %d",
-            Strides, t_cLS.vStrides[0], t_cLS.vStrides[1], t_cLS.vStrides[2], t_cLS.vStrides[3], t_cLS.vStrides[4], t_cLS.vStrides[5], t_cLS.vStrides[6], IndexCountPerInstance, rootIndex, t_cLS.StartSlot, t_cLS.vertexBufferSizes[0]);
-        //Log("countnum == %d && Strides == %d && rootIndex == %d && IndexCountPerInstance == %d && twoDigitSize == %d && currentiSize == %d && currentvSize == %d && currentiFormat == %d && StartIndexLocation == %d && NumViews == %d", 
-        //countnum, Strides, rootIndex, IndexCountPerInstance, twoDigitSize, currentiSize, currentvSize, currentiFormat, StartIndexLocation, NumViews);
+    //if (vkENDkeydown && Strides == countnum) { //bruteforce strides example
+    if (vkENDkeydown && Strides == countnum) { //log killing floor 3 models
+        Log("countnum == %d && Strides == %d && t_.Strides[0] == %d && t_.Strides[1] == %d && t_.Strides[2] == %d && t_.Strides[3] == %d && t_.Strides[4] == %d && t_.Strides[5] == %d && t_.Strides[6] == %d && t_.currentiSize == %d && IndexCountPerInstance == %d && rootIndex == %d && t_.StartSlot == %d && t_.vertexBufferSizes[0] == %d && t_.vertexBufferSizes[1] == %d && t_.vertexBufferSizes[2] == %d && t_.vertexBufferSizes[3] == %d",
+            countnum, Strides, t_.Strides[0], t_.Strides[1], t_.Strides[2], t_.Strides[3], t_.Strides[4], t_.Strides[5], t_.Strides[6], t_.currentiSize, IndexCountPerInstance, rootIndex, t_.StartSlot, t_.vertexBufferSizes[0], t_.vertexBufferSizes[1], t_.vertexBufferSizes[2], t_.vertexBufferSizes[3]);
     }
     
 
-    /*
-    //UNITY
-    //This is classic wallhack, but doesn't work if game caches pipeline offline ect. (ue5)
-    //Try to hijack games pipeline (unity)
-    if (Strides == 3 && rootIndex == countnum) { //brute force values
-        // 1. Get the PSO that should be currently active for this command list
-        {
-            std::lock_guard<std::mutex> lock(commandListPSOMutex);
-            auto it = currentCommandListPSO.find(dCommandList);
-            if (it != currentCommandListPSO.end()) {
-                originalPSO = it->second;
-            }
-        } // Release commandListPSOMutex lock
-
-        // 2. Find the green variant for this PSO
-        if (originalPSO) {
-            std::lock_guard<std::mutex> lock(pipelineMutex);
-            auto it = greenVariants.find(originalPSO);
-            if (it != greenVariants.end()) {
-                greenPSO = it->second;
-            }
-        } // Release pipelineMutex lock
-
-        // 3. If we found a green variant, swap to it
-        if (greenPSO) {
-            oSetPipelineState(dCommandList, greenPSO); // Set the green PSO
-            swapped = true;
-            //Log("DrawIndexedInstanced (IndexCount: %u): Swapped to Green PSO %p (Original: %p)", IndexCountPerInstance, greenPSO, originalPSO);
-        }
-        else {
-            //Log("DrawIndexedInstanced (IndexCount: %u): Target draw call, but Green PSO not found for Original PSO %p", IndexCountPerInstance, originalPSO);
-        }
-
-        // 4. Call the original draw function (with either original or green PSO active)
-        //oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-
-        // 5. If we swapped, restore the original PSO (removes colors too)
-        //if (swapped) {
-            //oSetPipelineState(dCommandList, originalPSO); // Restore the original PSO
-             //Log("DrawIndexedInstanced (IndexCount: %u): Restored Original PSO %p", IndexCountPerInstance, originalPSO);
-        //}
-    }
-    */
 	return oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-}
-
-//=========================================================================================================================//
-
-void STDMETHODCALLTYPE hkDrawInstanced(ID3D12GraphicsCommandList* dCommandList, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation) {
-
-    return oDrawInstanced(dCommandList, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation);
 }
 
 //=========================================================================================================================//
@@ -321,7 +178,7 @@ void STDMETHODCALLTYPE hkDrawInstanced(ID3D12GraphicsCommandList* dCommandList, 
 void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,UINT NumViewports,const D3D12_VIEWPORT* pViewports) {
 
     if (NumViewports > 0 && pViewports) {
-        t_cLS.currentViewport = pViewports[0];  // fast copy to thread-local
+        t_.currentViewport = pViewports[0];  // fast copy to thread-local
     }
     
     return oRSSetViewports(dCommandList, NumViewports, pViewports);  // Call original function
@@ -331,68 +188,59 @@ void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,
 
 void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
 
-    t_cLS.lastCbvRootParameterIndex = RootParameterIndex;
-
-    /*
-    //try to log matrix (unity)
-    if (goodresource && Strides == 9999) {
-       D3D12_RESOURCE_DESC desc = goodresource->GetDesc();
-
-       //Constant buffer size in bytes. Adjust as needed.
-       ReadConstantBufferWithMapUnmap(goodresource, desc.Width);
-    }
-    */
-
-    /*
-    //maybe transformation matrix, projection or view
-    INFO: Constant Buffer Data (Matrix):
-    INFO: 0.000000 0.000000 0.999985 0.000000
-    INFO: 0.000000 0.000000 1.000000 1.000000
-    INFO: 1.000000 1.000000 -1.000000 1.000000
-    INFO: 1.000000 -1.000000 1.000000 1.000000
-
-    INFO: Constant Buffer Data (Matrix):
-    INFO: 0.000000 0.000000 0.000000 -0.308071
-    INFO: -0.173205 0.300300 1.000000 1.000000
-    INFO: 1.000000 1.000000 0.000000 0.000000
-    INFO: 0.000000 0.000000 0.000000 0.000000
-    */
+    t_.lastCbvRootParameterIndex = RootParameterIndex;
 
     return oSetGraphicsRootConstantBufferView(dCommandList, RootParameterIndex, BufferLocation);
 }
 
 //=========================================================================================================================//
 
-void STDMETHODCALLTYPE hkSetGraphicsRootDescriptorTable(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
-
-    t_cLS.lastCbvRootParameterIndex2 = RootParameterIndex;
-
-    return oSetGraphicsRootDescriptorTable(dCommandList, RootParameterIndex, BaseDescriptor);
-}
-
-//=========================================================================================================================//
-
 void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
+
     // Reset stride and size data
     for (int i = 0; i < 7; ++i) {
-        t_cLS.vStrides[i] = 0;
-        t_cLS.vertexBufferSizes[i] = 0;
+        t_.Strides[i] = 0;
+        t_.vertexBufferSizes[i] = 0;
     }
 
-    t_cLS.cachedStrideSum = 0;
+    t_.cachedStrideSum = 0;
+    t_.StartSlot = StartSlot;
+
+    uint32_t strideData[7] = {};
+
+    if (NumViews > 0 && pViews) {
+        for (UINT i = 0; i < NumViews && i < 7; ++i) {
+            if (pViews[i].StrideInBytes <= 120) {
+                t_.Strides[i] = pViews[i].StrideInBytes;
+                strideData[i] = pViews[i].StrideInBytes;
+                t_.vertexBufferSizes[i] = pViews[i].SizeInBytes;
+            }
+        }
+
+        // Only hash meaningful data
+        t_.cachedStrideSum = fastStrideHash(strideData, NumViews);
+    }
+
+    /*
+    // old
+    for (int i = 0; i < 7; ++i) {
+        t_.Strides[i] = 0;
+        t_.vertexBufferSizes[i] = 0;
+    }
+
+    t_.cachedStrideSum = 0;
 
     if (NumViews > 0 && pViews) {
         for (UINT i = 0; i < NumViews && i < 7; ++i) {
             if (pViews[i].StrideInBytes <= 120) { // sanity check
-                t_cLS.vStrides[i] = pViews[i].StrideInBytes;
-                t_cLS.vertexBufferSizes[i] = pViews[i].SizeInBytes;
-                t_cLS.cachedStrideSum += pViews[i].StrideInBytes;
+                t_.Strides[i] = pViews[i].StrideInBytes;
+                t_.vertexBufferSizes[i] = pViews[i].SizeInBytes;
+                t_.cachedStrideSum += pViews[i].StrideInBytes;
             }
         }
-        t_cLS.StartSlot = StartSlot;
-        t_cLS.NumViews = NumViews;
+        t_.StartSlot = StartSlot;
     }
-
+    */
     return oIASetVertexBuffers(dCommandList, StartSlot, NumViews, pViews);
 }
 
@@ -400,255 +248,29 @@ void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandL
 
 void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView)
 {
-    /*
-    //optional
     if (pView != nullptr) {
-        t_cLS.currentIndexFormat = pView->Format;
-        t_cLS.currentiSize = pView->SizeInBytes;
+        t_.currentiSize = pView->SizeInBytes;
+        t_.currentIndexFormat = pView->Format;
     }
     else {
-        t_cLS.currentIndexFormat = DXGI_FORMAT_UNKNOWN;
+        t_.currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     }
-    */
+    
     return oIASetIndexBuffer(dCommandList, pView);
 }
 
 //=========================================================================================================================//
 
-HRESULT STDMETHODCALLTYPE hkCreateCommittedResource(
-    ID3D12Device* pDevice,
-    const D3D12_HEAP_DESC* pDesc,
-    const D3D12_HEAP_PROPERTIES* pHeapProperties,
-    const D3D12_RESOURCE_DESC* pResourceDesc,
-    D3D12_RESOURCE_STATES InitialResourceState,
-    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
-    REFIID riidResource,
-    void** ppvResource
-) {
-    HRESULT hr = oCreateCommittedResource(pDevice, pDesc, pHeapProperties, pResourceDesc, InitialResourceState, pOptimizedClearValue, riidResource, ppvResource);
+void STDMETHODCALLTYPE hkSetGraphicsRootDescriptorTable(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
 
-    /*
-    if (SUCCEEDED(hr)) {
-        g_pResource = *reinterpret_cast<ID3D12Resource**>(ppvResource);
+    t_.lastCbvRootParameterIndex2 = RootParameterIndex;
 
-        // Ensure it's a valid resource
-        if (g_pResource != nullptr) {
-            D3D12_RESOURCE_DESC resourceDesc = g_pResource->GetDesc();
-
-            // Check if the resource is a buffer
-            //if (resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER && resourceDesc.Width >= 256) {
-            if (resourceDesc.Dimension == D3D12_RESOURCE_DIMENSION_BUFFER) {
-                goodresource = g_pResource;
-                //Log("1. Buffer created with Width: %llu\n", resourceDesc.Width);
-            }
-        }
-    }
-    else {
-        //Log("Error: *ppvResource is nullptr after CreateCommittedResource!\n");
-    }
-    */
-    return hr;
+    return oSetGraphicsRootDescriptorTable(dCommandList, RootParameterIndex, BaseDescriptor);
 }
 
 //=========================================================================================================================//
 
-HRESULT STDMETHODCALLTYPE hkCreatePlacedResource(
-    ID3D12Device* pDevice,
-    ID3D12Heap* pHeap,
-    UINT64                    HeapOffset,
-    const D3D12_RESOURCE_DESC* pDesc,
-    D3D12_RESOURCE_STATES     InitialState,
-    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
-    REFIID                    riid,
-    void** ppvResource
-) {
-
-    HRESULT hr = oCreatePlacedResource(pDevice, pHeap, HeapOffset, pDesc, InitialState, pOptimizedClearValue, riid, ppvResource);
-
-    return hr;
-}
-
-//=========================================================================================================================//
-
-void STDMETHODCALLTYPE hkOMSetRenderTargets(
-    ID3D12GraphicsCommandList* dCommandList,
-    UINT NumRenderTargetDescriptors,
-    const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors,
-    BOOL RTsSingleHandleToDescriptorRange,
-    const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor)
-{
-    if (pRenderTargetDescriptors && NumRenderTargetDescriptors > 0)
-    {
-        //g_RTVHandle = pRenderTargetDescriptors[0]; // Store the RTV
-        g_RTVHandle = *pRenderTargetDescriptors; // Store the RTV
-    }
-
-    if (pDepthStencilDescriptor)
-    {
-        g_DSVHandle = *pDepthStencilDescriptor; // Store the DSV
-    }
-
-    return oOMSetRenderTargets(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
-}
-
-//=========================================================================================================================//
-
-HRESULT STDMETHODCALLTYPE hkCreateGraphicsPipelineState(ID3D12Device* pDevice,const D3D12_GRAPHICS_PIPELINE_STATE_DESC* pDesc,REFIID riid,void** ppPipelineState)
-{
-    HRESULT hr = oCreateGraphicsPipelineState(pDevice, pDesc, riid, ppPipelineState);
-    if (FAILED(hr) || !ppPipelineState || !*ppPipelineState)
-        return hr;
-
-    ID3D12PipelineState* originalPSO = static_cast<ID3D12PipelineState*>(*ppPipelineState);
-
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC newDesc = *pDesc;
-
-    // Modify Blend State for green tint override (safe way)
-    if (newDesc.NumRenderTargets > 0) {
-        newDesc.BlendState.IndependentBlendEnable = TRUE;
-        auto& rtBlend = newDesc.BlendState.RenderTarget[0];
-        rtBlend.BlendEnable = TRUE;
-        rtBlend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-        rtBlend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-        rtBlend.BlendOp = D3D12_BLEND_OP_ADD;
-        rtBlend.SrcBlendAlpha = D3D12_BLEND_ONE;
-        rtBlend.DestBlendAlpha = D3D12_BLEND_ZERO;
-        rtBlend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-        rtBlend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_GREEN | D3D12_COLOR_WRITE_ENABLE_ALPHA;
-    }
-
-    // Optional: Wallhack logic
-    if (newDesc.DSVFormat != DXGI_FORMAT_UNKNOWN) {
-        // Only modify if wallhack mode is enabled
-        bool enableWallhack = true; // Set your own condition
-        if (enableWallhack) {
-            newDesc.DepthStencilState.DepthEnable = TRUE;
-            newDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-        }
-    }
-
-    ID3D12PipelineState* greenPSO = nullptr;
-    HRESULT greenHr = oCreateGraphicsPipelineState(pDevice, &newDesc, riid, reinterpret_cast<void**>(&greenPSO));
-
-    if (SUCCEEDED(greenHr) && greenPSO) {
-        std::lock_guard<std::mutex> lock(pipelineMutex);
-        greenVariants[originalPSO] = greenPSO;
-    }
-    else if (greenPSO) {
-        greenPSO->Release(); // avoid leak
-    }
-
-    return hr;
-
-
-    /*
-    // Call the original function first
-    HRESULT hr = oCreateGraphicsPipelineState(pDevice, pDesc, riid, ppPipelineState);
-    if (FAILED(hr) || !ppPipelineState || !*ppPipelineState) {
-        //Log("Original CreateGraphicsPipelineState failed or returned null PSO. HRESULT: 0x%X", hr);
-        return hr;
-    }
-
-    ID3D12PipelineState* originalPSO = static_cast<ID3D12PipelineState*>(*ppPipelineState);
-    //Log("Original PSO created: %p", originalPSO);
-
-    // Now create a green-modified clone
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC newDesc = *pDesc;
-
-
-    // 1. Modify Blend State (Green Color)
-    if (newDesc.NumRenderTargets > 0) {
-        // GREEN + ALPHA if alpha blending is important and enabled
-        newDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_GREEN | D3D12_COLOR_WRITE_ENABLE_ALPHA;
-        //better to apply custom shader color instead
-    }
-    else {
-        //Log("Info: Original PSO has NumRenderTargets=0. Skipping BlendState modification.");
-    }
-
-    // 2. Modify Depth Stencil State
-    // Check if a Depth/Stencil buffer format is actually specified. Modifying if none is specified is harmless but unnecessary.
-    if (newDesc.DSVFormat != DXGI_FORMAT_UNKNOWN) {
-        //"WRONG" SETTINGS CAN MAKE TEXTURE DISAPPEAR OR SCREW UP COLORS
-        //Log("Modifying DepthStencilState for PSO %p (Original DepthEnable: %d)", originalPSO, newDesc.DepthStencilState.DepthEnable);
-        //newDesc.DepthStencilState.DepthEnable = FALSE;                 // Disable depth testing
-        newDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS; // Set comparison func (wallhack)
-
-        // Optional: Also disable depth writes if needed? (no)
-        //newDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-    }
-    else {
-        //Log("Info: Original PSO has DSVFormat=UNKNOWN. Skipping DepthStencilState modification.");
-    }
-    // Note: Stencil settings (StencilEnable, etc.) remain unchanged from the original pDesc.
-
-
-    ID3D12PipelineState* greenPSO = nullptr;
-    // Use the same riid as the original call
-    HRESULT greenHr = oCreateGraphicsPipelineState(pDevice, &newDesc, riid, reinterpret_cast<void**>(&greenPSO));
-
-    if (SUCCEEDED(greenHr) && greenPSO) {
-        std::lock_guard<std::mutex> lock(pipelineMutex);
-        greenVariants[originalPSO] = greenPSO; // Store: original -> green
-        //Log("Green variant PSO created (%p) for original PSO (%p)", greenPSO, originalPSO);
-    }
-    else {
-        //Log("Failed to create green variant PSO for original PSO (%p). HRESULT: 0x%X", originalPSO, greenHr);
-        if (greenPSO) { // If creation succeeded somehow but storing failed (unlikely with lock)
-            greenPSO->Release(); // Avoid leak
-        }
-    }
-
-    // Return the original PSO result
-    return hr;
-    */
-}
-
-//=========================================================================================================================//
-
-void STDMETHODCALLTYPE hkSetPipelineState(ID3D12GraphicsCommandList* dCommandList, ID3D12PipelineState* pPipelineState) {
-
-    // Track the PSO the application wants to set for this command list
-    if (pPipelineState) // Avoid storing nullptrs if the app does that
-    {
-        std::lock_guard<std::mutex> lock(commandListPSOMutex);
-        currentCommandListPSO[dCommandList] = pPipelineState;
-         //Log("Tracking PSO %p for CommandList %p", pPipelineState, dCommandList);//spams
-    }
-    else {
-        // Optionally remove the entry if PSO is set to null
-        std::lock_guard<std::mutex> lock(commandListPSOMutex);
-        currentCommandListPSO.erase(dCommandList);
-         //Log("Untracking PSO for CommandList %p (set to NULL)", dCommandList);
-    }
-
-    return oSetPipelineState(dCommandList, pPipelineState); // Call the original function
-}
-
-//=========================================================================================================================//
-
-void STDMETHODCALLTYPE hkCreateShaderResourceView(ID3D12Device* device,ID3D12Resource* resource,const D3D12_SHADER_RESOURCE_VIEW_DESC* desc,D3D12_CPU_DESCRIPTOR_HANDLE handle) {
-
-	return oCreateShaderResourceView(device, resource, desc, handle);
-}
-
-//=========================================================================================================================//
-
-void STDMETHODCALLTYPE hkSetDescriptorHeaps(ID3D12GraphicsCommandList* dCommandList,UINT NumDescriptorHeaps,ID3D12DescriptorHeap* const* ppDescriptorHeaps)
-{
-	return oSetDescriptorHeaps(dCommandList, NumDescriptorHeaps, ppDescriptorHeaps);
-}
-
-//=========================================================================================================================//
-
-//NOT called in all games
-HRESULT STDMETHODCALLTYPE hkCreateConstantBufferView(ID3D12Device* pDevice, const D3D12_CONSTANT_BUFFER_VIEW_DESC* pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) {
-
-    return oCreateConstantBufferView(pDevice, pDesc, DestDescriptor);
-}
-
-//=========================================================================================================================//
-
+//occlusion exploit will not work in all games
 void STDMETHODCALLTYPE hkResolveQueryData(
     ID3D12GraphicsCommandList* self,
     ID3D12QueryHeap* pQueryHeap,
@@ -658,9 +280,7 @@ void STDMETHODCALLTYPE hkResolveQueryData(
     ID3D12Resource* pDestinationBuffer,
     UINT64 AlignedDestinationBufferOffset)
 {
-    //lognospam(3, "ResolveQueryData");
-
-    if (Type == D3D12_QUERY_TYPE_OCCLUSION)
+    if (Type == D3D12_QUERY_TYPE_OCCLUSION) 
     {
         // Intercept occlusion queries. Instead of letting the GPU resolve the actual
         // visibility count, we manually write '1' (visible) into the destination
@@ -718,88 +338,6 @@ void STDMETHODCALLTYPE hkResolveQueryData(
     oResolveQueryData(self, pQueryHeap, Type, StartIndex, NumQueries, pDestinationBuffer, AlignedDestinationBufferOffset);
 }
 
-/*
-void STDMETHODCALLTYPE hkResolveQueryData(
-    ID3D12GraphicsCommandList* self,
-    ID3D12QueryHeap* pQueryHeap,
-    D3D12_QUERY_TYPE Type,
-    UINT StartIndex,
-    UINT NumQueries,
-    ID3D12Resource* pDestinationBuffer,
-    UINT64 AlignedDestinationBufferOffset)
-{
-    if (Type == D3D12_QUERY_TYPE_OCCLUSION) {
-        // Map the destination buffer
-        void* mappedData = nullptr;
-        D3D12_RANGE readRange = {}; // We won't read from it
-        HRESULT hr = pDestinationBuffer->Map(0, &readRange, &mappedData);
-
-        if (SUCCEEDED(hr)) {
-            UINT64* writePtr = (UINT64*)((BYTE*)mappedData + AlignedDestinationBufferOffset);
-            for (UINT i = 0; i < NumQueries; ++i) {
-                writePtr[i] = 1; // Force visibility
-            }
-
-            D3D12_RANGE writtenRange = { AlignedDestinationBufferOffset, AlignedDestinationBufferOffset + sizeof(UINT64) * NumQueries };
-            pDestinationBuffer->Unmap(0, &writtenRange);
-        }
-
-        // Skip calling the original ResolveQueryData
-        return;
-    }
-
-    // Call the original method for other query types
-    oResolveQueryData(self, pQueryHeap, Type, StartIndex, NumQueries, pDestinationBuffer, AlignedDestinationBufferOffset);
-}
-*/
-
-//=========================================================================================================================//
-
-void STDMETHODCALLTYPE hkCopyBufferRegion(
-    ID3D12GraphicsCommandList* self,
-    ID3D12Resource* pDstBuffer,
-    UINT64 DstOffset,
-    ID3D12Resource* pSrcBuffer,
-    UINT64 SrcOffset,
-    UINT64 NumBytes)
-{
-    /*
-    //lognospam(10, "CopyBufferRegion");
-
-    // Call original copy first
-    oCopyBufferRegion(self, pDstBuffer, DstOffset, pSrcBuffer, SrcOffset, NumBytes);
-
-    if (!pDstBuffer) return;
-
-    // Check if destination buffer is CPU-visible (UPLOAD)
-    D3D12_HEAP_PROPERTIES heapProps;
-    D3D12_HEAP_FLAGS heapFlags;
-    if (SUCCEEDED(pDstBuffer->GetHeapProperties(&heapProps, &heapFlags)) &&
-        heapProps.Type == D3D12_HEAP_TYPE_UPLOAD)
-    {
-        // Map and patch data to simulate visibility
-        void* mappedData = nullptr;
-        const D3D12_RANGE readRange = { (SIZE_T)DstOffset, (SIZE_T)(DstOffset + NumBytes) };
-        if (SUCCEEDED(pDstBuffer->Map(0, &readRange, &mappedData)))
-        {
-            // Patch all copied UINT64 values to 1
-            UINT64* data = (UINT64*)((BYTE*)mappedData + DstOffset);
-            UINT64 count = NumBytes / sizeof(UINT64);
-
-            for (UINT64 i = 0; i < count; ++i) {
-                data[i] = 1;
-            }
-
-            const D3D12_RANGE writtenRange = {
-                (SIZE_T)DstOffset,
-                (SIZE_T)(DstOffset + NumBytes)
-            };
-            pDstBuffer->Unmap(0, &writtenRange);
-        }
-    }
-    */
-}
-
 //=========================================================================================================================//
 
 DWORD WINAPI MainThread(LPVOID lpParameter) {
@@ -840,35 +378,10 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             CreateHook(85, (void**)&oDrawIndexedInstanced, hkDrawIndexedInstanced);
             CreateHook(93, (void**)&oRSSetViewports, hkRSSetViewports);
             CreateHook(110, (void**)&oSetGraphicsRootConstantBufferView, hkSetGraphicsRootConstantBufferView);
-            //CreateHook(104, (void**)&oSetGraphicsRootDescriptorTable, hkSetGraphicsRootDescriptorTable);
             CreateHook(116, (void**)&oIASetVertexBuffers, hkIASetVertexBuffers);
+            CreateHook(115, (void**)&oIASetIndexBuffer, hkIASetIndexBuffer);
+            CreateHook(104, (void**)&oSetGraphicsRootDescriptorTable, hkSetGraphicsRootDescriptorTable);
             CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData); //disable if not needed
-            // CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState); //enable if game is unity
-            // CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState); //enable if game is unity
-            
-            //CreateHook(103, (void**)&oSetComputeRootDescriptorTable, hkSetComputeRootDescriptorTable);
-            //CreateHook(109, (void**)&oSetComputeRootConstantBufferView, hkSetComputeRootConstantBufferView);
-            //CreateHook(111, (void**)&oSetComputeRootShaderResourceView, hkSetComputeRootShaderResourceView);
-            //CreateHook(112, (void**)&oSetGraphicsRootShaderResourceView, hkSetGraphicsRootShaderResourceView);
-            //CreateHook(113, (void**)&oSetComputeRootUnorderedAccessView, hkSetComputeRootUnorderedAccessView);
-            //CreateHook(114, (void**)&oSetGraphicsRootUnorderedAccessView, hkSetGraphicsRootUnorderedAccessView);      
-			//CreateHook(54, (void**)&oExecuteCommandLists, hkExecuteCommandLists);
-			//CreateHook(140, (void**)&oPresent, hkPresent);	
-            //CreateHook(84, (void**)&oDrawInstanced, hkDrawInstanced);   
-            //CreateHook(27, (void**)&oCreateCommittedResource, hkCreateCommittedResource);
-			//CreateHook(115, (void**)&oIASetIndexBuffer, hkIASetIndexBuffer);            
-            //CreateHook(118, (void**)&oOMSetRenderTargets, hkOMSetRenderTargets);
-            //CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);
-            //CreateHook(39, (void**)&oCreateQueryHeap, hkCreateQueryHeap);
-            //CreateHook(124, (void**)&oBeginQuery, hkBeginQuery);
-            //CreateHook(125, (void**)&oEndQuery, hkEndQuery);
-            //CreateHook(87, (void**)&oCopyBufferRegion, hkCopyBufferRegion);
-            //CreateHook(109, (void**)&oSetComputeRootConstantBufferView, hkSetComputeRootConstantBufferView);
-            //CreateHook(17, (void**)&oCreateConstantBufferView, hkCreateConstantBufferView);
-			//CreateHook(18, (void**)&oCreateShaderResourceView, hkCreateShaderResourceView);
-			//CreateHook(100, (void**)&oSetDescriptorHeaps, hkSetDescriptorHeaps);
-            //CreateHook(29, (void**)&oCreatePlacedResource, hkCreatePlacedResource);
-			//CreateHook(112, (void**)&oSetGraphicsRootShaderResourceView, hkSetGraphicsRootShaderResourceView);
 
             static bool wndproc_initialized = false;
             if (!wndproc_initialized) {
