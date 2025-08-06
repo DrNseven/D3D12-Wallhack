@@ -14,14 +14,14 @@ DrawIndexedInstanced oDrawIndexedInstanced = NULL;
 typedef void (STDMETHODCALLTYPE* RSSetViewportsFunc)(ID3D12GraphicsCommandList* dCommandList, UINT NumViewports, const D3D12_VIEWPORT* pViewports);
 RSSetViewportsFunc oRSSetViewports = nullptr;
 
-typedef void (STDMETHODCALLTYPE* SetGraphicsRootConstantBufferView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
-SetGraphicsRootConstantBufferView oSetGraphicsRootConstantBufferView;
-
 typedef void(STDMETHODCALLTYPE* IASetVertexBuffers)(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews);
 IASetVertexBuffers oIASetVertexBuffers = NULL;
 
 typedef void(STDMETHODCALLTYPE* IASetIndexBuffer)(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
 IASetIndexBuffer oIASetIndexBuffer = NULL;
+
+typedef void (STDMETHODCALLTYPE* SetGraphicsRootConstantBufferView)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
+SetGraphicsRootConstantBufferView oSetGraphicsRootConstantBufferView;
 
 typedef void (STDMETHODCALLTYPE* SetGraphicsRootDescriptorTable)(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor);
 SetGraphicsRootDescriptorTable oSetGraphicsRootDescriptorTable;
@@ -34,6 +34,25 @@ typedef HRESULT(STDMETHODCALLTYPE* ResolveQueryData)(ID3D12GraphicsCommandList* 
     ID3D12Resource* pDestinationBuffer,
     UINT64 AlignedDestinationBufferOffset);
 ResolveQueryData oResolveQueryData = nullptr;
+
+using FnSetPredication = void(STDMETHODCALLTYPE*)(ID3D12GraphicsCommandList*, ID3D12Resource*, UINT64, D3D12_PREDICATION_OP);
+FnSetPredication oSetPredication = nullptr;
+
+typedef HRESULT(STDMETHODCALLTYPE* CreateCommittedResource)(
+    ID3D12Device*,
+    const D3D12_HEAP_PROPERTIES*,
+    D3D12_HEAP_FLAGS,
+    const D3D12_RESOURCE_DESC*,
+    D3D12_RESOURCE_STATES,
+    const D3D12_CLEAR_VALUE*,
+    REFIID,
+    void**
+    );
+CreateCommittedResource oCreateCommittedResource = NULL;
+
+HRESULT STDMETHODCALLTYPE hkMap(ID3D12Resource* pResource, UINT Subresource, const D3D12_RANGE* pReadRange, void** ppData);
+typedef HRESULT(STDMETHODCALLTYPE* PFN_MAP)(ID3D12Resource*, UINT, const D3D12_RANGE*, void**);
+PFN_MAP oMap = nullptr;
 
 typedef HRESULT(STDMETHODCALLTYPE* CreateGraphicsPipelineState)(ID3D12Device* pDevice, const D3D12_GRAPHICS_PIPELINE_STATE_DESC* pDesc, REFIID riid, void** ppPipelineState);
 CreateGraphicsPipelineState oCreateGraphicsPipelineState = NULL;
@@ -77,12 +96,12 @@ LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
     case WM_KEYUP: {
         if (wParam == VK_END) {
-            vkENDkeydown = false; 
+            vkENDkeydown = false;
         }
         break;
     }
     }
-    
+
     if (Process::WndProc) {
         return CallWindowProc(Process::WndProc, hwnd, uMsg, wParam, lParam);
     }
@@ -90,9 +109,9 @@ LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 }
 
 //=========================================================================================================================//
-bool initialized = false;
 
 void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dCommandList, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation) {
+    //lognospam(3, "DrawIndexedInstanced");
     
     // One time initialization
     if (!initialized && IndexCountPerInstance > 0 && InstanceCount > 0) {
@@ -119,32 +138,37 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     float vpWidth = t_.currentViewport.Width;
     float vpHeight = t_.currentViewport.Height;
 
-    
-    // Colors
-    if(colors) //disabled by default
-    if ((Strides == countnum) && rootIndex != UINT_MAX)
+
+    static bool cycleDone = false;
+    static int cycleCounter = 0;
+    size_t colorOffset = 0;
+
+    if(colors)
+    if (Strides == countnum && rootIndex != UINT_MAX) //usually works, sometimes needs the correct rootIndex value 0-10 to avoid bugs
     {
-        DirectX::XMFLOAT4 newColor = { 1.0f, 1.0f, 1.0f, 1.0f }; 
-        //DirectX::XMFLOAT3 newColor = { 1.0f, 0.0f, 1.0f };
+        DirectX::XMFLOAT4 newColor = { 0.0f, 5.0f, 0.0f, 1.0f };
 
-        // Multiply by 16 to step through 16-byte aligned addresses
-        size_t colorOffset = countnum * 16; //bruteforce this value to find colors
-
-        if (g_pMappedConstantBuffer &&
-            colorOffset + sizeof(newColor) <= g_constantBufferSize)
+        if (!cycleDone)
         {
-            // To prevent writing every frame, only write when the offset changes
-            static size_t lastColorOffset = SIZE_MAX;
-            if (lastColorOffset != colorOffset)
+            colorOffset = static_cast<size_t>(cycleCounter) * 16;
+
+            ++cycleCounter; //cyce to force coloroffset to zero
+
+            if (cycleCounter > 50)
             {
-                // Nuke the buffer to remove all old animation/transform data (optional)
-                //memset(g_pMappedConstantBuffer, 0, g_constantBufferSize);
-
-                // Write the color at the offset
-                memcpy(g_pMappedConstantBuffer + colorOffset, &newColor, sizeof(newColor));
-
-                lastColorOffset = colorOffset;
+                cycleDone = true;
+                colorOffset = 0;
             }
+        }
+        else
+        {
+            colorOffset = 0; // coloroffset should be zero now
+            //colorOffset = countnum; //otherwise bruteforce it
+        }
+
+        if (g_pMappedConstantBuffer && colorOffset + sizeof(newColor) <= g_constantBufferSize)
+        {
+            memcpy(g_pMappedConstantBuffer + colorOffset, &newColor, sizeof(newColor));
 
             D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = g_pCustomConstantBuffer->GetGPUVirtualAddress();
             dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
@@ -152,11 +176,9 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     }
 
 
-    // Wallhack
     if (wallhack)
-    if (Strides == countnum /*|| twoDigitSize == countnum*/) { //Strides is used for bruteforcing, replace later with something similar bel
+    if (Strides == countnum /*|| twoDigitSize == countnum*/) { //Strides is used for bruteforcing models
     //if ((t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 4) || (t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 8)) { //modelrec example
-
         D3D12_VIEWPORT vp = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
         dCommandList->RSSetViewports(1, &vp);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
@@ -169,8 +191,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     // Logger
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
-    //if (vkENDkeydown && Strides == countnum) { //bruteforce strides example
-    if (vkENDkeydown && Strides == countnum) { //log killing floor 3 models
+    if (vkENDkeydown && Strides == countnum) { //bruteforce strides example
         Log("countnum == %d && Strides == %d && t_.Strides[0] == %d && t_.Strides[1] == %d && t_.Strides[2] == %d && t_.Strides[3] == %d && t_.Strides[4] == %d && t_.Strides[5] == %d && t_.Strides[6] == %d && t_.currentiSize == %d && IndexCountPerInstance == %d && rootIndex == %d && t_.StartSlot == %d && t_.vertexBufferSizes[0] == %d && t_.vertexBufferSizes[1] == %d && t_.vertexBufferSizes[2] == %d && t_.vertexBufferSizes[3] == %d",
             countnum, Strides, t_.Strides[0], t_.Strides[1], t_.Strides[2], t_.Strides[3], t_.Strides[4], t_.Strides[5], t_.Strides[6], t_.currentiSize, IndexCountPerInstance, rootIndex, t_.StartSlot, t_.vertexBufferSizes[0], t_.vertexBufferSizes[1], t_.vertexBufferSizes[2], t_.vertexBufferSizes[3]);
     }
@@ -235,15 +256,6 @@ void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,
 
 //=========================================================================================================================//
 
-void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
-
-    t_.lastCbvRootParameterIndex = RootParameterIndex;
-
-    return oSetGraphicsRootConstantBufferView(dCommandList, RootParameterIndex, BufferLocation);
-}
-
-//=========================================================================================================================//
-
 void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
 
     // Reset stride and size data
@@ -271,26 +283,6 @@ void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandL
         t_.fastStride = fastStrideHash(strideData, NumViews);
     }
 
-    /*
-    // old
-    for (int i = 0; i < 7; ++i) {
-        t_.Strides[i] = 0;
-        t_.vertexBufferSizes[i] = 0;
-    }
-
-    t_.cachedStrideSum = 0;
-
-    if (NumViews > 0 && pViews) {
-        for (UINT i = 0; i < NumViews && i < 7; ++i) {
-            if (pViews[i].StrideInBytes <= 120) { // sanity check
-                t_.Strides[i] = pViews[i].StrideInBytes;
-                t_.vertexBufferSizes[i] = pViews[i].SizeInBytes;
-                t_.cachedStrideSum += pViews[i].StrideInBytes;
-            }
-        }
-        t_.StartSlot = StartSlot;
-    }
-    */
     return oIASetVertexBuffers(dCommandList, StartSlot, NumViews, pViews);
 }
 
@@ -311,6 +303,15 @@ void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandLis
 
 //=========================================================================================================================//
 
+void STDMETHODCALLTYPE hkSetGraphicsRootConstantBufferView(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
+
+    t_.lastCbvRootParameterIndex = RootParameterIndex;
+
+    return oSetGraphicsRootConstantBufferView(dCommandList, RootParameterIndex, BufferLocation);
+}
+
+//=========================================================================================================================//
+
 void STDMETHODCALLTYPE hkSetGraphicsRootDescriptorTable(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
 
     t_.lastCbvRootParameterIndex2 = RootParameterIndex;
@@ -320,7 +321,7 @@ void STDMETHODCALLTYPE hkSetGraphicsRootDescriptorTable(ID3D12GraphicsCommandLis
 
 //=========================================================================================================================//
 
-//occlusion exploit will not work in all games
+//occlusion exploit, will not work in all games
 void STDMETHODCALLTYPE hkResolveQueryData(
     ID3D12GraphicsCommandList* self,
     ID3D12QueryHeap* pQueryHeap,
@@ -386,6 +387,129 @@ void STDMETHODCALLTYPE hkResolveQueryData(
 
     // For any query type other than occlusion, pass the call to the original function.
     oResolveQueryData(self, pQueryHeap, Type, StartIndex, NumQueries, pDestinationBuffer, AlignedDestinationBufferOffset);
+}
+
+//=========================================================================================================================//
+
+void STDMETHODCALLTYPE hkSetPredication(
+    ID3D12GraphicsCommandList* self,
+    ID3D12Resource* pBuffer,
+    UINT64 AlignedBufferOffset,
+    D3D12_PREDICATION_OP Operation)
+{
+    //lognospam(3, "SetPredication");
+    // The key insight: Predication is ONLY active when pBuffer is NOT NULL.
+    // If a game is trying to use occlusion culling, it will call this function
+    // with a valid buffer containing the query results.
+    if (pBuffer != nullptr)
+    {
+        // We want to disable the culling. The standard way to disable predication
+        // is to call SetPredication with a NULL buffer.
+        // So, we will intercept this call and substitute the arguments to
+        // effectively turn predication OFF, regardless of what the game intended.
+
+        // The subsequent arguments (offset and operation) are ignored by the runtime
+        // when the buffer is NULL, but we provide standard values for correctness.
+        oSetPredication(self, nullptr, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+
+        // By calling the original with our modified arguments and then returning,
+        // we prevent the game's original, culling-enabling call from ever executing.
+        return;
+    }
+
+    // If pBuffer is already NULL, it means the game is already trying to
+    // disable predication. We should not interfere with that. We just pass
+    // the call through to the original function.
+    oSetPredication(self, pBuffer, AlignedBufferOffset, Operation);
+}
+
+//=========================================================================================================================//
+
+HRESULT STDMETHODCALLTYPE hkCreateCommittedResource(
+    ID3D12Device* pDevice,
+    const D3D12_HEAP_PROPERTIES* pHeapProperties,
+    D3D12_HEAP_FLAGS HeapFlags,
+    const D3D12_RESOURCE_DESC* pResourceDesc,
+    D3D12_RESOURCE_STATES InitialResourceState,
+    const D3D12_CLEAR_VALUE* pOptimizedClearValue,
+    REFIID riidResource,
+    void** ppvResource
+) {
+    // Call the original function first to get the resource object.
+    HRESULT hr = oCreateCommittedResource(
+        pDevice, pHeapProperties, HeapFlags, pResourceDesc,
+        InitialResourceState, pOptimizedClearValue, riidResource, ppvResource
+    );
+
+    // After the resource is created, we can hook its Map method.
+   // We only need to do this ONCE.
+    if (SUCCEEDED(hr) && ppvResource && *ppvResource && oMap == nullptr) {
+
+        // Get the vtable from the newly created resource instance.
+        void** vtable = *reinterpret_cast<void***>(*ppvResource);
+
+        // The vtable index for ID3D12Resource::Map is 8.
+        const int MAP_VTABLE_INDEX = 8;
+
+        // Store the original Map function pointer.
+        oMap = reinterpret_cast<PFN_MAP>(vtable[MAP_VTABLE_INDEX]);
+
+        //Log("Hooking ID3D12Resource::Map. Original function at: %p\n", oMap);
+
+        // Patch the vtable to point to our hook function.
+        DWORD oldProtect;
+        VirtualProtect(&vtable[MAP_VTABLE_INDEX], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect);
+        vtable[MAP_VTABLE_INDEX] = reinterpret_cast<void*>(&hkMap);
+        VirtualProtect(&vtable[MAP_VTABLE_INDEX], sizeof(void*), oldProtect, &oldProtect);
+
+        //Log("ID3D12Resource::Map hooked successfully!\n");
+    }
+
+    return hr;
+}
+
+//=========================================================================================================================//
+
+HRESULT STDMETHODCALLTYPE hkMap(
+    ID3D12Resource* pResource,
+    UINT Subresource,
+    const D3D12_RANGE* pReadRange,
+    void** ppData
+) {
+
+    HRESULT hr = oMap(pResource, Subresource, pReadRange, ppData);
+
+    if (t_.fastStride + t_.StartSlot == countnum)
+    {
+        if (SUCCEEDED(hr) && ppData != nullptr && *ppData != nullptr) {
+
+            float* data = (float*)*ppData;
+
+            // Assuming your stride is 8 floats (32 bytes)
+            // You should get the real stride by hooking IASetVertexBuffers
+            const int strideInFloats = 8;
+
+            // Process the first vertex as an example
+            DirectX::XMVECTOR worldPosition = DirectX::XMVectorSet(
+                data[0],                // x
+                data[1],                // y
+                data[2],                // z
+                1.0f                    // w component for a position is 1
+            );
+
+            //not done
+            //DirectX::XMFLOAT2 screenPosition;
+            //if (WorldToScreen(worldPosition, screenPosition)) {
+                //Log("World Pos: %.3f %.3f %.3f -> Screen Pos: %.0f, %.0f", data[0], data[1], data[2], screenPosition.x, screenPosition.y);
+            //}
+            //else {
+            //if (fabsf(data[0]) > 0.0001f)
+              //  Log("World Pos: %.3f %.3f %.3f", data[0], data[1], data[2]);
+            //}
+        }
+    }
+
+    return hr;
 }
 
 //=========================================================================================================================//
@@ -503,6 +627,8 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             CreateHook(115, (void**)&oIASetIndexBuffer, hkIASetIndexBuffer);
             CreateHook(104, (void**)&oSetGraphicsRootDescriptorTable, hkSetGraphicsRootDescriptorTable);
             CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData); //disable if not needed
+            CreateHook(127, (void**)&oSetPredication, hkSetPredication); //disable if not needed
+            //CreateHook(27, (void**)&oCreateCommittedResource, hkCreateCommittedResource);//disable if not needed
             // CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState); //if game is unity
             // CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState); //if game is unity
 

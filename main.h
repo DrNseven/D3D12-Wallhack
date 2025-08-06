@@ -28,8 +28,9 @@ using namespace DirectX;
 
 //globals
 bool wallhack = 1;
-bool colors = 0;
+bool colors = 1;
 ComPtr<ID3D12Device> pDevice = nullptr;
+bool initialized = false;
 UINT countnum = -1;
 
 // Thread-local cache 
@@ -84,6 +85,22 @@ void Log(const char* fmt, ...)
 	ofstream logfile(GetDirectoryFile((PCHAR)"log.txt"), ios::app);
 	if (logfile.is_open() && text)	logfile << text << endl;
 	logfile.close();
+}
+
+bool waitedOnce = false;
+void lognospam(int duration, const char* name)
+{
+	if (!waitedOnce)
+	{
+		int n;
+
+		for (n = 0; n < duration; n++)
+		{
+			if (GetTickCount() % 100)
+				Log(name);
+		}
+		waitedOnce = true;
+	}
 }
 
 int getTwoDigitValue(int value) {
@@ -174,6 +191,32 @@ bool CreateCustomConstantBuffer()
 	return true;
 }
 
+/*
+extern float screenWidth;
+extern float screenHeight;
+
+bool WorldToScreen(const DirectX::XMVECTOR& worldPos, DirectX::XMFLOAT2& screenPos) {
+	// 1. Transform the 3D world coordinate into 4D clip space
+	DirectX::XMVECTOR clipCoords = DirectX::XMVector3TransformCoord(worldPos, g_ViewProjectionMatrix);
+
+	// 2. Perform perspective divide
+	// The W component is the depth value. If it's less than or equal to 0,
+	// the point is behind or on the camera's near plane, so we can't see it.
+	float w = DirectX::XMVectorGetW(clipCoords);
+	if (w < 0.1f) {
+		return false;
+	}
+
+	// Perspective divide (NDC)
+	DirectX::XMVECTOR ndc = DirectX::XMVectorDivide(clipCoords, DirectX::XMVectorSet(w, w, w, w));
+
+	// 3. Viewport transform (from [-1, 1] to [0, screenWidth] and [0, screenHeight])
+	screenPos.x = (DirectX::XMVectorGetX(ndc) + 1.0f) * 0.5f * screenWidth;
+	screenPos.y = (1.0f - DirectX::XMVectorGetY(ndc)) * 0.5f * screenHeight; // Y is inverted
+
+	return true;
+}
+*/
 //=========================================================================================================================//
 
 WNDCLASSEX WindowClass;
