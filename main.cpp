@@ -331,7 +331,7 @@ void STDMETHODCALLTYPE hkResolveQueryData(
     ID3D12Resource* pDestinationBuffer,
     UINT64 AlignedDestinationBufferOffset)
 {
-    if (Type == D3D12_QUERY_TYPE_OCCLUSION) 
+    if (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)
     {
         // Intercept occlusion queries. Instead of letting the GPU resolve the actual
         // visibility count, we manually write '1' (visible) into the destination
