@@ -2,8 +2,6 @@
 // D3D12 Wallhack 2025 by N7 //
 ///////////////////////////////
 
-//project -> properties -> advanced -> Character Set -> Use Multi-Byte Character Set
-
 #include "main.h"
 
 //=========================================================================================================================//
@@ -59,6 +57,21 @@ CreateGraphicsPipelineState oCreateGraphicsPipelineState = NULL;
 
 typedef void(STDMETHODCALLTYPE* SetPipelineState)(ID3D12GraphicsCommandList* dCommandList, ID3D12PipelineState* pPipelineState);
 SetPipelineState oSetPipelineState = NULL;
+
+typedef void (STDMETHODCALLTYPE* SetGraphicsRootSignature)(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature);
+SetGraphicsRootSignature oSetGraphicsRootSignature = nullptr;
+
+typedef void (STDMETHODCALLTYPE* Reset)(ID3D12GraphicsCommandList* dCommandList, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState);
+Reset oReset = nullptr;
+
+typedef HRESULT(STDMETHODCALLTYPE* CreateRootSignature)(
+    ID3D12Device* pDevice,
+    UINT NodeMask,
+    const void* pBlobWithRootSignature,
+    SIZE_T blobLengthInBytes,
+    REFIID riid,
+    void** ppvRootSignature);
+CreateRootSignature oCreateRootSignature = nullptr;
 
 //=========================================================================================================================//
 
@@ -131,6 +144,29 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     }
 
 
+    uint32_t currentRootSigID = 0; //best for finding models but the number changes after restarting the game, use to find Strides
+    // Fast path: TLS match -> use cached ID (no locks, no map lookups)
+    if (tlsLastCmdList == dCommandList) {
+        currentRootSigID = tlsLastRootSigID;
+    }
+    else {
+        // The command list changed, we must look it up.
+        // Use a shared lock for thread-safe reading.
+        std::shared_lock<std::shared_mutex> lock(rootSigMutex);
+
+        auto it = cmdListToID.find(dCommandList);
+        if (it != cmdListToID.end()) {
+            currentRootSigID = it->second;
+        }
+        // If not found, currentRootSigID remains 0 (or whatever default you want)
+        // Lock is released here by shared_lock's destructor
+
+        // Update TLS for future draws on this thread
+        tlsLastCmdList = dCommandList;
+        tlsLastRootSigID = currentRootSigID;
+    }
+   
+
     // Read cached values from TLS
     UINT rootIndex = t_.lastCbvRootParameterIndex;
     UINT Strides = t_.fastStride + t_.StartSlot;
@@ -139,46 +175,9 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     float vpHeight = t_.currentViewport.Height;
 
 
-    static bool cycleDone = false;
-    static int cycleCounter = 0;
-    size_t colorOffset = 0;
-
-    if(colors)
-    if (Strides == countnum && rootIndex != UINT_MAX) //usually works, sometimes needs the correct rootIndex value 0-10 to avoid bugs
-    {
-        DirectX::XMFLOAT4 newColor = { 0.0f, 5.0f, 0.0f, 1.0f };
-
-        if (!cycleDone)
-        {
-            colorOffset = static_cast<size_t>(cycleCounter) * 16;
-
-            ++cycleCounter; //cyce to force coloroffset to zero
-
-            if (cycleCounter > 50)
-            {
-                cycleDone = true;
-                colorOffset = 0;
-            }
-        }
-        else
-        {
-            colorOffset = 0; // coloroffset should be zero now
-            //colorOffset = countnum; //otherwise bruteforce it
-        }
-
-        if (g_pMappedConstantBuffer && colorOffset + sizeof(newColor) <= g_constantBufferSize)
-        {
-            memcpy(g_pMappedConstantBuffer + colorOffset, &newColor, sizeof(newColor));
-
-            D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = g_pCustomConstantBuffer->GetGPUVirtualAddress();
-            dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
-        }
-    }
-
-
-    if (wallhack)
-    if (Strides == countnum /*|| twoDigitSize == countnum*/) { //Strides is used for bruteforcing models
-    //if ((t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 4) || (t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 8)) { //modelrec example
+    if (wallhack) //enabled by default
+    if (Strides == countnum || currentRootSigID == countnum) { //used for bruteforcing models
+    //if ((t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 4) || (t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 8)) { //final modelrec example
         D3D12_VIEWPORT vp = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
         dCommandList->RSSetViewports(1, &vp);
         oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
@@ -187,13 +186,49 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     }
 
 
+    static bool cycleDone = false;
+    static int cycleCounter = 0;
+    size_t colorOffset = 0;
+
+    if (colors) //disabled by default
+        if ((Strides == countnum || currentRootSigID == countnum) && rootIndex != UINT_MAX) //usually works, sometimes needs the correct rootIndex value 0-10 to avoid bugs
+        {
+            DirectX::XMFLOAT4 newColor = { 1.0f, 5.0f, 1.0f, 1.0f };
+
+            if (!cycleDone)
+            {
+                colorOffset = static_cast<size_t>(cycleCounter) * 16;
+
+                ++cycleCounter; //cyce to force coloroffset to zero
+
+                if (cycleCounter > 50)
+                {
+                    cycleDone = true;
+                    colorOffset = 0;
+                }
+            }
+            else
+            {
+                colorOffset = 0; // coloroffset should be zero now
+                //colorOffset = countnum * 16; //otherwise bruteforce it
+            }
+
+            if (g_pMappedConstantBuffer && colorOffset + sizeof(newColor) <= g_constantBufferSize)
+            {
+                memcpy(g_pMappedConstantBuffer + colorOffset, &newColor, sizeof(newColor));
+
+                D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = g_pCustomConstantBuffer->GetGPUVirtualAddress();
+                dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
+            }
+        }
     
+
     // Logger
     //1. use keys comma (,) and period (.) to cycle through textures
     //2. log current values by pressing END
-    if (vkENDkeydown && Strides == countnum) { //bruteforce strides example
-        Log("countnum == %d && Strides == %d && t_.Strides[0] == %d && t_.Strides[1] == %d && t_.Strides[2] == %d && t_.Strides[3] == %d && t_.Strides[4] == %d && t_.Strides[5] == %d && t_.Strides[6] == %d && t_.currentiSize == %d && IndexCountPerInstance == %d && rootIndex == %d && t_.StartSlot == %d && t_.vertexBufferSizes[0] == %d && t_.vertexBufferSizes[1] == %d && t_.vertexBufferSizes[2] == %d && t_.vertexBufferSizes[3] == %d",
-            countnum, Strides, t_.Strides[0], t_.Strides[1], t_.Strides[2], t_.Strides[3], t_.Strides[4], t_.Strides[5], t_.Strides[6], t_.currentiSize, IndexCountPerInstance, rootIndex, t_.StartSlot, t_.vertexBufferSizes[0], t_.vertexBufferSizes[1], t_.vertexBufferSizes[2], t_.vertexBufferSizes[3]);
+    if (vkENDkeydown && (Strides == countnum || currentRootSigID == countnum)) { //bruteforce strides example
+        Log("countnum == %d && currentRootSigID == %d && Strides == %d && rootIndex == %d && t_.lastCbvRootParameterIndex2 == %d && t_.StartSlot == %d && IndexCountPerInstance == %d && t_.Strides[0] == %d && t_.Strides[1] == %d && t_.Strides[2] == %d && t_.Strides[3] == %d && t_.Strides[4] == %d && t_.Strides[5] == %d && t_.Strides[6] == %d && && t_.Strides[7] == %d && t_.Strides[8] == %d && t_.Strides[9] == %d && t_.currentiSize == %d && t_.vertexBufferSizes[0] == %d && t_.vertexBufferSizes[1] == %d && t_.vertexBufferSizes[2] == %d && t_.vertexBufferSizes[3] == %d && t_.currentIndexFormat == %d && t_.numViewports == %d",
+            countnum, currentRootSigID, Strides, rootIndex, t_.lastCbvRootParameterIndex2, t_.StartSlot, IndexCountPerInstance, t_.Strides[0], t_.Strides[1], t_.Strides[2], t_.Strides[3], t_.Strides[4], t_.Strides[5], t_.Strides[6], t_.Strides[7], t_.Strides[8], t_.Strides[9], t_.currentiSize, t_.vertexBufferSizes[0], t_.vertexBufferSizes[1], t_.vertexBufferSizes[2], t_.vertexBufferSizes[3], t_.currentIndexFormat, t_.numViewports);     
     }
     
 
@@ -248,7 +283,8 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,UINT NumViewports,const D3D12_VIEWPORT* pViewports) {
 
     if (NumViewports > 0 && pViewports) {
-        t_.currentViewport = pViewports[0];  // fast copy to thread-local
+        // Copy the first viewport (main one for most cases)
+        t_.currentViewport = pViewports[0];
     }
     
     return oRSSetViewports(dCommandList, NumViewports, pViewports);  // Call original function
@@ -259,19 +295,20 @@ void STDMETHODCALLTYPE hkRSSetViewports(ID3D12GraphicsCommandList* dCommandList,
 void STDMETHODCALLTYPE hkIASetVertexBuffers(ID3D12GraphicsCommandList* dCommandList, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
 
     // Reset stride and size data
-    for (int i = 0; i < 7; ++i) {
+    for (int i = 0; i < 16; ++i) {
         t_.Strides[i] = 0;
         t_.vertexBufferSizes[i] = 0;
     }
 
+    t_.numViewports = NumViews;
     t_.cachedStrideSum = 0;
     t_.StartSlot = StartSlot;
 
-    uint32_t strideData[7] = {};
+    uint32_t strideData[16] = {};
 
     if (NumViews > 0 && pViews) {
-        for (UINT i = 0; i < NumViews && i < 7; ++i) {
-            if (pViews[i].StrideInBytes <= 120) {
+        for (UINT i = 0; i < NumViews && i < 16; ++i) {
+            if (pViews[i].StrideInBytes <= 999) {
                 t_.Strides[i] = pViews[i].StrideInBytes;
                 strideData[i] = pViews[i].StrideInBytes;
                 t_.vertexBufferSizes[i] = pViews[i].SizeInBytes;
@@ -294,9 +331,6 @@ void STDMETHODCALLTYPE hkIASetIndexBuffer(ID3D12GraphicsCommandList* dCommandLis
         t_.currentiSize = pView->SizeInBytes;
         t_.currentIndexFormat = pView->Format;
     }
-    else {
-        t_.currentIndexFormat = DXGI_FORMAT_UNKNOWN;
-    }
     
     return oIASetIndexBuffer(dCommandList, pView);
 }
@@ -317,6 +351,55 @@ void STDMETHODCALLTYPE hkSetGraphicsRootDescriptorTable(ID3D12GraphicsCommandLis
     t_.lastCbvRootParameterIndex2 = RootParameterIndex;
 
     return oSetGraphicsRootDescriptorTable(dCommandList, RootParameterIndex, BaseDescriptor);
+}
+
+//=========================================================================================================================//
+
+void STDMETHODCALLTYPE hkSetGraphicsRootSignature(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature) {
+    if (dCommandList && pRootSignature) {
+        uint32_t idToStore = 0;
+
+        // Use an exclusive lock for writing
+        std::unique_lock<std::shared_mutex> lock(rootSigMutex);
+
+        // 1. Check if we have already assigned an ID to this root signature
+        auto it = rootSigToID.find(pRootSignature);
+        if (it != rootSigToID.end()) {
+            // Found it, use the existing ID
+            idToStore = it->second;
+        }
+        else {
+            // Not found, generate a new ID and store it
+            idToStore = nextRuntimeSigID++;
+            rootSigToID[pRootSignature] = idToStore;
+        }
+
+        // 2. Update the command list's current root signature ID
+        cmdListToID[dCommandList] = idToStore;
+
+        // Lock is released here by unique_lock's destructor
+
+        // 3. Keep thread-local cache in sync (fast-path correctness)
+        // This is safe to do outside the lock as it's thread-local
+        tlsLastCmdList = dCommandList;
+        tlsLastRootSigID = idToStore;
+    }
+
+    return oSetGraphicsRootSignature(dCommandList, pRootSignature);
+}
+
+//=========================================================================================================================//
+
+void STDMETHODCALLTYPE hkReset(ID3D12GraphicsCommandList* dCommandList, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState) {
+
+    // If we are tracking this command list, remove it.
+    if (dCommandList) {
+        std::unique_lock<std::shared_mutex> lock(rootSigMutex);
+        cmdListToID.erase(dCommandList);
+    }
+
+    // After our logic, call the original function
+    return oReset(dCommandList, pAllocator, pInitialState);
 }
 
 //=========================================================================================================================//
@@ -397,7 +480,6 @@ void STDMETHODCALLTYPE hkSetPredication(
     UINT64 AlignedBufferOffset,
     D3D12_PREDICATION_OP Operation)
 {
-    //lognospam(3, "SetPredication");
     // The key insight: Predication is ONLY active when pBuffer is NOT NULL.
     // If a game is trying to use occlusion culling, it will call this function
     // with a valid buffer containing the query results.
@@ -623,11 +705,13 @@ DWORD WINAPI MainThread(LPVOID lpParameter) {
             CreateHook(85, (void**)&oDrawIndexedInstanced, hkDrawIndexedInstanced);
             CreateHook(93, (void**)&oRSSetViewports, hkRSSetViewports);
             CreateHook(110, (void**)&oSetGraphicsRootConstantBufferView, hkSetGraphicsRootConstantBufferView);
+            CreateHook(104, (void**)&oSetGraphicsRootDescriptorTable, hkSetGraphicsRootDescriptorTable);
             CreateHook(116, (void**)&oIASetVertexBuffers, hkIASetVertexBuffers);
             CreateHook(115, (void**)&oIASetIndexBuffer, hkIASetIndexBuffer);
-            CreateHook(104, (void**)&oSetGraphicsRootDescriptorTable, hkSetGraphicsRootDescriptorTable);
             CreateHook(126, (void**)&oResolveQueryData, hkResolveQueryData); //disable if not needed
             CreateHook(127, (void**)&oSetPredication, hkSetPredication); //disable if not needed
+            CreateHook(102, (void**)&oSetGraphicsRootSignature, hkSetGraphicsRootSignature);
+            CreateHook(82, (void**)&oReset, hkReset);
             //CreateHook(27, (void**)&oCreateCommittedResource, hkCreateCommittedResource);//disable if not needed
             // CreateHook(10, (void**)&oCreateGraphicsPipelineState, hkCreateGraphicsPipelineState); //if game is unity
             // CreateHook(97, (void**)&oSetPipelineState, hkSetPipelineState); //if game is unity
@@ -746,7 +830,7 @@ extern "C" __declspec(dllexport) int NextHook(int code, WPARAM wParam, LPARAM lP
 //[68]  SetPrivateDataInterface
 //[69]  SetName
 //[70]  GetDevice
-//[71]  Reset
+//[71]  Reset //ID3D12CommandAllocator::Reset()
 //[72]  QueryInterface
 //[73]  AddRef
 //[74]  Release
@@ -757,7 +841,7 @@ extern "C" __declspec(dllexport) int NextHook(int code, WPARAM wParam, LPARAM lP
 //[79]  GetDevice
 //[80]  GetType
 //[81]  Close
-//[82]  Reset
+//[82]  Reset //D3D12GraphicsCommandList::Reset()
 //[83]  ClearState
 //[84]  DrawInstanced
 //[85]  DrawIndexedInstanced

@@ -5,13 +5,13 @@
 #include <iostream>
 #include <dxgi1_6.h>
 #include <d3d12.h>
-//#include "d3dx12.h"
 #include <d3dcompiler.h>
 #include <map>
 #include <unordered_map>
 #include <mutex>
 #include <array>      
 #include <cstdint>
+#include <shared_mutex>
 #include <unordered_set>
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -28,7 +28,7 @@ using namespace DirectX;
 
 //globals
 bool wallhack = 1;
-bool colors = 1;
+bool colors = 0;
 ComPtr<ID3D12Device> pDevice = nullptr;
 bool initialized = false;
 UINT countnum = -1;
@@ -38,11 +38,12 @@ thread_local struct {
 	UINT lastCbvRootParameterIndex = UINT_MAX;
 	UINT lastCbvRootParameterIndex2 = UINT_MAX;
 	UINT StartSlot = 0;
-	UINT Strides[7] = { 0 };
-	UINT vertexBufferSizes[7] = { 0 };
+	UINT Strides[16] = { 0 };
+	UINT vertexBufferSizes[16] = { 0 };
 	UINT cachedStrideSum = 0;
 	UINT fastStride = 0;
 	D3D12_VIEWPORT currentViewport = {};
+	UINT numViewports = 0;
 	UINT currentiSize = 0;
 	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
 } t_;
@@ -57,6 +58,17 @@ std::mutex commandListPSOMutex;
 ID3D12PipelineState* originalPSO = nullptr;
 ID3D12PipelineState* greenPSO = nullptr;
 bool swapped = false;
+
+
+//SetGraphicsRootSignature
+//shared_mutex for better read performance
+std::shared_mutex rootSigMutex;
+uint32_t nextRuntimeSigID = 1; 
+std::unordered_map<ID3D12RootSignature*, uint32_t> rootSigToID;
+std::unordered_map<ID3D12GraphicsCommandList*, uint32_t> cmdListToID;
+thread_local ID3D12GraphicsCommandList* tlsLastCmdList = nullptr;
+thread_local uint32_t tlsLastRootSigID = 0;
+
 
 //=========================================================================================================================//
 
