@@ -175,17 +175,6 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     float vpHeight = t_.currentViewport.Height;
 
 
-    if (wallhack) //enabled by default
-    if (Strides == countnum || currentRootSigID == countnum) { //used for bruteforcing models
-    //if ((t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 4) || (t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 8)) { //final modelrec example
-        D3D12_VIEWPORT vp = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
-        dCommandList->RSSetViewports(1, &vp);
-        oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-        vp.MinDepth = 0.0f;
-        dCommandList->RSSetViewports(1, &vp);
-    }
-
-
     static bool cycleDone = false;
     static int cycleCounter = 0;
     size_t colorOffset = 0;
@@ -221,7 +210,18 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
                 dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
             }
         }
-    
+
+
+	if (wallhack) //enabled by default
+    if (Strides == countnum || currentRootSigID == countnum) { //used for bruteforcing models
+    //if ((t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 4) || (t_.Strides[0] == 12 && t_.Strides[1] == 8 && t_.Strides[2] == 8)) { //final modelrec example
+        D3D12_VIEWPORT vp = { 0, 0, vpWidth, vpHeight, 0.9f, 1.0f };
+        dCommandList->RSSetViewports(1, &vp);
+        oDrawIndexedInstanced(dCommandList, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        vp.MinDepth = 0.0f;
+        dCommandList->RSSetViewports(1, &vp);
+    }
+
 
     // Logger
     //1. use keys comma (,) and period (.) to cycle through textures
