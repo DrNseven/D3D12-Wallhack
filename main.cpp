@@ -217,7 +217,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
             {
                 memcpy(g_pMappedConstantBuffer + colorOffset, &newColor, sizeof(newColor));
 
-                D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = g_pCustomConstantBuffer->GetGPUVirtualAddress();
+                D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = g_pCustomConstantBuffer->GetGPUVirtualAddress() + colorOffset;
                 dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
             }
         }
