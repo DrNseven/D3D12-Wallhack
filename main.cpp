@@ -186,11 +186,11 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
 
             if (!cycleDone)
             {
-                colorOffset = static_cast<size_t>(cycleCounter) * 16;
+                colorOffset = static_cast<size_t>(cycleCounter) * 256;
 
                 ++cycleCounter; //cyce to force coloroffset to zero
 
-                if (cycleCounter > 50)
+                if (cycleCounter > 16)
                 {
                     cycleDone = true;
                     colorOffset = 0;
