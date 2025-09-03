@@ -48,16 +48,6 @@ thread_local struct {
 	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
 } t_;
 
-// color helpers
-static inline size_t AlignDown(size_t value, size_t alignment) {
-	return value & ~(alignment - 1);
-}
-
-static inline bool AddNoOverflow(size_t a, size_t b, size_t* out) {
-	if (SIZE_MAX - a < b) return false;
-	*out = a + b;
-	return true;
-}
 
 //setpipelinestate
 // Global map for green variants
@@ -212,6 +202,26 @@ bool CreateCustomConstantBuffer()
 	}
 
 	return true;
+}
+
+// Fill the entire upload buffer with a single color
+void FillCustomConstantBuffer()
+{
+	if (!g_pMappedConstantBuffer || !g_pCustomConstantBuffer)
+		return;
+
+	DirectX::XMFLOAT4 newColor = { 1.0f, 25.0f, 1.0f, 1.0f }; // your desired color
+
+	constexpr size_t CB_ALIGN = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT; // 256
+	const size_t stride = 16; // XMFLOAT4 size
+
+	// Loop through the whole buffer in 16-byte steps
+	for (size_t offset = 0; offset + stride <= g_constantBufferSize; offset += stride)
+	{
+		*reinterpret_cast<DirectX::XMFLOAT4*>(
+			reinterpret_cast<BYTE*>(g_pMappedConstantBuffer) + offset
+			) = newColor;
+	}
 }
 
 /*
