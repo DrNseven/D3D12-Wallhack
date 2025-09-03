@@ -175,84 +175,51 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
     float vpHeight = t_.currentViewport.Height;
 
 
-    static bool cycleDone = false;
-    static int cycleCounter = 0;
-    size_t colorOffset = 0;
-
+	if(colors)
+	if ((Strides == countnum || currentRootSigID == countnum) && rootIndex != UINT_MAX) //1. if models disappear bruteforce the rootIndex value 0-10 with rootIndex == countnum 
+	//if (Strides == 67 && rootIndex == 6) //example
+	{
+	    constexpr size_t CB_ALIGN = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT; // 256
+	    static_assert(CB_ALIGN == 256, "CBV alignment must be 256 bytes.");
 	
-	if(colors) //disabled by default
-    if ((Strides == countnum || currentRootSigID == countnum) && rootIndex != UINT_MAX) //1. if models disappear bruteforce the rootIndex value 0-10 with rootIndex == countnum 
-    {
-        // Constant buffer constraints
-        constexpr size_t CB_ALIGN = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT; // 256
-        static_assert(CB_ALIGN == 256, "CBV alignment must be 256 bytes.");
+	    // Scan state (persistent across frames)
+	    static bool   scanning = true;
+	    static size_t scanBase = 0;   // 256-aligned base
+	    static size_t inner16 = 0;   // 0..240 in 16-byte steps inside block
+	    static size_t frameCount = 0;
+	
+	    // Advance scan only every 2 frames
+	    if (scanning && (frameCount++ % 2) == 0)
+	    {
+	        inner16 += 16;
+	
+	        if (inner16 > (CB_ALIGN - sizeof(DirectX::XMFLOAT4))) // past 240
+	        {
+	            inner16 = 0;
+	            scanBase += CB_ALIGN;
+	
+	            // Stop scanning if we reach the end of the buffer
+	            if (scanBase >= g_constantBufferSize)
+	            {
+	                scanning = false;
+	                scanBase = 0;
+	                inner16 = 0;
+	            }
+	        }
+	    }
+	
+	    // Compute CBV base address (256-byte aligned)
+	    const size_t writeOffset = scanBase + inner16;
+		//size_t writeOffset = countnum * 16; //2. brute force this if models are still black
 
-        DirectX::XMFLOAT4 newColor = { 1.0f, 25.0f, 1.0f, 1.0f }; // 16 bytes
-
-        // Scan state
-        static bool scanning = true;
-        static size_t scanBase = 0;     // 256-aligned base for CBV
-        static size_t inner16 = 0;     // 0..240 within the 256-block (multiples of 16)
-
-        static auto lastUpdate = std::chrono::steady_clock::now();
-        auto now = std::chrono::steady_clock::now();
-
-		//this will try to force writeOffset to 0 so that you don't need to bruteforce the value
-        if (scanning)
-        {
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastUpdate).count();
-            if (elapsed > 10) // update roughly every 10 ms
-            {
-                // Advance inner 16-byte slot first
-                inner16 += 16;
-                if (inner16 > (CB_ALIGN - sizeof(newColor)))  // past 240
-                {
-                    inner16 = 0;
-                    // Advance to next 256-byte CBV base
-                    size_t nextBase;
-                    if (!AddNoOverflow(scanBase, CB_ALIGN, &nextBase) || nextBase >= g_constantBufferSize)
-                    {
-                        // reached end; stop scanning and park at zero to keep the color visible
-                        scanning = false;
-                        scanBase = 0;
-                        inner16 = 0;
-                    }
-                    else
-                    {
-                        scanBase = nextBase;
-                    }
-                }
-
-                lastUpdate = now;
-            }
-        }
-        else
-        {
-            // parked state: keep a stable CBV/offset to avoid flicker
-            scanBase = 0;
-            inner16 = 0;
-        }
-
-        // Compute write offset and validate WITHOUT overflow
-        size_t writeOffset;
-        if (AddNoOverflow(scanBase, inner16, &writeOffset) && AddNoOverflow(writeOffset, sizeof(newColor), &writeOffset)) // reuse var just for overflow check
-        {
-            // restore writeOffset to the actual (scanBase + inner16)
-            writeOffset = scanBase + inner16;
-            //writeOffset = countnum * 16; //2. brute force this if models are still black
-
-            if (g_pMappedConstantBuffer && (writeOffset + sizeof(newColor) <= g_constantBufferSize))
-            {
-                // Write the 16 bytes into the current 256-block at inner16
-                memcpy(reinterpret_cast<BYTE*>(g_pMappedConstantBuffer) + writeOffset, &newColor, sizeof(newColor));
-
-                // CBV address must be 256-byte aligned
-                D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = AlignDown(g_pCustomConstantBuffer->GetGPUVirtualAddress() + writeOffset, CB_ALIGN);
-
-                dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
-            }
-        }
-    }
+	    if (g_pCustomConstantBuffer && writeOffset + sizeof(DirectX::XMFLOAT4) <= g_constantBufferSize)
+	    {
+	        const D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = (g_pCustomConstantBuffer->GetGPUVirtualAddress() + writeOffset) & ~0xFFull;
+	
+	        // Bind CBV to this block — no CPU writes needed
+	        dCommandList->SetGraphicsRootConstantBufferView(rootIndex, bufferAddress);
+	    }
+	}
 
 	
 	if (wallhack) //enabled by default
