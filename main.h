@@ -48,6 +48,17 @@ thread_local struct {
 	DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
 } t_;
 
+// color helpers
+static inline size_t AlignDown(size_t value, size_t alignment) {
+	return value & ~(alignment - 1);
+}
+
+static inline bool AddNoOverflow(size_t a, size_t b, size_t* out) {
+	if (SIZE_MAX - a < b) return false;
+	*out = a + b;
+	return true;
+}
+
 //setpipelinestate
 // Global map for green variants
 std::unordered_map<ID3D12PipelineState*, ID3D12PipelineState*> greenVariants;
