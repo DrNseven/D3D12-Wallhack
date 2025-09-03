@@ -135,6 +135,7 @@ void STDMETHODCALLTYPE hkDrawIndexedInstanced(ID3D12GraphicsCommandList* dComman
         }
 
         if (CreateCustomConstantBuffer()) {
+			FillCustomConstantBuffer();
             initialized = true;
             //Log("Constant buffer initialized");
         }
