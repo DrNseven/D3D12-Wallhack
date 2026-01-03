@@ -524,17 +524,6 @@ namespace d3d12hook {
                         _this->AddRef();
                         gCommandQueue = _this;
                         Log("[d3d12hook] Captured CommandQueue=%p\n", _this);
-
-                        //color
-                        //if (!g_Initialized &&
-                          //  gDevice &&
-                            //g_GameSRVHeap && // Ensure heap was captured
-                            //t_.LastDescriptorBase.ptr != 0 &&
-                            //InterlockedCompareExchange(&g_InitLock, 1, 0) == 0)
-                        //{
-                          //  InitializeColorTextures(gDevice, _this);
-                            //g_InitLock = 0;
-                        //}
                     }
                     else {
                         Log("[d3d12hook] Skipping capture: non-direct queue\n");
@@ -685,7 +674,7 @@ namespace d3d12hook {
         }
 
         //wallhack
-        if (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 || currentRootSigID == countcurrentRootSigID) { //models
+        if (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 || currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2) { //models
             // Save original viewport (do this only once per frame if possible, but safe here)
             D3D12_VIEWPORT originalVp = t_.currentViewport;
 
