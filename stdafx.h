@@ -1,5 +1,4 @@
 #pragma once
-//#pragma comment(lib, "minhook/lib/libMinHook.x64.lib")
 
 #pragma comment(lib, "dxgi.lib")
 

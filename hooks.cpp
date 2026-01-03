@@ -18,6 +18,7 @@ namespace hooks {
     constexpr size_t kOMSetRenderTargetsIndex = 46;
     constexpr size_t kResolveQueryDataIndex = 54;
     constexpr size_t kExecuteIndirectIndex = 59;
+    constexpr size_t kSetGraphicsRootSignatureIndex = 30;
 
 
     // Dummy objects pour extraire les v-tables
@@ -44,6 +45,7 @@ namespace hooks {
     static LPVOID pOMSetRenderTargetsTarget = nullptr;
     static LPVOID pResolveQueryDataTarget = nullptr;
     static LPVOID pExecuteIndirectTarget = nullptr;
+    static LPVOID pSetGraphicsRootSignatureTarget = nullptr;
 
     static void CleanupDummyObjects()
     {
@@ -266,12 +268,16 @@ namespace hooks {
         mh = MH_CreateHook(pExecuteIndirectTarget, reinterpret_cast<LPVOID>(d3d12hook::hookExecuteIndirectD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oExecuteIndirectD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook ExecuteIndirect failed: %s\n", MH_StatusToString(mh));
 
+        pSetGraphicsRootSignatureTarget = reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootSignatureIndex]);
+        mh = MH_CreateHook(pSetGraphicsRootSignatureTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootSignatureD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootSignatureD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootSignature failed: %s\n", MH_StatusToString(mh));
+
         // --- Enable all hooks ---
         mh = MH_EnableHook(MH_ALL_HOOKS);
         if (mh != MH_OK)Log("[hooks] MH_EnableHook failed: %s\n", MH_StatusToString(mh));
         else
         {
-            //Log("[hooks] Hooks enabled. Present@%p (idx=%zu), Present1@%p (idx=%zu), Resize@%p (idx=%zu), Exec@%p (idx=%zu)\n",
+            Log("[hooks] Hooks enabled.");
             reinterpret_cast<LPVOID>(scVTable[kPresentIndex]), kPresentIndex;
             reinterpret_cast<LPVOID>(scVTable[kPresent1Index]), kPresent1Index;
             reinterpret_cast<LPVOID>(scVTable[kResizeBuffersIndex]), kResizeBuffersIndex;
@@ -285,8 +291,8 @@ namespace hooks {
             reinterpret_cast<LPVOID>(slVTable[kOMSetRenderTargetsIndex]), kOMSetRenderTargetsIndex;
             reinterpret_cast<LPVOID>(slVTable[kResolveQueryDataIndex]), kResolveQueryDataIndex;
             reinterpret_cast<LPVOID>(slVTable[kExecuteIndirectIndex]), kExecuteIndirectIndex;
+            reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootSignatureIndex]), kSetGraphicsRootSignatureIndex;
 
-            //);
         }
     }
 

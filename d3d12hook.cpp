@@ -19,6 +19,7 @@ namespace d3d12hook {
     OMSetRenderTargetsFn oOMSetRenderTargetsD3D12 = nullptr;
     ResolveQueryDataFn oResolveQueryDataD3D12 = nullptr;
     ExecuteIndirectFn oExecuteIndirectD3D12 = nullptr;
+    SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12 = nullptr;
 
 
     static ID3D12Device* gDevice = nullptr;
@@ -675,10 +676,16 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation) {
         
-        UINT Strides = t_.StrideHash + t_.StartSlot;
+        UINT Strides = t_.StrideHash + t_.StartSlot; //will be the same after restarting the game
+
+        uint32_t currentRootSigID = 0; //this number will change after restarting the game
+
+        if (tlsCurrentCmdList == _this) {
+            currentRootSigID = tlsCurrentRootSigID;
+        }
 
         //wallhack
-        if (Strides == countstride1 || Strides == countstride2 || Strides == countstride3) { //models
+        if (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 || currentRootSigID == countcurrentRootSigID) { //models
             // Save original viewport (do this only once per frame if possible, but safe here)
             D3D12_VIEWPORT originalVp = t_.currentViewport;
 
@@ -757,6 +764,45 @@ namespace d3d12hook {
             oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount,pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
 
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookSetGraphicsRootSignatureD3D12(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature) {
+        
+        if (!dCommandList || !pRootSignature) return oSetGraphicsRootSignatureD3D12(dCommandList, pRootSignature);
+
+        if (dCommandList && pRootSignature) {
+            uint32_t idToStore = 0;
+
+            // 1. Try to find the ID with a shared lock (multiple threads can do this at once)
+            {
+                std::shared_lock<std::shared_mutex> lock(rootSigMutex);
+                auto it = rootSigToID.find(pRootSignature);
+                if (it != rootSigToID.end()) {
+                    idToStore = it->second;
+                }
+            }
+
+            // 2. If not found, use an exclusive lock to register the new signature
+            if (idToStore == 0) {
+                std::unique_lock<std::shared_mutex> lock(rootSigMutex);
+                // Re-check inside the lock to handle race conditions
+                if (rootSigToID.find(pRootSignature) == rootSigToID.end()) {
+                    idToStore = nextRuntimeSigID++;
+                    rootSigToID[pRootSignature] = idToStore;
+                }
+                else {
+                    idToStore = rootSigToID[pRootSignature];
+                }
+            }
+
+            // 3. Store the state in TLS - NO GLOBAL MAP REQUIRED
+            tlsCurrentCmdList = dCommandList;
+            tlsCurrentRootSigID = idToStore;
+        }
+
+        return oSetGraphicsRootSignatureD3D12(dCommandList, pRootSignature);
     }
 
     //=========================================================================================================================//

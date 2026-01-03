@@ -3,6 +3,7 @@
     UINT countstride1 = 0;
     UINT countstride2 = 0;
     UINT countstride3 = 0;
+    UINT countcurrentRootSigID = 0;
     bool reversedDepth = false;
     
 
@@ -33,16 +34,18 @@
 
         // Window flags
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
-        ImGui::SetNextWindowSize(ImVec2(470, 150), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(470, 180), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowPos(ImVec2(25, 25), ImGuiCond_FirstUseEver);
 
         ImGui::Begin("ImGui Menu", &menuisOpen, flags);
 
                 const UINT min_val = 0;
                 const UINT max_val = 100;
-                ImGui::SliderScalar("Wallhack Stridehash1", ImGuiDataType_U32, &countstride1, &min_val, &max_val, "%u");
-                ImGui::SliderScalar("Wallhack Stridehash2", ImGuiDataType_U32, &countstride2, &min_val, &max_val, "%u");
-                ImGui::SliderScalar("Wallhack Stridehash3", ImGuiDataType_U32, &countstride3, &min_val, &max_val, "%u");
+                ImGui::Text("Wallhack:");
+                ImGui::SliderScalar("Find Stridehash1", ImGuiDataType_U32, &countstride1, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("Find Stridehash2", ImGuiDataType_U32, &countstride2, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("Find Stridehash3", ImGuiDataType_U32, &countstride3, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("Find currentRootID", ImGuiDataType_U32, &countcurrentRootSigID, &min_val, &max_val, "%u");
                 ImGui::Checkbox("Reverse Depth", &reversedDepth);
                 //ImGui::Checkbox("Color", &colors);
 
@@ -177,3 +180,16 @@
     //=======================================================================================//
 
     ID3D12DescriptorHeap* g_GameSRVHeap = nullptr;
+
+    //=======================================================================================//
+    
+    #include <shared_mutex>
+    #include <unordered_map>
+
+    std::shared_mutex rootSigMutex;
+    uint32_t nextRuntimeSigID = 1;
+    std::unordered_map<ID3D12RootSignature*, uint32_t> rootSigToID;
+
+    // Thread-local storage: Each thread tracks its own active command list and ID
+    thread_local ID3D12GraphicsCommandList* tlsCurrentCmdList = nullptr;
+    thread_local uint32_t tlsCurrentRootSigID = 0;
