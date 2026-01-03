@@ -4,6 +4,7 @@
     UINT countstride2 = 0;
     UINT countstride3 = 0;
     UINT countcurrentRootSigID = 0;
+    UINT countcurrentRootSigID2 = 0;
     bool reversedDepth = false;
     
 
@@ -34,7 +35,7 @@
 
         // Window flags
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
-        ImGui::SetNextWindowSize(ImVec2(470, 180), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(480, 200), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowPos(ImVec2(25, 25), ImGuiCond_FirstUseEver);
 
         ImGui::Begin("ImGui Menu", &menuisOpen, flags);
@@ -42,10 +43,11 @@
                 const UINT min_val = 0;
                 const UINT max_val = 100;
                 ImGui::Text("Wallhack:");
-                ImGui::SliderScalar("Find Stridehash1", ImGuiDataType_U32, &countstride1, &min_val, &max_val, "%u");
-                ImGui::SliderScalar("Find Stridehash2", ImGuiDataType_U32, &countstride2, &min_val, &max_val, "%u");
-                ImGui::SliderScalar("Find Stridehash3", ImGuiDataType_U32, &countstride3, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("Find Stridehash 1", ImGuiDataType_U32, &countstride1, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("Find Stridehash 2", ImGuiDataType_U32, &countstride2, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("Find Stridehash 3", ImGuiDataType_U32, &countstride3, &min_val, &max_val, "%u");
                 ImGui::SliderScalar("Find currentRootID", ImGuiDataType_U32, &countcurrentRootSigID, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("Find currentRootID2", ImGuiDataType_U32, &countcurrentRootSigID2, &min_val, &max_val, "%u");
                 ImGui::Checkbox("Reverse Depth", &reversedDepth);
                 //ImGui::Checkbox("Color", &colors);
 
