@@ -19,6 +19,7 @@ namespace hooks {
     constexpr size_t kResolveQueryDataIndex = 54;
     constexpr size_t kExecuteIndirectIndex = 59;
     constexpr size_t kSetGraphicsRootSignatureIndex = 30;
+    constexpr size_t kResetIndex = 10;
 
 
     // Dummy objects pour extraire les v-tables
@@ -46,6 +47,7 @@ namespace hooks {
     static LPVOID pResolveQueryDataTarget = nullptr;
     static LPVOID pExecuteIndirectTarget = nullptr;
     static LPVOID pSetGraphicsRootSignatureTarget = nullptr;
+    static LPVOID pResetTarget = nullptr;
 
     static void CleanupDummyObjects()
     {
@@ -272,6 +274,10 @@ namespace hooks {
         mh = MH_CreateHook(pSetGraphicsRootSignatureTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootSignatureD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootSignatureD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootSignature failed: %s\n", MH_StatusToString(mh));
 
+        pResetTarget = reinterpret_cast<LPVOID>(slVTable[kResetIndex]);
+        mh = MH_CreateHook(pResetTarget, reinterpret_cast<LPVOID>(d3d12hook::hookResetD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oResetD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook Reset failed: %s\n", MH_StatusToString(mh));
+
         // --- Enable all hooks ---
         mh = MH_EnableHook(MH_ALL_HOOKS);
         if (mh != MH_OK)Log("[hooks] MH_EnableHook failed: %s\n", MH_StatusToString(mh));
@@ -292,6 +298,7 @@ namespace hooks {
             reinterpret_cast<LPVOID>(slVTable[kResolveQueryDataIndex]), kResolveQueryDataIndex;
             reinterpret_cast<LPVOID>(slVTable[kExecuteIndirectIndex]), kExecuteIndirectIndex;
             reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootSignatureIndex]), kSetGraphicsRootSignatureIndex;
+            reinterpret_cast<LPVOID>(slVTable[kResetIndex]), kResetIndex;
 
         }
     }

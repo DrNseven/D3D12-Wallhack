@@ -5,7 +5,11 @@
     UINT countstride3 = 0;
     UINT countcurrentRootSigID = 0;
     UINT countcurrentRootSigID2 = 0;
+    UINT countrootIndex = 0;
+    UINT countrootIndex2 = 0;
     bool reversedDepth = false;
+    bool filterRoot = false;
+    bool ignoreRoot = false;
     
 
     void menuInit() {
@@ -35,7 +39,7 @@
 
         // Window flags
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
-        ImGui::SetNextWindowSize(ImVec2(480, 200), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(480, 290), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowPos(ImVec2(25, 25), ImGuiCond_FirstUseEver);
 
         ImGui::Begin("ImGui Menu", &menuisOpen, flags);
@@ -48,6 +52,21 @@
                 ImGui::SliderScalar("Find Stridehash 3", ImGuiDataType_U32, &countstride3, &min_val, &max_val, "%u");
                 ImGui::SliderScalar("Find currentRootID", ImGuiDataType_U32, &countcurrentRootSigID, &min_val, &max_val, "%u");
                 ImGui::SliderScalar("Find currentRootID2", ImGuiDataType_U32, &countcurrentRootSigID2, &min_val, &max_val, "%u");
+
+                ImGui::Text("Filter:");
+                ImGui::Checkbox("Filter", &filterRoot);
+                if(filterRoot)
+                {
+                ImGui::SliderScalar("RootIndex", ImGuiDataType_U32, &countrootIndex, &min_val, &max_val, "%u");
+                }
+
+                ImGui::Text("Ignore:");
+                ImGui::Checkbox("Ignore", &ignoreRoot);
+                if (ignoreRoot)
+                {
+                    ImGui::SliderScalar("RootIndex", ImGuiDataType_U32, &countrootIndex2, &min_val, &max_val, "%u");
+                }
+
                 ImGui::Checkbox("Reverse Depth", &reversedDepth);
                 //ImGui::Checkbox("Color", &colors);
 
@@ -185,6 +204,7 @@
 
     //=======================================================================================//
     
+    //SetGraphicsRootSignature
     #include <shared_mutex>
     #include <unordered_map>
 
@@ -195,3 +215,17 @@
     // Thread-local storage: Each thread tracks its own active command list and ID
     thread_local ID3D12GraphicsCommandList* tlsCurrentCmdList = nullptr;
     thread_local uint32_t tlsCurrentRootSigID = 0;
+
+    //=======================================================================================//
+
+    //SetGraphicsRootConstantBufferView
+    struct CommandListState {
+        ID3D12GraphicsCommandList* cmdListPtr = nullptr;
+        UINT lastCbvIndex = UINT_MAX;
+        // Add other state variables here
+    };
+
+    // Extremely fast: no mutex, no map lookup 99% of the time
+    thread_local CommandListState tls_cache;
+
+    

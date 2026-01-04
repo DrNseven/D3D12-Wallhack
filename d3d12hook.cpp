@@ -1,4 +1,4 @@
-//d3d12 hook/wallhack
+ï»¿//d3d12 hook/wallhack
 #include "stdafx.h"
 #include "d3dx12.h"
 #include "menu.h"
@@ -20,6 +20,8 @@ namespace d3d12hook {
     ResolveQueryDataFn oResolveQueryDataD3D12 = nullptr;
     ExecuteIndirectFn oExecuteIndirectD3D12 = nullptr;
     SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12 = nullptr;
+    ResetFn oResetD3D12 = nullptr;
+    //if unresolved external symbol d3d12hook::function, go here
 
 
     static ID3D12Device* gDevice = nullptr;
@@ -663,46 +665,61 @@ namespace d3d12hook {
 
     //=========================================================================================================================//
 
-    void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation) {
-        
-        UINT Strides = t_.StrideHash + t_.StartSlot; //will be the same after restarting the game
-
-        uint32_t currentRootSigID = 0; //this number will change after restarting the game
+    void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation)
+    {
+        UINT Strides = t_.StrideHash + t_.StartSlot;
+        uint32_t currentRootSigID = 0;
 
         if (tlsCurrentCmdList == _this) {
             currentRootSigID = tlsCurrentRootSigID;
         }
 
-        //wallhack
-        if (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 || currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2) { //models
-            // Save original viewport (do this only once per frame if possible, but safe here)
-            D3D12_VIEWPORT originalVp = t_.currentViewport;
+        // 1. Identify if the model matches general stride/signature criteria
+        bool isModelDraw = (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 ||
+            currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
 
-            // Set hacked viewport: full size, very near depth slice
+        bool applyHack = false;
+
+        if (isModelDraw) {
+            if (ignoreRoot) {
+                // New Option: Apply hack ONLY IF the root index does NOT match
+                if (tls_cache.lastCbvIndex != countrootIndex2) {
+                    applyHack = true;
+                }
+            }
+            else if (filterRoot) {
+                // Apply only if root index matches exactly
+                if (tls_cache.lastCbvIndex == countrootIndex) {
+                    applyHack = true;
+                }
+            }
+            else {
+                // Neither filter nor ignore enabled -> apply to all matching models
+                applyHack = true;
+            }
+        }
+
+        if (applyHack) {
+            D3D12_VIEWPORT originalVp = t_.currentViewport;
             D3D12_VIEWPORT hVp = originalVp;
-            
-            hVp.MinDepth = 0.9f;
-            hVp.MaxDepth = 1.0f;
-            
-            //few games use reversed depth 
-            if(reversedDepth)
-            {
-            hVp.MinDepth = 0.0f;
-            hVp.MaxDepth = 0.01f;
+
+            // Handle Depth (Standard or Reversed)
+            if (reversedDepth) {
+                hVp.MinDepth = 0.0f;
+                hVp.MaxDepth = 0.01f;
+            }
+            else {
+                hVp.MinDepth = 0.9f;
+                hVp.MaxDepth = 1.0f;
             }
 
             _this->RSSetViewports(1, &hVp);
-
             oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-
-            // Restore FULL original viewport
             _this->RSSetViewports(1, &originalVp);
         }
         else {
-            // Normal path — no extra state changes
             oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
-
     }
 
     //=========================================================================================================================//
@@ -716,43 +733,66 @@ namespace d3d12hook {
         ID3D12Resource* pCountBuffer,
         UINT64 CountBufferOffset)
     {
-        // At top of hook — safety sanity checks
+        // At top of hook â€” safety sanity checks
         if (MaxCommandCount == 0 || MaxCommandCount > 200000) {  // insane count = driver bug or detection
             return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount,
                 pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
 
         UINT Strides = t_.StrideHash + t_.StartSlot;
+        uint32_t currentRootSigID = 0;
 
-        //wallhack
-        if (Strides == countstride1 || Strides == countstride2 || Strides == countstride3) { //models
-            // Save original viewport (do this only once per frame if possible, but safe here)
+        if (tlsCurrentCmdList == dCommandList) {
+            currentRootSigID = tlsCurrentRootSigID;
+        }
+
+        // 1. Identify if the model matches general stride/signature criteria
+        bool isModelDraw = (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 ||
+            currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
+
+        bool applyHack = false;
+
+        if (isModelDraw) {
+            if (ignoreRoot) {
+                // New Option: Apply hack ONLY IF the root index does NOT match
+                if (tls_cache.lastCbvIndex != countrootIndex2) {
+                    applyHack = true;
+                }
+            }
+            else if (filterRoot) {
+                // Apply only if root index matches exactly
+                if (tls_cache.lastCbvIndex == countrootIndex) {
+                    applyHack = true;
+                }
+            }
+            else {
+                // Neither filter nor ignore enabled -> apply to all matching models
+                applyHack = true;
+            }
+        }
+
+        if (applyHack) {
             D3D12_VIEWPORT originalVp = t_.currentViewport;
-
-            // Set hacked viewport: full size, very near depth slice
             D3D12_VIEWPORT hVp = originalVp;
-            hVp.MinDepth = 0.9f;
-            hVp.MaxDepth = 1.0f;
 
-            //few games use reversed depth 
-            if (reversedDepth)
-            {
+            // Handle Depth (Standard or Reversed)
+            if (reversedDepth) {
                 hVp.MinDepth = 0.0f;
                 hVp.MaxDepth = 0.01f;
             }
+            else {
+                hVp.MinDepth = 0.9f;
+                hVp.MaxDepth = 1.0f;
+            }
 
             dCommandList->RSSetViewports(1, &hVp);
-
-            oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount,pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
-
-            // Restore FULL original viewport
+            oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
             dCommandList->RSSetViewports(1, &originalVp);
         }
         else {
-            // Normal path — no extra state changes
-            oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount,pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+            oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
-
+        
     }
 
     //=========================================================================================================================//
@@ -798,11 +838,30 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookSetGraphicsRootConstantBufferViewD3D12(ID3D12GraphicsCommandList* _this, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
 
-        t_.lastCbvRootParameterIndex = RootParameterIndex;
+        // Synchronize cache if the engine switched command lists on this thread
+        if (tls_cache.cmdListPtr != _this) {
+            tls_cache.cmdListPtr = _this;
+            // Optionally: Reset state if it's a new command list context
+            tls_cache.lastCbvIndex = UINT_MAX;
+        }
+
+        tls_cache.lastCbvIndex = RootParameterIndex;
 
         return oSetGraphicsRootConstantBufferViewD3D12(_this, RootParameterIndex, BufferLocation);
     }
 
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookResetD3D12(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState) {
+
+        // Reset our cache for this specific command list context
+        if (tls_cache.cmdListPtr == _this) {
+            tls_cache.lastCbvIndex = UINT_MAX;
+        }
+
+        return oResetD3D12(_this, pAllocator, pInitialState);
+    }
+    
     //=========================================================================================================================//
     
     void STDMETHODCALLTYPE hookSetDescriptorHeapsD3D12(ID3D12GraphicsCommandList* cmdList, UINT NumHeaps, ID3D12DescriptorHeap* const* ppHeaps)
@@ -869,7 +928,7 @@ namespace d3d12hook {
     //If you want to keep your approach but make it compatible with more games, consider these improvements:
     //Check for Binary Occlusion: Some games expect 0 or 1 (Binary), while others expect the actual number of samples passed (Occlusion). Writing a very large number like 0xFFFF can sometimes be more effective for standard occlusion to ensure the game treats it as "fully visible."
     //Handle Resource Barriers: If you use GPU commands to overwrite the data, you must ensure the pDestinationBuffer is in the D3D12_RESOURCE_STATE_COPY_DEST or COMMON state.
-    //Performance: WriteBufferImmediate is excellent, but if NumQueries is large (e.g., 500+), it’s better to have a small "source" buffer containing many 1s and use CopyBufferRegion.
+    //Performance: WriteBufferImmediate is excellent, but if NumQueries is large (e.g., 500+), itâ€™s better to have a small "source" buffer containing many 1s and use CopyBufferRegion.
     
     //=========================================================================================================================//
 

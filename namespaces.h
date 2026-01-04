@@ -71,6 +71,9 @@ namespace d3d12hook {
         typedef void(STDMETHODCALLTYPE* SetGraphicsRootSignatureFn)(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature);
         extern SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12;
 
+        typedef void(STDMETHODCALLTYPE* ResetFn)(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState);
+        extern ResetFn oResetD3D12;
+
         typedef void(STDMETHODCALLTYPE* ResolveQueryDataFn)(
             ID3D12GraphicsCommandList* self,
             ID3D12QueryHeap* pQueryHeap,
@@ -105,6 +108,7 @@ namespace d3d12hook {
         extern void STDMETHODCALLTYPE hookOMSetRenderTargetsD3D12(ID3D12GraphicsCommandList* dCommandList, UINT NumRenderTargetDescriptors, const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors, BOOL RTsSingleHandleToDescriptorRange, const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor);
         extern void STDMETHODCALLTYPE hookResolveQueryDataD3D12(ID3D12GraphicsCommandList* self,ID3D12QueryHeap* pQueryHeap,D3D12_QUERY_TYPE Type,UINT StartIndex,UINT NumQueries,ID3D12Resource* pDestinationBuffer,UINT64 AlignedDestinationBufferOffset);
         extern void STDMETHODCALLTYPE hookSetGraphicsRootSignatureD3D12(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature);
+        extern void STDMETHODCALLTYPE hookResetD3D12(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState);
         extern void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
             ID3D12GraphicsCommandList* dCommandList,
             ID3D12CommandSignature* pCommandSignature,
