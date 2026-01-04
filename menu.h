@@ -5,8 +5,12 @@
     UINT countstride3 = 0;
     UINT countcurrentRootSigID = 0;
     UINT countcurrentRootSigID2 = 0;
-    UINT countrootIndex = 0;
-    UINT countrootIndex2 = 0;
+    UINT countfilterrootIndex = 0;
+    UINT countfilterrootIndex2 = 0;
+    UINT countfilterrootIndex3 = 0;
+    UINT countignorerootIndex = 0;
+    UINT countignorerootIndex2 = 0;
+    UINT countignorerootIndex3 = 0;
     bool reversedDepth = false;
     bool filterRoot = false;
     bool ignoreRoot = false;
@@ -39,7 +43,7 @@
 
         // Window flags
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
-        ImGui::SetNextWindowSize(ImVec2(480, 290), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(480, 400), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowPos(ImVec2(25, 25), ImGuiCond_FirstUseEver);
 
         ImGui::Begin("ImGui Menu", &menuisOpen, flags);
@@ -57,14 +61,18 @@
                 ImGui::Checkbox("Filter", &filterRoot);
                 if(filterRoot)
                 {
-                ImGui::SliderScalar("RootIndex", ImGuiDataType_U32, &countrootIndex, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("RootIndex1", ImGuiDataType_U32, &countfilterrootIndex, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("RootIndex2", ImGuiDataType_U32, &countfilterrootIndex2, &min_val, &max_val, "%u");
+                ImGui::SliderScalar("RootIndex3", ImGuiDataType_U32, &countfilterrootIndex3, &min_val, &max_val, "%u");
                 }
 
                 ImGui::Text("Ignore:");
                 ImGui::Checkbox("Ignore", &ignoreRoot);
                 if (ignoreRoot)
                 {
-                    ImGui::SliderScalar("RootIndex", ImGuiDataType_U32, &countrootIndex2, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootIndex 1", ImGuiDataType_U32, &countignorerootIndex, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootIndex 2", ImGuiDataType_U32, &countignorerootIndex2, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootIndex 3", ImGuiDataType_U32, &countignorerootIndex3, &min_val, &max_val, "%u");
                 }
 
                 ImGui::Checkbox("Reverse Depth", &reversedDepth);

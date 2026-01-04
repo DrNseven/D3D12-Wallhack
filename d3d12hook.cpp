@@ -683,13 +683,13 @@ namespace d3d12hook {
         if (isModelDraw) {
             if (ignoreRoot) {
                 // New Option: Apply hack ONLY IF the root index does NOT match
-                if (tls_cache.lastCbvIndex != countrootIndex2) {
+                if (tls_cache.lastCbvIndex != countignorerootIndex && tls_cache.lastCbvIndex != countignorerootIndex2 && tls_cache.lastCbvIndex != countignorerootIndex3) {
                     applyHack = true;
                 }
             }
             else if (filterRoot) {
                 // Apply only if root index matches exactly
-                if (tls_cache.lastCbvIndex == countrootIndex) {
+                if (tls_cache.lastCbvIndex == countfilterrootIndex || tls_cache.lastCbvIndex == countfilterrootIndex2 || tls_cache.lastCbvIndex == countfilterrootIndex3) {
                     applyHack = true;
                 }
             }
@@ -755,13 +755,13 @@ namespace d3d12hook {
         if (isModelDraw) {
             if (ignoreRoot) {
                 // New Option: Apply hack ONLY IF the root index does NOT match
-                if (tls_cache.lastCbvIndex != countrootIndex2) {
+                if (tls_cache.lastCbvIndex != countignorerootIndex && tls_cache.lastCbvIndex != countignorerootIndex2 && tls_cache.lastCbvIndex != countignorerootIndex3) {
                     applyHack = true;
                 }
             }
             else if (filterRoot) {
                 // Apply only if root index matches exactly
-                if (tls_cache.lastCbvIndex == countrootIndex) {
+                if (tls_cache.lastCbvIndex == countfilterrootIndex || tls_cache.lastCbvIndex == countfilterrootIndex2 || tls_cache.lastCbvIndex == countfilterrootIndex3) {
                     applyHack = true;
                 }
             }
