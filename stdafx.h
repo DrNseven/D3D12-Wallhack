@@ -52,8 +52,8 @@ inline void Log(const char* fmt, ...) {
 
 // Thread-local cache
 thread_local struct {
-    UINT lastCbvRootParameterIndex = UINT_MAX;
-    UINT lastCbvRootParameterIndex2 = UINT_MAX;
+    //UINT lastCbvRootParameterIndex = UINT_MAX;
+    //UINT lastCbvRootParameterIndex2 = UINT_MAX;
     UINT StartSlot = 0;
     UINT Strides[16] = { 0 };
     UINT vertexBufferSizes[16] = { 0 };

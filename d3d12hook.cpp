@@ -681,18 +681,110 @@ namespace d3d12hook {
         bool applyHack = false;
 
         if (isModelDraw) {
-            if (ignoreRoot) {
+            // Start with the assumption we apply the hack
+            applyHack = true;
+
+            // 1. Check IGNORE rules (Exclusive)
+            // If "Ignore" is on AND the current index matches an ignore slot, turn hack OFF
+            if (ignoreRootDescriptor) {
+                if (tls_cache.lastRDIndex == countignorerootDescriptor ||
+                    tls_cache.lastRDIndex == countignorerootDescriptor2 ||
+                    tls_cache.lastRDIndex == countignorerootDescriptor3) {
+                    applyHack = false;
+                }
+            }
+
+            if (ignoreRootConstant) {
+                if (tls_cache.lastCbvIndex == countignorerootConstant ||
+                    tls_cache.lastCbvIndex == countignorerootConstant2 ||
+                    tls_cache.lastCbvIndex == countignorerootConstant3) {
+                    applyHack = false;
+                }
+            }
+
+            // 2. Check FILTER rules (Inclusive)
+            // If "Filter" is on, we only keep applyHack true if it matches one of the filter indices
+            if (applyHack && filterRootDescriptor) {
+                if (tls_cache.lastRDIndex != countfilterrootDescriptor &&
+                    tls_cache.lastRDIndex != countfilterrootDescriptor2 &&
+                    tls_cache.lastRDIndex != countfilterrootDescriptor3) {
+                    applyHack = false; // Didn't match any filter, turn it off
+                }
+            }
+
+            if (applyHack && filterRootConstant) {
+                if (tls_cache.lastCbvIndex != countfilterrootConstant &&
+                    tls_cache.lastCbvIndex != countfilterrootConstant2 &&
+                    tls_cache.lastCbvIndex != countfilterrootConstant3) {
+                    applyHack = false; // Didn't match any filter, turn it off
+                }
+            }
+        }
+
+        if (applyHack) {
+            D3D12_VIEWPORT originalVp = t_.currentViewport;
+            D3D12_VIEWPORT hVp = originalVp;
+
+            // Handle Depth (Standard or Reversed)
+            if (reversedDepth) {
+                hVp.MinDepth = 0.0f;
+                hVp.MaxDepth = 0.01f;
+            }
+            else {
+                hVp.MinDepth = 0.9f;
+                hVp.MaxDepth = 1.0f;
+            }
+
+            _this->RSSetViewports(1, &hVp);
+            oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+            _this->RSSetViewports(1, &originalVp);
+        }
+        else {
+            oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        }
+    }
+
+    /*
+    void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation)
+    {
+        UINT Strides = t_.StrideHash + t_.StartSlot;
+        uint32_t currentRootSigID = 0;
+
+        if (tlsCurrentCmdList == _this) {
+            currentRootSigID = tlsCurrentRootSigID;
+        }
+
+        // 1. Identify if the model matches general stride/signature criteria
+        bool isModelDraw = (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 ||
+            currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
+
+        bool applyHack = false;
+
+        if (isModelDraw) {
+            if (ignoreRootDescriptor) {
                 // New Option: Apply hack ONLY IF the root index does NOT match
-                if (tls_cache.lastCbvIndex != countignorerootIndex && tls_cache.lastCbvIndex != countignorerootIndex2 && tls_cache.lastCbvIndex != countignorerootIndex3) {
+                if (tls_cache.lastRDIndex != countignorerootDescriptor && tls_cache.lastRDIndex != countignorerootDescriptor2 && tls_cache.lastRDIndex != countignorerootDescriptor3) {
                     applyHack = true;
                 }
             }
-            else if (filterRoot) {
+            if (ignoreRootConstant) {
+                // New Option: Apply hack ONLY IF the root index does NOT match;
+                if (tls_cache.lastCbvIndex != countignorerootConstant && tls_cache.lastCbvIndex != countignorerootConstant2 && tls_cache.lastCbvIndex != countignorerootConstant3)
+                    applyHack = true;
+            }
+
+            else if (filterRootDescriptor) {
                 // Apply only if root index matches exactly
-                if (tls_cache.lastCbvIndex == countfilterrootIndex || tls_cache.lastCbvIndex == countfilterrootIndex2 || tls_cache.lastCbvIndex == countfilterrootIndex3) {
+                if (tls_cache.lastRDIndex != countfilterrootDescriptor && tls_cache.lastRDIndex != countfilterrootDescriptor2 && tls_cache.lastRDIndex != countfilterrootDescriptor3) {
                     applyHack = true;
                 }
             }
+            else if (filterRootConstant) {
+                // Apply only if root index matches exactly
+                if (tls_cache.lastCbvIndex != countfilterrootConstant && tls_cache.lastCbvIndex != countfilterrootConstant2 && tls_cache.lastCbvIndex != countfilterrootConstant3) {
+                    applyHack = true;
+                    }
+                }
             else {
                 // Neither filter nor ignore enabled -> apply to all matching models
                 applyHack = true;
@@ -721,7 +813,7 @@ namespace d3d12hook {
             oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
     }
-
+    */
     //=========================================================================================================================//
    
     void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
@@ -753,21 +845,43 @@ namespace d3d12hook {
         bool applyHack = false;
 
         if (isModelDraw) {
-            if (ignoreRoot) {
-                // New Option: Apply hack ONLY IF the root index does NOT match
-                if (tls_cache.lastCbvIndex != countignorerootIndex && tls_cache.lastCbvIndex != countignorerootIndex2 && tls_cache.lastCbvIndex != countignorerootIndex3) {
-                    applyHack = true;
+            // Start with the assumption we apply the hack
+            applyHack = true;
+
+            // 1. Check IGNORE rules (Exclusive)
+            // If "Ignore" is on AND the current index matches an ignore slot, turn hack OFF
+            if (ignoreRootDescriptor) {
+                if (tls_cache.lastRDIndex == countignorerootDescriptor ||
+                    tls_cache.lastRDIndex == countignorerootDescriptor2 ||
+                    tls_cache.lastRDIndex == countignorerootDescriptor3) {
+                    applyHack = false;
                 }
             }
-            else if (filterRoot) {
-                // Apply only if root index matches exactly
-                if (tls_cache.lastCbvIndex == countfilterrootIndex || tls_cache.lastCbvIndex == countfilterrootIndex2 || tls_cache.lastCbvIndex == countfilterrootIndex3) {
-                    applyHack = true;
+
+            if (ignoreRootConstant) {
+                if (tls_cache.lastCbvIndex == countignorerootConstant ||
+                    tls_cache.lastCbvIndex == countignorerootConstant2 ||
+                    tls_cache.lastCbvIndex == countignorerootConstant3) {
+                    applyHack = false;
                 }
             }
-            else {
-                // Neither filter nor ignore enabled -> apply to all matching models
-                applyHack = true;
+
+            // 2. Check FILTER rules (Inclusive)
+            // If "Filter" is on, we only keep applyHack true if it matches one of the filter indices
+            if (applyHack && filterRootDescriptor) {
+                if (tls_cache.lastRDIndex != countfilterrootDescriptor &&
+                    tls_cache.lastRDIndex != countfilterrootDescriptor2 &&
+                    tls_cache.lastRDIndex != countfilterrootDescriptor3) {
+                    applyHack = false; // Didn't match any filter, turn it off
+                }
+            }
+
+            if (applyHack && filterRootConstant) {
+                if (tls_cache.lastCbvIndex != countfilterrootConstant &&
+                    tls_cache.lastCbvIndex != countfilterrootConstant2 &&
+                    tls_cache.lastCbvIndex != countfilterrootConstant3) {
+                    applyHack = false; // Didn't match any filter, turn it off
+                }
             }
         }
 
@@ -792,7 +906,6 @@ namespace d3d12hook {
         else {
             oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
-        
     }
 
     //=========================================================================================================================//
@@ -852,6 +965,24 @@ namespace d3d12hook {
 
     //=========================================================================================================================//
 
+    void STDMETHODCALLTYPE hookSetGraphicsRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
+
+        if(tls_cache.cmdListPtr != dCommandList) {
+            tls_cache.cmdListPtr = dCommandList;
+
+            tls_cache.lastRDIndex = UINT_MAX;
+
+            if (BaseDescriptor.ptr != 0)
+            t_.LastDescriptorBase = BaseDescriptor;
+        }
+
+        tls_cache.lastRDIndex = RootParameterIndex;
+
+        return oSetGraphicsRootDescriptorTableD3D12(dCommandList, RootParameterIndex, BaseDescriptor);
+    }
+
+    //=========================================================================================================================//
+
     void STDMETHODCALLTYPE hookResetD3D12(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState) {
 
         // Reset our cache for this specific command list context
@@ -877,19 +1008,6 @@ namespace d3d12hook {
         }
         
         oSetDescriptorHeapsD3D12(cmdList, NumHeaps, ppHeaps);
-    }
-    
-    //=========================================================================================================================//
-    
-    void STDMETHODCALLTYPE hookSetGraphicsRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
-
-        if (BaseDescriptor.ptr != 0)
-        {
-            t_.lastCbvRootParameterIndex2 = RootParameterIndex;
-            t_.LastDescriptorBase = BaseDescriptor;
-        }
-        
-        return oSetGraphicsRootDescriptorTableD3D12(dCommandList, RootParameterIndex, BaseDescriptor);
     }
 
     //=========================================================================================================================//

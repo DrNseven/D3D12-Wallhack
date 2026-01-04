@@ -5,15 +5,23 @@
     UINT countstride3 = 0;
     UINT countcurrentRootSigID = 0;
     UINT countcurrentRootSigID2 = 0;
-    UINT countfilterrootIndex = 0;
-    UINT countfilterrootIndex2 = 0;
-    UINT countfilterrootIndex3 = 0;
-    UINT countignorerootIndex = 0;
-    UINT countignorerootIndex2 = 0;
-    UINT countignorerootIndex3 = 0;
+    UINT countfilterrootConstant = 0;
+    UINT countfilterrootConstant2 = 0;
+    UINT countfilterrootConstant3 = 0;
+    UINT countignorerootConstant = 0;
+    UINT countignorerootConstant2 = 0;
+    UINT countignorerootConstant3 = 0;
+    UINT countfilterrootDescriptor = 0;
+    UINT countfilterrootDescriptor2 = 0;
+    UINT countfilterrootDescriptor3 = 0;
+    UINT countignorerootDescriptor = 0;
+    UINT countignorerootDescriptor2 = 0;
+    UINT countignorerootDescriptor3 = 0;
     bool reversedDepth = false;
-    bool filterRoot = false;
-    bool ignoreRoot = false;
+    bool filterRootConstant = false;
+    bool ignoreRootConstant = false;
+    bool filterRootDescriptor = false;
+    bool ignoreRootDescriptor = false;
     
 
     void menuInit() {
@@ -43,7 +51,7 @@
 
         // Window flags
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
-        ImGui::SetNextWindowSize(ImVec2(480, 400), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(480, 640), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowPos(ImVec2(25, 25), ImGuiCond_FirstUseEver);
 
         ImGui::Begin("ImGui Menu", &menuisOpen, flags);
@@ -57,22 +65,40 @@
                 ImGui::SliderScalar("Find currentRootID", ImGuiDataType_U32, &countcurrentRootSigID, &min_val, &max_val, "%u");
                 ImGui::SliderScalar("Find currentRootID2", ImGuiDataType_U32, &countcurrentRootSigID2, &min_val, &max_val, "%u");
 
-                ImGui::Text("Filter:");
-                ImGui::Checkbox("Filter", &filterRoot);
-                if(filterRoot)
+                //ImGui::Text("Filter:");
+                ImGui::Checkbox("Filter RootDescriptor", &filterRootDescriptor);
+                if (filterRootDescriptor)
                 {
-                ImGui::SliderScalar("RootIndex1", ImGuiDataType_U32, &countfilterrootIndex, &min_val, &max_val, "%u");
-                ImGui::SliderScalar("RootIndex2", ImGuiDataType_U32, &countfilterrootIndex2, &min_val, &max_val, "%u");
-                ImGui::SliderScalar("RootIndex3", ImGuiDataType_U32, &countfilterrootIndex3, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootDescriptor1", ImGuiDataType_U32, &countfilterrootDescriptor, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootDescriptor2", ImGuiDataType_U32, &countfilterrootDescriptor2, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootDescriptor3", ImGuiDataType_U32, &countfilterrootDescriptor3, &min_val, &max_val, "%u");
                 }
 
-                ImGui::Text("Ignore:");
-                ImGui::Checkbox("Ignore", &ignoreRoot);
-                if (ignoreRoot)
+                //ImGui::Text("Filter:");
+                ImGui::Checkbox("Filter RootConstant", &filterRootConstant);
+                if (filterRootConstant)
                 {
-                    ImGui::SliderScalar("RootIndex 1", ImGuiDataType_U32, &countignorerootIndex, &min_val, &max_val, "%u");
-                    ImGui::SliderScalar("RootIndex 2", ImGuiDataType_U32, &countignorerootIndex2, &min_val, &max_val, "%u");
-                    ImGui::SliderScalar("RootIndex 3", ImGuiDataType_U32, &countignorerootIndex3, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootConstant1", ImGuiDataType_U32, &countfilterrootConstant, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootConstant2", ImGuiDataType_U32, &countfilterrootConstant2, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootConstant3", ImGuiDataType_U32, &countfilterrootConstant3, &min_val, &max_val, "%u");
+                }
+
+                //ImGui::Text("Ignore");
+                ImGui::Checkbox("Ignore RootDescriptor", &ignoreRootDescriptor);
+                if (ignoreRootDescriptor)
+                {
+                    ImGui::SliderScalar("RootDescriptor 1", ImGuiDataType_U32, &countignorerootDescriptor, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootDescriptor 2", ImGuiDataType_U32, &countignorerootDescriptor2, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootDescriptor 3", ImGuiDataType_U32, &countignorerootDescriptor3, &min_val, &max_val, "%u");
+                }
+
+                //ImGui::Text("Ignore");
+                ImGui::Checkbox("Ignore RootConstant", &ignoreRootConstant);
+                if (ignoreRootConstant)
+                {
+                    ImGui::SliderScalar("RootConstant 1", ImGuiDataType_U32, &countignorerootConstant, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootConstant 2", ImGuiDataType_U32, &countignorerootConstant2, &min_val, &max_val, "%u");
+                    ImGui::SliderScalar("RootConstant 3", ImGuiDataType_U32, &countignorerootConstant3, &min_val, &max_val, "%u");
                 }
 
                 ImGui::Checkbox("Reverse Depth", &reversedDepth);
@@ -231,6 +257,7 @@
         ID3D12GraphicsCommandList* cmdListPtr = nullptr;
         UINT lastCbvIndex = UINT_MAX;
         // Add other state variables here
+        UINT lastRDIndex = UINT_MAX;
     };
 
     // Extremely fast: no mutex, no map lookup 99% of the time
