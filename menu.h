@@ -205,6 +205,26 @@
             globals::mainWindow = nullptr;
         }
 
+        LRESULT WINAPI WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+            // If the menu is open, give ImGui first priority
+            if (menuisOpen) {
+                ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
+
+                // Block certain keys from reaching the game so you don't 
+                // walk/shoot while navigating the menu
+                switch (uMsg) {
+                case WM_KEYDOWN:
+                case WM_KEYUP:
+                case WM_SYSKEYDOWN:
+                case WM_SYSKEYUP:
+                    return true;
+                }
+            }
+
+            return CallWindowProc(sOriginalWndProc, hWnd, uMsg, wParam, lParam);
+        }
+
+        /*
         LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             if (menuisOpen)
@@ -230,6 +250,7 @@
 
             return CallWindowProc(sOriginalWndProc, hwnd, uMsg, wParam, lParam);
         }
+        */
     }
 
     //=======================================================================================//

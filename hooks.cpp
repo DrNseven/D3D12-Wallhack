@@ -232,7 +232,7 @@ namespace hooks {
             return;
         }
         auto slVTable = *reinterpret_cast<void***>(baseCL.Get());
-
+        
         pRSSetViewportsTarget = reinterpret_cast<LPVOID>(slVTable[kRSSetViewportsIndex]);
         mh = MH_CreateHook(pRSSetViewportsTarget, reinterpret_cast<LPVOID>(d3d12hook::hookRSSetViewportsD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oRSSetViewportsD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook RSSetViewports failed: %s\n", MH_StatusToString(mh));
@@ -277,7 +277,7 @@ namespace hooks {
         pResetTarget = reinterpret_cast<LPVOID>(slVTable[kResetIndex]);
         mh = MH_CreateHook(pResetTarget, reinterpret_cast<LPVOID>(d3d12hook::hookResetD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oResetD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook Reset failed: %s\n", MH_StatusToString(mh));
-
+        
         // --- Enable all hooks ---
         mh = MH_EnableHook(MH_ALL_HOOKS);
         if (mh != MH_OK)Log("[hooks] MH_EnableHook failed: %s\n", MH_StatusToString(mh));

@@ -21,7 +21,7 @@ namespace d3d12hook {
     ExecuteIndirectFn oExecuteIndirectD3D12 = nullptr;
     SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12 = nullptr;
     ResetFn oResetD3D12 = nullptr;
-    //if unresolved external symbol d3d12hook::function, go here
+    //if unresolved external symbol d3d12hook::function, fix here
 
 
     static ID3D12Device* gDevice = nullptr;
@@ -38,6 +38,10 @@ namespace d3d12hook {
         ID3D12CommandAllocator* allocator;
         ID3D12Resource* renderTarget;
         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle;
+
+        // The specific fence value that must be reached 
+    // before this specific back-buffer can be reused.
+        UINT64 FenceValue;
     };
     static FrameContext* gFrameContexts = nullptr;
     static bool                   gInitialized = false;
@@ -65,182 +69,135 @@ namespace d3d12hook {
     //=========================================================================================================================//
 
     HRESULT WINAPI hookPresentD3D12(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags) {
+        // 1. Handle Input Toggles
         if (GetAsyncKeyState(globals::openMenuKey) & 1) {
             menuisOpen = !menuisOpen;
-            //Log("[d3d12hook] Toggle menu: isOpen=%d\n", menuisOpen);
         }
 
         if (GetAsyncKeyState(globals::uninjectKey) & 1) {
-            //Uninject();
             return oPresentD3D12(pSwapChain, SyncInterval, Flags);
         }
 
         gAfterFirstPresent = true;
+
+        // 2. CommandQueue Safety Check
         if (!gCommandQueue) {
-            Log("[d3d12hook] CommandQueue not yet captured, skipping frame\n");
             if (!gDevice) {
                 pSwapChain->GetDevice(__uuidof(ID3D12Device), (void**)&gDevice);
             }
             return oPresentD3D12(pSwapChain, SyncInterval, Flags);
         }
 
+        // 3. One-Time Initialization
         if (!gInitialized) {
             Log("[d3d12hook] Initializing ImGui on first Present.\n");
             if (FAILED(pSwapChain->GetDevice(__uuidof(ID3D12Device), (void**)&gDevice))) {
-                LogHRESULT("GetDevice", E_FAIL);
                 return oPresentD3D12(pSwapChain, SyncInterval, Flags);
             }
 
-            // Swap Chain description
             DXGI_SWAP_CHAIN_DESC desc = {};
             pSwapChain->GetDesc(&desc);
             gBufferCount = desc.BufferCount;
-            Log("[d3d12hook] BufferCount=%u\n", gBufferCount);
 
-            // Create descriptor heaps
+            // Create Descriptor Heaps
             D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
             heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
             heapDesc.NumDescriptors = gBufferCount;
-            if (FAILED(gDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&gHeapRTV)))) {
-                LogHRESULT("CreateDescriptorHeap RTV", E_FAIL);
-                return oPresentD3D12(pSwapChain, SyncInterval, Flags);
-            }
+            gDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&gHeapRTV));
 
             heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
             heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-            if (FAILED(gDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&gHeapSRV)))) {
-                LogHRESULT("CreateDescriptorHeap SRV", E_FAIL);
-                return oPresentD3D12(pSwapChain, SyncInterval, Flags);
-            }
+            gDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&gHeapSRV));
 
             // Allocate frame contexts
             gFrameContexts = new FrameContext[gBufferCount];
-            ZeroMemory(gFrameContexts, sizeof(FrameContext) * gBufferCount);
-
-            // Create command allocator for each frame
-            for (UINT i = 0; i < gBufferCount; ++i) {
-                if (FAILED(gDevice->CreateCommandAllocator(
-                        D3D12_COMMAND_LIST_TYPE_DIRECT,
-                        IID_PPV_ARGS(&gFrameContexts[i].allocator)))) {
-                    LogHRESULT("CreateCommandAllocator", E_FAIL);
-                    return oPresentD3D12(pSwapChain, SyncInterval, Flags);
-                }
-            }
-
-            // Create RTVs for each back buffer
             UINT rtvSize = gDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
             auto rtvHandle = gHeapRTV->GetCPUDescriptorHandleForHeapStart();
+
             for (UINT i = 0; i < gBufferCount; ++i) {
-                ID3D12Resource* back;
-                pSwapChain->GetBuffer(i, IID_PPV_ARGS(&back));
-                gDevice->CreateRenderTargetView(back, nullptr, rtvHandle);
-                gFrameContexts[i].renderTarget = back;
+                gDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&gFrameContexts[i].allocator));
+                pSwapChain->GetBuffer(i, IID_PPV_ARGS(&gFrameContexts[i].renderTarget));
+
                 gFrameContexts[i].rtvHandle = rtvHandle;
+                gDevice->CreateRenderTargetView(gFrameContexts[i].renderTarget, nullptr, rtvHandle);
                 rtvHandle.ptr += rtvSize;
+
+                gFrameContexts[i].FenceValue = 0; // Initialize fence value
             }
 
-            // ImGui setup
+            // Initialize Fences
+            gDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gOverlayFence));
+            gOverlayFenceValue = 0;
+
+            // ImGui Setup
             ImGui::CreateContext();
-            ImGuiIO& io = ImGui::GetIO(); (void)io;
-            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-            ImGui::StyleColorsDark();
+            ImGuiIO& io = ImGui::GetIO();
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Re-enabled
+
+            // Add these to prevent ImGui from fighting the game for the mouse/focus
+            io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            io.IniFilename = nullptr; // Prevents disk I/O freezes on NewFrame
+
             ImGui_ImplWin32_Init(desc.OutputWindow);
-            ImGui_ImplDX12_Init(gDevice, gBufferCount,
-                desc.BufferDesc.Format,
-                gHeapSRV,
+            ImGui_ImplWin32_Init(desc.OutputWindow);
+            ImGui_ImplDX12_Init(gDevice, gBufferCount, desc.BufferDesc.Format, gHeapSRV,
                 gHeapSRV->GetCPUDescriptorHandleForHeapStart(),
                 gHeapSRV->GetGPUDescriptorHandleForHeapStart());
-            Log("[d3d12hook] ImGui initialized.\n");
 
             inputhook::Init(desc.OutputWindow);
-
-            if (!gOverlayFence) {
-                if (FAILED(gDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gOverlayFence)))) {
-                    LogHRESULT("CreateFence", E_FAIL);
-                    return oPresentD3D12(pSwapChain, SyncInterval, Flags);
-                }
-            }
-
-            if (!gFenceEvent) {
-                gFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-                if (!gFenceEvent) {
-                    Log("[d3d12hook] Failed to create fence event: %lu\n", GetLastError());
-                }
-            }
-
-            // Hook CommandQueue and Fence are already captured by minhook
             gInitialized = true;
         }
 
+        // 4. Synchronization and Rendering (The Fix)
         if (!gShutdown) {
-            // Render ImGui
+            UINT frameIdx = pSwapChain->GetCurrentBackBufferIndex();
+            FrameContext& ctx = gFrameContexts[frameIdx];
+
+            // NON-BLOCKING CHECK: Check if the GPU has finished the command list associated 
+            // with this specific back-buffer index.
+            if (gOverlayFence->GetCompletedValue() < ctx.FenceValue) {
+                // GPU is still busy with the UI for this specific buffer.
+                // Skip overlay rendering this frame to avoid deadlocking the engine.
+                return oPresentD3D12(pSwapChain, SyncInterval, Flags);
+            }
+
+            // Start New Frame
             ImGui_ImplDX12_NewFrame();
             ImGui_ImplWin32_NewFrame();
             ImGui::NewFrame();
 
-            if (menuisOpen) menuInit();
-
-            UINT frameIdx = pSwapChain->GetCurrentBackBufferIndex();
-            FrameContext& ctx = gFrameContexts[frameIdx];
-
-            // Wait for the GPU to finish with the previous frame
-            bool canRender = true;
-            if (!gOverlayFence || !gFenceEvent) {
-                // Missing synchronization objects, skip waiting
-            } else if (gOverlayFence->GetCompletedValue() < gOverlayFenceValue) {
-                HRESULT hr = gOverlayFence->SetEventOnCompletion(gOverlayFenceValue, gFenceEvent);
-                if (SUCCEEDED(hr)) {
-                    const DWORD waitTimeoutMs = 2000; // Extended timeout
-                    DWORD waitRes = WaitForSingleObject(gFenceEvent, waitTimeoutMs);
-                    if (waitRes == WAIT_TIMEOUT) {
-                        Log("[d3d12hook] WaitForSingleObject timeout\n");
-                        canRender = false;
-                    } else if (waitRes != WAIT_OBJECT_0) {
-                        Log("[d3d12hook] WaitForSingleObject failed: %lu\n", GetLastError());
-                        canRender = false;
-                    }
-                } else {
-                    LogHRESULT("SetEventOnCompletion", hr);
-                    canRender = false;
+            //if (menuisOpen) menuInit();
+            if (menuisOpen) {
+                // Only process navigation if the game window is actually active
+                if (GetForegroundWindow() != globals::mainWindow) {
+                    ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
                 }
+                else {
+                    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+                }
+
+                menuInit();
             }
 
-            if (!canRender) {
-                Log("[d3d12hook] Skipping ImGui render for this frame\n");
-                ImGui::EndFrame();
-                return oPresentD3D12(pSwapChain, SyncInterval, Flags);
-            }
-
-            // Reset allocator and command list using frame-specific allocator
-            HRESULT hr = ctx.allocator->Reset();
-            if (FAILED(hr)) {
-                LogHRESULT("CommandAllocator->Reset", hr);
-                return oPresentD3D12(pSwapChain, SyncInterval, Flags);
-            }
-
+            // Prepare Command List
+            ctx.allocator->Reset();
             if (!gCommandList) {
-                hr = gDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                    ctx.allocator, nullptr, IID_PPV_ARGS(&gCommandList));
-                if (FAILED(hr)) {
-                    LogHRESULT("CreateCommandList", hr);
-                    return oPresentD3D12(pSwapChain, SyncInterval, Flags);
-                }
-                gCommandList->Close();
+                gDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, ctx.allocator, nullptr, IID_PPV_ARGS(&gCommandList));
             }
-            hr = gCommandList->Reset(ctx.allocator, nullptr);
-            if (FAILED(hr)) {
-                LogHRESULT("CommandList->Reset", hr);
-                return oPresentD3D12(pSwapChain, SyncInterval, Flags);
+            else {
+                gCommandList->Reset(ctx.allocator, nullptr);
             }
 
-            // Transition to render target
+            // Transition: PRESENT -> RENDER_TARGET
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             barrier.Transition.pResource = ctx.renderTarget;
             barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
             barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             gCommandList->ResourceBarrier(1, &barrier);
 
+            // Render
             gCommandList->OMSetRenderTargets(1, &ctx.rtvHandle, FALSE, nullptr);
             ID3D12DescriptorHeap* heaps[] = { gHeapSRV };
             gCommandList->SetDescriptorHeaps(1, heaps);
@@ -248,34 +205,20 @@ namespace d3d12hook {
             ImGui::Render();
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), gCommandList);
 
-            // Transition back to present
+            // Transition: RENDER_TARGET -> PRESENT
             barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
             barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
             gCommandList->ResourceBarrier(1, &barrier);
+
             gCommandList->Close();
 
-            // Execute
-            if (!gCommandQueue) {
-                Log("[d3d12hook] CommandQueue not set, skipping ExecuteCommandLists.\n");
-            }
-            else {
-                oExecuteCommandListsD3D12(gCommandQueue, 1, reinterpret_cast<ID3D12CommandList* const*>(&gCommandList));
-                if (gOverlayFence) {
-                    // Call Signal directly on the command queue to synchronize the internal overlay.
-                    HRESULT hr = gCommandQueue->Signal(gOverlayFence, ++gOverlayFenceValue);
-                    if (FAILED(hr)) {
-                        LogHRESULT("Signal", hr);
-                        if (gDevice) {
-                            HRESULT reason = gDevice->GetDeviceRemovedReason();
-                            Log("[d3d12hook] DeviceRemovedReason=0x%08X\n", reason);
-                            if (reason != S_OK) {
-                                Log("[d3d12hook] Device lost. Releasing resources.\n");
-                                release();
-                            }
-                        }
-                    }
-                }
-            }
+            // 5. Execute and Signal
+            oExecuteCommandListsD3D12(gCommandQueue, 1, reinterpret_cast<ID3D12CommandList* const*>(&gCommandList));
+
+            // Update the fence for this specific frame context
+            gOverlayFenceValue++;
+            ctx.FenceValue = gOverlayFenceValue;
+            gCommandQueue->Signal(gOverlayFence, gOverlayFenceValue);
         }
 
         return oPresentD3D12(pSwapChain, SyncInterval, Flags);
@@ -286,180 +229,131 @@ namespace d3d12hook {
     HRESULT WINAPI hookPresent1D3D12(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pParams) {
         if (GetAsyncKeyState(globals::openMenuKey) & 1) {
             menuisOpen = !menuisOpen;
-            //Log("[d3d12hook] Toggle menu: isOpen=%d\n", menuisOpen);
         }
 
         if (GetAsyncKeyState(globals::uninjectKey) & 1) {
-            //Uninject();
             return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
         }
 
         gAfterFirstPresent = true;
+
+        // 1. Initial Capture Check
         if (!gCommandQueue) {
-            Log("[d3d12hook] CommandQueue not yet captured, skipping frame\n");
             if (!gDevice) {
                 pSwapChain->GetDevice(__uuidof(ID3D12Device), (void**)&gDevice);
             }
             return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
         }
 
+        // 2. Initialization (Shared with Present)
         if (!gInitialized) {
-            Log("[d3d12hook] Initializing ImGui on first Present1.\n");
+            Log("[d3d12hook] Initializing ImGui on first Present.\n");
             if (FAILED(pSwapChain->GetDevice(__uuidof(ID3D12Device), (void**)&gDevice))) {
-                LogHRESULT("GetDevice", E_FAIL);
-                return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
+                return oPresentD3D12(pSwapChain, SyncInterval, Flags);
             }
 
-            // Swap Chain description
             DXGI_SWAP_CHAIN_DESC desc = {};
             pSwapChain->GetDesc(&desc);
             gBufferCount = desc.BufferCount;
-            Log("[d3d12hook] BufferCount=%u\n", gBufferCount);
 
-            // Create descriptor heaps
+            // Create Descriptor Heaps
             D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
             heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
             heapDesc.NumDescriptors = gBufferCount;
-            if (FAILED(gDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&gHeapRTV)))) {
-                LogHRESULT("CreateDescriptorHeap RTV", E_FAIL);
-                return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
-            }
+            gDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&gHeapRTV));
 
             heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
             heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-            if (FAILED(gDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&gHeapSRV)))) {
-                LogHRESULT("CreateDescriptorHeap SRV", E_FAIL);
-                return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
-            }
+            gDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&gHeapSRV));
 
             // Allocate frame contexts
             gFrameContexts = new FrameContext[gBufferCount];
-            ZeroMemory(gFrameContexts, sizeof(FrameContext) * gBufferCount);
-
-            // Create command allocator for each frame
-            for (UINT i = 0; i < gBufferCount; ++i) {
-                if (FAILED(gDevice->CreateCommandAllocator(
-                        D3D12_COMMAND_LIST_TYPE_DIRECT,
-                        IID_PPV_ARGS(&gFrameContexts[i].allocator)))) {
-                    LogHRESULT("CreateCommandAllocator", E_FAIL);
-                    return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
-                }
-            }
-
-            // Create RTVs for each back buffer
             UINT rtvSize = gDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
             auto rtvHandle = gHeapRTV->GetCPUDescriptorHandleForHeapStart();
+
             for (UINT i = 0; i < gBufferCount; ++i) {
-                ID3D12Resource* back;
-                pSwapChain->GetBuffer(i, IID_PPV_ARGS(&back));
-                gDevice->CreateRenderTargetView(back, nullptr, rtvHandle);
-                gFrameContexts[i].renderTarget = back;
+                gDevice->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&gFrameContexts[i].allocator));
+                pSwapChain->GetBuffer(i, IID_PPV_ARGS(&gFrameContexts[i].renderTarget));
+
                 gFrameContexts[i].rtvHandle = rtvHandle;
+                gDevice->CreateRenderTargetView(gFrameContexts[i].renderTarget, nullptr, rtvHandle);
                 rtvHandle.ptr += rtvSize;
+
+                gFrameContexts[i].FenceValue = 0; // Initialize fence value
             }
 
-            // ImGui setup
+            // Initialize Fences
+            gDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gOverlayFence));
+            gOverlayFenceValue = 0;
+
+            // ImGui Setup
             ImGui::CreateContext();
-            ImGuiIO& io = ImGui::GetIO(); (void)io;
-            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-            ImGui::StyleColorsDark();
+            ImGuiIO& io = ImGui::GetIO();
+            io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Re-enabled
+
+            // Add these to prevent ImGui from fighting the game for the mouse/focus
+            io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+            io.IniFilename = nullptr; // Prevents disk I/O freezes on NewFrame
+
             ImGui_ImplWin32_Init(desc.OutputWindow);
-            ImGui_ImplDX12_Init(gDevice, gBufferCount,
-                desc.BufferDesc.Format,
-                gHeapSRV,
+            ImGui_ImplDX12_Init(gDevice, gBufferCount, desc.BufferDesc.Format, gHeapSRV,
                 gHeapSRV->GetCPUDescriptorHandleForHeapStart(),
                 gHeapSRV->GetGPUDescriptorHandleForHeapStart());
-            Log("[d3d12hook] ImGui initialized.\n");
 
             inputhook::Init(desc.OutputWindow);
-
-            if (!gOverlayFence) {
-                if (FAILED(gDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&gOverlayFence)))) {
-                    LogHRESULT("CreateFence", E_FAIL);
-                    return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
-                }
-            }
-
-            if (!gFenceEvent) {
-                gFenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-                if (!gFenceEvent) {
-                    Log("[d3d12hook] Failed to create fence event: %lu\n", GetLastError());
-                }
-            }
-
-            // Hook CommandQueue and Fence are already captured by minhook
             gInitialized = true;
         }
 
+        // 4. Synchronization and Rendering (The Fix)
         if (!gShutdown) {
-            // Render ImGui
+            UINT frameIdx = pSwapChain->GetCurrentBackBufferIndex();
+            FrameContext& ctx = gFrameContexts[frameIdx];
+
+            // NON-BLOCKING CHECK: Check if the GPU has finished the command list associated 
+            // with this specific back-buffer index.
+            if (gOverlayFence->GetCompletedValue() < ctx.FenceValue) {
+                // GPU is still busy with the UI for this specific buffer.
+                // Skip overlay rendering this frame to avoid deadlocking the engine.
+                return oPresentD3D12(pSwapChain, SyncInterval, Flags);
+            }
+
+            // Start New Frame
             ImGui_ImplDX12_NewFrame();
             ImGui_ImplWin32_NewFrame();
             ImGui::NewFrame();
 
-            if (menuisOpen) menuInit();
-
-            UINT frameIdx = pSwapChain->GetCurrentBackBufferIndex();
-            FrameContext& ctx = gFrameContexts[frameIdx];
-
-            // Wait for the GPU to finish with the previous frame
-            bool canRender = true;
-            if (!gOverlayFence || !gFenceEvent) {
-                // Missing synchronization objects, skip waiting
-            } else if (gOverlayFence->GetCompletedValue() < gOverlayFenceValue) {
-                HRESULT hr = gOverlayFence->SetEventOnCompletion(gOverlayFenceValue, gFenceEvent);
-                if (SUCCEEDED(hr)) {
-                    const DWORD waitTimeoutMs = 2000; // Extended timeout
-                    DWORD waitRes = WaitForSingleObject(gFenceEvent, waitTimeoutMs);
-                    if (waitRes == WAIT_TIMEOUT) {
-                        Log("[d3d12hook] WaitForSingleObject timeout\n");
-                        canRender = false;
-                    } else if (waitRes != WAIT_OBJECT_0) {
-                        Log("[d3d12hook] WaitForSingleObject failed: %lu\n", GetLastError());
-                        canRender = false;
-                    }
-                } else {
-                    LogHRESULT("SetEventOnCompletion", hr);
-                    canRender = false;
+            //if (menuisOpen) menuInit();
+            if (menuisOpen) {
+                // Only process navigation if the game window is actually active
+                if (GetForegroundWindow() != globals::mainWindow) {
+                    ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
                 }
+                else {
+                    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+                }
+
+                menuInit();
             }
 
-            if (!canRender) {
-                Log("[d3d12hook] Skipping ImGui render for this frame\n");
-                ImGui::EndFrame();
-                return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
-            }
-
-            // Reset allocator and command list using frame-specific allocator
-            HRESULT hr = ctx.allocator->Reset();
-            if (FAILED(hr)) {
-                LogHRESULT("CommandAllocator->Reset", hr);
-                return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
-            }
-
+            // Prepare Command List
+            ctx.allocator->Reset();
             if (!gCommandList) {
-                hr = gDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                    ctx.allocator, nullptr, IID_PPV_ARGS(&gCommandList));
-                if (FAILED(hr)) {
-                    LogHRESULT("CreateCommandList", hr);
-                    return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
-                }
-                gCommandList->Close();
+                gDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, ctx.allocator, nullptr, IID_PPV_ARGS(&gCommandList));
             }
-            hr = gCommandList->Reset(ctx.allocator, nullptr);
-            if (FAILED(hr)) {
-                LogHRESULT("CommandList->Reset", hr);
-                return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
+            else {
+                gCommandList->Reset(ctx.allocator, nullptr);
             }
 
-            // Transition to render target
+            // Transition: PRESENT -> RENDER_TARGET
             D3D12_RESOURCE_BARRIER barrier = {};
             barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             barrier.Transition.pResource = ctx.renderTarget;
             barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
             barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             gCommandList->ResourceBarrier(1, &barrier);
 
+            // Render
             gCommandList->OMSetRenderTargets(1, &ctx.rtvHandle, FALSE, nullptr);
             ID3D12DescriptorHeap* heaps[] = { gHeapSRV };
             gCommandList->SetDescriptorHeaps(1, heaps);
@@ -467,34 +361,20 @@ namespace d3d12hook {
             ImGui::Render();
             ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), gCommandList);
 
-            // Transition back to present
+            // Transition: RENDER_TARGET -> PRESENT
             barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
             barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
             gCommandList->ResourceBarrier(1, &barrier);
+
             gCommandList->Close();
 
-            // Execute
-            if (!gCommandQueue) {
-                Log("[d3d12hook] CommandQueue not set, skipping ExecuteCommandLists.\n");
-            }
-            else {
-                oExecuteCommandListsD3D12(gCommandQueue, 1, reinterpret_cast<ID3D12CommandList* const*>(&gCommandList));
-                if (gOverlayFence) {
-                    // Call Signal directly on the command queue to synchronize the internal overlay.
-                    HRESULT hr = gCommandQueue->Signal(gOverlayFence, ++gOverlayFenceValue);
-                    if (FAILED(hr)) {
-                        LogHRESULT("Signal", hr);
-                        if (gDevice) {
-                            HRESULT reason = gDevice->GetDeviceRemovedReason();
-                            Log("[d3d12hook] DeviceRemovedReason=0x%08X\n", reason);
-                            if (reason != S_OK) {
-                                Log("[d3d12hook] Device lost. Releasing resources.\n");
-                                release();
-                            }
-                        }
-                    }
-                }
-            }
+            // 5. Execute and Signal
+            oExecuteCommandListsD3D12(gCommandQueue, 1, reinterpret_cast<ID3D12CommandList* const*>(&gCommandList));
+
+            // Update the fence for this specific frame context
+            gOverlayFenceValue++;
+            ctx.FenceValue = gOverlayFenceValue;
+            gCommandQueue->Signal(gOverlayFence, gOverlayFenceValue);
         }
 
         return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
@@ -507,40 +387,32 @@ namespace d3d12hook {
         UINT                          NumCommandLists,
         ID3D12CommandList* const* ppCommandLists) {
 
-        // 1. Safety check
-        if (!_this || !ppCommandLists)
-            return oExecuteCommandListsD3D12(_this, NumCommandLists, ppCommandLists);
+        if (!_this) return oExecuteCommandListsD3D12(_this, NumCommandLists, ppCommandLists);
 
+        // 1. Only attempt capture if we don't have a queue yet
+        if (!gCommandQueue) {
+            D3D12_COMMAND_QUEUE_DESC desc = _this->GetDesc();
 
-        if (!gCommandQueue && gAfterFirstPresent) {
-            ID3D12Device* queueDevice = nullptr;
-            if (SUCCEEDED(_this->GetDevice(__uuidof(ID3D12Device), (void**)&queueDevice))) {
-                if (!gDevice) {
-                    gDevice = queueDevice;
-                }
+            // 2. Must be a DIRECT queue (Graphics)
+            if (desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT) {
 
-                if (queueDevice == gDevice) {
-                    D3D12_COMMAND_QUEUE_DESC desc = _this->GetDesc();
-                    Log("[d3d12hook] CommandQueue type=%u\n", desc.Type);
-                    if (desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT) {
+                // 3. Optional: Verify it matches our device
+                ID3D12Device* queueDevice = nullptr;
+                if (SUCCEEDED(_this->GetDevice(__uuidof(ID3D12Device), (void**)&queueDevice))) {
+
+                    // If we already have a device from Present, make sure they match
+                    if (gDevice == nullptr || queueDevice == gDevice) {
                         _this->AddRef();
                         gCommandQueue = _this;
-                        Log("[d3d12hook] Captured CommandQueue=%p\n", _this);
+                        Log("[d3d12hook] Captured Correct DIRECT CommandQueue: %p\n", _this);
                     }
-                    else {
-                        Log("[d3d12hook] Skipping capture: non-direct queue\n");
-                    }
-                }
-                else {
-                    Log("[d3d12hook] Skipping capture: CommandQueue uses different device (%p != %p)\n", queueDevice, gDevice);
-                }
 
-                if (queueDevice && queueDevice != gDevice)
                     queueDevice->Release();
+                }
             }
         }
-        gAfterFirstPresent = false;
-        oExecuteCommandListsD3D12(_this, NumCommandLists, ppCommandLists);
+
+        return oExecuteCommandListsD3D12(_this, NumCommandLists, ppCommandLists);
     }
 
     //=========================================================================================================================//
@@ -667,25 +539,24 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation)
     {
-        UINT Strides = t_.StrideHash + t_.StartSlot;
-        uint32_t currentRootSigID = 0;
-
-        if (tlsCurrentCmdList == _this) {
-            currentRootSigID = tlsCurrentRootSigID;
+        // 1. SAFETY CHECK
+        // Skip if list is null or if it's a COMPUTE/COPY queue (RSSetViewports could crash these)
+        if (!_this || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
-        // 1. Identify if the model matches general stride/signature criteria
-        bool isModelDraw = (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 ||
+        // 2. DATA CAPTURE
+        UINT currentStrides = t_.StrideHash + t_.StartSlot;
+        uint32_t currentRootSigID = (tlsCurrentCmdList == _this) ? tlsCurrentRootSigID : 0;
+
+        // 3. IDENTIFICATION
+        bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 ||
             currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
 
-        bool applyHack = false;
-
         if (isModelDraw) {
-            // Start with the assumption we apply the hack
-            applyHack = true;
+            bool applyHack = true;
 
-            // 1. Check IGNORE rules (Exclusive)
-            // If "Ignore" is on AND the current index matches an ignore slot, turn hack OFF
+            // IGNORE/FILTER LOGIC
             if (ignoreRootDescriptor) {
                 if (tls_cache.lastRDIndex == countignorerootDescriptor ||
                     tls_cache.lastRDIndex == countignorerootDescriptor2 ||
@@ -694,7 +565,7 @@ namespace d3d12hook {
                 }
             }
 
-            if (ignoreRootConstant) {
+            if (applyHack && ignoreRootConstant) {
                 if (tls_cache.lastCbvIndex == countignorerootConstant ||
                     tls_cache.lastCbvIndex == countignorerootConstant2 ||
                     tls_cache.lastCbvIndex == countignorerootConstant3) {
@@ -702,13 +573,12 @@ namespace d3d12hook {
                 }
             }
 
-            // 2. Check FILTER rules (Inclusive)
-            // If "Filter" is on, we only keep applyHack true if it matches one of the filter indices
+            // FILTER RULES
             if (applyHack && filterRootDescriptor) {
                 if (tls_cache.lastRDIndex != countfilterrootDescriptor &&
                     tls_cache.lastRDIndex != countfilterrootDescriptor2 &&
                     tls_cache.lastRDIndex != countfilterrootDescriptor3) {
-                    applyHack = false; // Didn't match any filter, turn it off
+                    applyHack = false;
                 }
             }
 
@@ -716,104 +586,32 @@ namespace d3d12hook {
                 if (tls_cache.lastCbvIndex != countfilterrootConstant &&
                     tls_cache.lastCbvIndex != countfilterrootConstant2 &&
                     tls_cache.lastCbvIndex != countfilterrootConstant3) {
-                    applyHack = false; // Didn't match any filter, turn it off
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack) {
+                D3D12_VIEWPORT originalVp = t_.currentViewport;
+
+                // 4. VIEWPORT VALIDATION
+                // Only apply if the viewport looks like a valid screen-space viewport
+                if (originalVp.Width > 0 && originalVp.Width < 16384 && originalVp.Height > 0) {
+                    D3D12_VIEWPORT hVp = originalVp;
+                    hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
+                    hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
+
+                    _this->RSSetViewports(1, &hVp);
+                    oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+                    _this->RSSetViewports(1, &originalVp);
+
+                    return; // SUCCESSFUL: EXIT EARLY
                 }
             }
         }
 
-        if (applyHack) {
-            D3D12_VIEWPORT originalVp = t_.currentViewport;
-            D3D12_VIEWPORT hVp = originalVp;
-
-            // Handle Depth (Standard or Reversed)
-            if (reversedDepth) {
-                hVp.MinDepth = 0.0f;
-                hVp.MaxDepth = 0.01f;
-            }
-            else {
-                hVp.MinDepth = 0.9f;
-                hVp.MaxDepth = 1.0f;
-            }
-
-            _this->RSSetViewports(1, &hVp);
-            oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-            _this->RSSetViewports(1, &originalVp);
-        }
-        else {
-            oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-        }
+        oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
     }
 
-    /*
-    void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation)
-    {
-        UINT Strides = t_.StrideHash + t_.StartSlot;
-        uint32_t currentRootSigID = 0;
-
-        if (tlsCurrentCmdList == _this) {
-            currentRootSigID = tlsCurrentRootSigID;
-        }
-
-        // 1. Identify if the model matches general stride/signature criteria
-        bool isModelDraw = (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 ||
-            currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
-
-        bool applyHack = false;
-
-        if (isModelDraw) {
-            if (ignoreRootDescriptor) {
-                // New Option: Apply hack ONLY IF the root index does NOT match
-                if (tls_cache.lastRDIndex != countignorerootDescriptor && tls_cache.lastRDIndex != countignorerootDescriptor2 && tls_cache.lastRDIndex != countignorerootDescriptor3) {
-                    applyHack = true;
-                }
-            }
-            if (ignoreRootConstant) {
-                // New Option: Apply hack ONLY IF the root index does NOT match;
-                if (tls_cache.lastCbvIndex != countignorerootConstant && tls_cache.lastCbvIndex != countignorerootConstant2 && tls_cache.lastCbvIndex != countignorerootConstant3)
-                    applyHack = true;
-            }
-
-            else if (filterRootDescriptor) {
-                // Apply only if root index matches exactly
-                if (tls_cache.lastRDIndex != countfilterrootDescriptor && tls_cache.lastRDIndex != countfilterrootDescriptor2 && tls_cache.lastRDIndex != countfilterrootDescriptor3) {
-                    applyHack = true;
-                }
-            }
-            else if (filterRootConstant) {
-                // Apply only if root index matches exactly
-                if (tls_cache.lastCbvIndex != countfilterrootConstant && tls_cache.lastCbvIndex != countfilterrootConstant2 && tls_cache.lastCbvIndex != countfilterrootConstant3) {
-                    applyHack = true;
-                    }
-                }
-            else {
-                // Neither filter nor ignore enabled -> apply to all matching models
-                applyHack = true;
-            }
-        }
-
-        if (applyHack) {
-            D3D12_VIEWPORT originalVp = t_.currentViewport;
-            D3D12_VIEWPORT hVp = originalVp;
-
-            // Handle Depth (Standard or Reversed)
-            if (reversedDepth) {
-                hVp.MinDepth = 0.0f;
-                hVp.MaxDepth = 0.01f;
-            }
-            else {
-                hVp.MinDepth = 0.9f;
-                hVp.MaxDepth = 1.0f;
-            }
-
-            _this->RSSetViewports(1, &hVp);
-            oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-            _this->RSSetViewports(1, &originalVp);
-        }
-        else {
-            oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-        }
-    }
-    */
     //=========================================================================================================================//
    
     void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
@@ -825,31 +623,25 @@ namespace d3d12hook {
         ID3D12Resource* pCountBuffer,
         UINT64 CountBufferOffset)
     {
-        // At top of hook — safety sanity checks
-        if (MaxCommandCount == 0 || MaxCommandCount > 200000) {  // insane count = driver bug or detection
+        // 1. SAFETY CHECK
+        // Skip if list is null or if it's a COMPUTE/COPY queue (RSSetViewports could crash these)
+        if (!dCommandList || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
             return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount,
                 pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
 
-        UINT Strides = t_.StrideHash + t_.StartSlot;
-        uint32_t currentRootSigID = 0;
+        // 2. DATA CAPTURE
+        UINT currentStrides = t_.StrideHash + t_.StartSlot;
+        uint32_t currentRootSigID = (tlsCurrentCmdList == dCommandList) ? tlsCurrentRootSigID : 0;
 
-        if (tlsCurrentCmdList == dCommandList) {
-            currentRootSigID = tlsCurrentRootSigID;
-        }
-
-        // 1. Identify if the model matches general stride/signature criteria
-        bool isModelDraw = (Strides == countstride1 || Strides == countstride2 || Strides == countstride3 ||
+        // 3. IDENTIFICATION
+        bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 ||
             currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
 
-        bool applyHack = false;
-
         if (isModelDraw) {
-            // Start with the assumption we apply the hack
-            applyHack = true;
+            bool applyHack = true;
 
-            // 1. Check IGNORE rules (Exclusive)
-            // If "Ignore" is on AND the current index matches an ignore slot, turn hack OFF
+            // IGNORE/FILTER LOGIC
             if (ignoreRootDescriptor) {
                 if (tls_cache.lastRDIndex == countignorerootDescriptor ||
                     tls_cache.lastRDIndex == countignorerootDescriptor2 ||
@@ -858,7 +650,7 @@ namespace d3d12hook {
                 }
             }
 
-            if (ignoreRootConstant) {
+            if (applyHack && ignoreRootConstant) {
                 if (tls_cache.lastCbvIndex == countignorerootConstant ||
                     tls_cache.lastCbvIndex == countignorerootConstant2 ||
                     tls_cache.lastCbvIndex == countignorerootConstant3) {
@@ -866,13 +658,12 @@ namespace d3d12hook {
                 }
             }
 
-            // 2. Check FILTER rules (Inclusive)
-            // If "Filter" is on, we only keep applyHack true if it matches one of the filter indices
+            // FILTER RULES
             if (applyHack && filterRootDescriptor) {
                 if (tls_cache.lastRDIndex != countfilterrootDescriptor &&
                     tls_cache.lastRDIndex != countfilterrootDescriptor2 &&
                     tls_cache.lastRDIndex != countfilterrootDescriptor3) {
-                    applyHack = false; // Didn't match any filter, turn it off
+                    applyHack = false;
                 }
             }
 
@@ -880,32 +671,35 @@ namespace d3d12hook {
                 if (tls_cache.lastCbvIndex != countfilterrootConstant &&
                     tls_cache.lastCbvIndex != countfilterrootConstant2 &&
                     tls_cache.lastCbvIndex != countfilterrootConstant3) {
-                    applyHack = false; // Didn't match any filter, turn it off
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack) {
+                D3D12_VIEWPORT originalVp = t_.currentViewport;
+
+                // 4. VIEWPORT VALIDATION
+                // Only apply if the viewport looks like a valid screen-space viewport
+                if (originalVp.Width > 0 && originalVp.Width < 16384 && originalVp.Height > 0) {
+                    D3D12_VIEWPORT hVp = originalVp;
+                    hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
+                    hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
+
+                    dCommandList->RSSetViewports(1, &hVp);
+                    oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+                    dCommandList->RSSetViewports(1, &originalVp);
+
+                    return; // SUCCESSFUL: EXIT EARLY
                 }
             }
         }
 
-        if (applyHack) {
-            D3D12_VIEWPORT originalVp = t_.currentViewport;
-            D3D12_VIEWPORT hVp = originalVp;
-
-            // Handle Depth (Standard or Reversed)
-            if (reversedDepth) {
-                hVp.MinDepth = 0.0f;
-                hVp.MaxDepth = 0.01f;
-            }
-            else {
-                hVp.MinDepth = 0.9f;
-                hVp.MaxDepth = 1.0f;
-            }
-
-            dCommandList->RSSetViewports(1, &hVp);
-            oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
-            dCommandList->RSSetViewports(1, &originalVp);
-        }
-        else {
-            oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
-        }
+        // 5. FALLBACK
+        // This handles cases where:
+        // - It's not a model we want.
+        // - The hack was ignored/filtered.
+        // - The viewport was invalid (0x0).
+        oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
     }
 
     //=========================================================================================================================//
@@ -1043,7 +837,7 @@ namespace d3d12hook {
     }
   
     //ResolveQueryData Improvements for Stability
-    //If you want to keep your approach but make it compatible with more games, consider these improvements:
+    //If you want to make it compatible with more games, consider these improvements:
     //Check for Binary Occlusion: Some games expect 0 or 1 (Binary), while others expect the actual number of samples passed (Occlusion). Writing a very large number like 0xFFFF can sometimes be more effective for standard occlusion to ensure the game treats it as "fully visible."
     //Handle Resource Barriers: If you use GPU commands to overwrite the data, you must ensure the pDestinationBuffer is in the D3D12_RESOURCE_STATE_COPY_DEST or COMMON state.
     //Performance: WriteBufferImmediate is excellent, but if NumQueries is large (e.g., 500+), it’s better to have a small "source" buffer containing many 1s and use CopyBufferRegion.
