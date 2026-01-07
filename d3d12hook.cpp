@@ -550,7 +550,7 @@ namespace d3d12hook {
         uint32_t currentRootSigID = (tlsCurrentCmdList == _this) ? tlsCurrentRootSigID : 0;
 
         // 3. IDENTIFICATION
-        bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 ||
+        bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 ||
             currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
 
         if (isModelDraw) {
@@ -635,7 +635,7 @@ namespace d3d12hook {
         uint32_t currentRootSigID = (tlsCurrentCmdList == dCommandList) ? tlsCurrentRootSigID : 0;
 
         // 3. IDENTIFICATION
-        bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 ||
+        bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 ||
             currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
 
         if (isModelDraw) {

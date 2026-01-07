@@ -223,7 +223,7 @@ namespace hooks {
         }
 
         // --- Hook RSSetViewports ---
-        //auto slVTable = *reinterpret_cast<void***>(pCommandList.Get());
+        //auto slVTable = *reinterpret_cast<void***>(pCommandList.Get());//no
         ComPtr<ID3D12GraphicsCommandList> baseCL;
         HRESULT hr = pCommandList.As(&baseCL);
         if (FAILED(hr))
