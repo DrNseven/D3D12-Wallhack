@@ -1,7 +1,7 @@
 # D3D12-Wallhack with Imgui Overlay
 d3d12 wallhack, direct3d 12 wallhack, dx12 wallhack, wallhack, imgui, overlay
 
-Run game in window mode
+Run game in window mode. 
 Bruteforce Stride hash to find models  
 Menu key = insert
 
