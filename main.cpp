@@ -891,7 +891,7 @@ void UpdateInputState()
 // ============================================================
 // RENDER
 // ============================================================
-static bool g_showMenu = false; // Start with menu visible
+static bool g_showMenu = false; // Menu visible or not
 
 void Render()
 {
@@ -1060,11 +1060,81 @@ void Render()
 // ============================================================
 // THREAD
 // ============================================================
+
+void CleanupOverlay()
+{
+    Log("[Cleanup] Starting Graceful Shutdown...\n");
+
+    // 1. Wait for GPU to finish all pending frames
+    // If we don't do this, we release memory the GPU is still using!
+    if (g_device && g_queue && g_fence && g_fenceEvent)
+    {
+        g_mainFenceValue++;
+        if (SUCCEEDED(g_queue->Signal(g_fence.Get(), g_mainFenceValue)))
+        {
+            if (g_fence->GetCompletedValue() < g_mainFenceValue)
+            {
+                WaitForSingleObject(g_fenceEvent, INFINITE);
+            }
+        }
+    }
+
+    // 2. Shutdown ImGui (Must happen while Device and SrvHeap are still alive)
+    if (ImGui::GetCurrentContext())
+    {
+        ImGui_ImplDX12_Shutdown();
+        ImGui_ImplWin32_Shutdown();
+        ImGui::DestroyContext();
+        Log("[Cleanup] ImGui context destroyed.\n");
+    }
+
+    // 3. Clear DirectComposition
+    // We Reset() in specific order: Visual -> Target -> Device
+    if (g_visual) g_visual.Reset();
+    if (g_target) g_target.Reset();
+    if (g_dcomp)  g_dcomp.Reset();
+
+    // 4. Release Swapchain and Buffers
+    for (int i = 0; i < FRAME_COUNT; ++i)
+    {
+        g_buffers[i].Reset();
+        g_alloc[i].Reset();
+    }
+    if (g_swapchain) g_swapchain.Reset();
+    if (g_rtvHeap)   g_rtvHeap.Reset();
+    if (g_srvHeap)   g_srvHeap.Reset();
+
+    // 5. Release Core DX12 Objects
+    if (g_cmd)   g_cmd.Reset();
+    if (g_fence) g_fence.Reset();
+    if (g_fenceEvent)
+    {
+        CloseHandle(g_fenceEvent);
+        g_fenceEvent = nullptr;
+    }
+    if (g_queue)  g_queue.Reset();
+    if (g_device) g_device.Reset();
+
+    // 6. Destroy the window
+    if (g_overlayHwnd && IsWindow(g_overlayHwnd))
+    {
+        DestroyWindow(g_overlayHwnd);
+        g_overlayHwnd = nullptr;
+    }
+
+    Log("[Cleanup] Shutdown successful.\n");
+}
+
 DWORD WINAPI OverlayThread(LPVOID)
 {
-    while (!(g_gameHwnd = GetForegroundWindow()))
-        //while (!(g_gameHwnd = FindWindowA("UnrealWindow", nullptr))) //<---------------------------------------------------------
+    // Wait for game window
+    while (g_running && !(g_gameHwnd = GetForegroundWindow()))
+    //while (g_running && !(g_gameHwnd = FindWindowA("UnrealWindow", nullptr))) //<---------------------------------------------------------
+    {
         Sleep(500);
+    }
+
+    if (!g_running) return 0;
 
     RECT r = GetGameRect();
     g_overlayHwnd = CreateOverlayWindow();
@@ -1074,14 +1144,23 @@ DWORD WINAPI OverlayThread(LPVOID)
     InitDirectComposition(r.right - r.left, r.bottom - r.top);
     InitRTVsAndImGui();
 
-    LoadConfig(); // Load previous settings
+    LoadConfig();
 
     while (g_running)
     {
+        // If the game window is closed or alt-f4'd, exit the loop
+        if (!IsWindow(g_gameHwnd))
+        {
+            g_running = false;
+            break;
+        }
+
         Render();
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));// Yields a tiny bit of time back to the OS to lower CPU usage
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
+    // CLEANUP BEFORE EXITING THREAD
+    CleanupOverlay(); // Implement this to destroy g_overlayHwnd and D3D objects
     return 0;
 }
 
@@ -1201,7 +1280,7 @@ static DWORD WINAPI BackendWatcherThread(LPVOID)
 
     g_BackendWatcherRunning = true;
 
-    while (!g_BackendInitialized)
+    while (g_running && !g_BackendInitialized)
     {
         // Preferred backend override
         if (globals::preferredBackend != globals::Backend::None)
@@ -1282,6 +1361,7 @@ BOOL WINAPI DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved
 {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH:
+        DisableThreadLibraryCalls(hModule);
         globals::mainModule = hModule;
         Log("[DllMain] DLL_PROCESS_ATTACH: hModule=%p\n", hModule);
         // hook setup
@@ -1299,24 +1379,48 @@ BOOL WINAPI DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved
         break;
 
     case DLL_PROCESS_DETACH:
-        Log("[DllMain] DLL_PROCESS_DETACH. Releasing hooks and uninitializing MinHook.\n");
-        ImGui_ImplDX12_Shutdown();
-        ImGui_ImplWin32_Shutdown();
-        switch (globals::activeBackend) {
-        case globals::Backend::DX12:
-            d3d12hook::release();
-            break;
-        default:
-            break;
-        }
+        g_running = false; // Signal all threads to stop
+        g_BackendInitialized = true; // Break the watcher loop
 
+        Log("[DllMain] DLL_PROCESS_DETACH. Cleaning up.\n");
+
+        // Give threads a moment to finish (don't use WaitForSingleObject in DllMain - it causes deadlocks)
+        Sleep(100);
+
+        // Unhook everything first to prevent hooks from calling into a dying DLL
         MH_DisableHook(MH_ALL_HOOKS);
-        MH_RemoveHook(MH_ALL_HOOKS);
         MH_Uninitialize();
+
+        // Release DX resources
+        ReleaseActiveBackend();
+
+        // Final ImGui cleanup
+        if (ImGui::GetCurrentContext()) {
+            ImGui_ImplDX12_Shutdown();
+            ImGui_ImplWin32_Shutdown();
+            ImGui::DestroyContext();
+        }
         break;
     }
     return TRUE;
 }
+
+/*
+BOOL WINAPI DllMain(HMODULE hModule, DWORD reason, LPVOID)
+{
+    if (reason == DLL_PROCESS_ATTACH)
+    {
+        DisableThreadLibraryCalls(hModule);
+        globals::mainModule = hModule;
+        CreateThread(nullptr, 0, onAttach, nullptr, 0, nullptr);
+    }
+    else if (reason == DLL_PROCESS_DETACH)
+    {
+        
+    }
+    return TRUE;
+}
+*/
 
 extern "C" __declspec(dllexport)
 LRESULT CALLBACK NextHook(int code, WPARAM wParam, LPARAM lParam)

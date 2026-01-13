@@ -420,7 +420,7 @@ namespace hooks {
 
     void Remove()
     {
-        
+        Log("[hooks] Preparing to remove hooks.");
         auto DisableAndRemove = [](LPVOID& target)
             {
                 if (target)
