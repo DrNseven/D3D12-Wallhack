@@ -601,7 +601,10 @@ static ComPtr<ID3D12CommandAllocator> g_alloc[FRAME_COUNT];
 static ComPtr<ID3D12GraphicsCommandList> g_cmd;
 static ComPtr<ID3D12Fence> g_fence;
 static HANDLE g_fenceEvent = nullptr;
-static UINT64 g_fenceValue = 0;
+//static UINT64 g_fenceValue = 0;
+//UINT64 g_fenceValues[FRAME_COUNT] = { 0 };
+static UINT64 g_mainFenceValue = 0; // The single "truth" for fence values
+static UINT64 g_frameFenceValues[FRAME_COUNT] = { 0 }; // Values assigned to specific buffers
 
 // Swapchain + RTV
 static ComPtr<IDXGISwapChain3> g_swapchain;
@@ -625,41 +628,17 @@ static UINT g_height = 0;
 #include <fstream>
 #include <string>
 
-/*
-UINT countstride1 = 0;
-    UINT countstride2 = 0;
-    UINT countstride3 = 0;
-    UINT countstride4 = 0;
-    UINT countcurrentRootSigID = 0;
-    UINT countcurrentRootSigID2 = 0;
-    UINT countfilterrootConstant = 0;
-    UINT countfilterrootConstant2 = 0;
-    UINT countfilterrootConstant3 = 0;
-    UINT countignorerootConstant = 0;
-    UINT countignorerootConstant2 = 0;
-    UINT countignorerootConstant3 = 0;
-    UINT countfilterrootDescriptor = 0;
-    UINT countfilterrootDescriptor2 = 0;
-    UINT countfilterrootDescriptor3 = 0;
-    UINT countignorerootDescriptor = 0;
-    UINT countignorerootDescriptor2 = 0;
-    UINT countignorerootDescriptor3 = 0;
-    bool reversedDepth = false;
-    bool filterRootConstant = false;
-    bool ignoreRootConstant = false;
-    bool filterRootDescriptor = false;
-    bool ignoreRootDescriptor = false;
-*/
-
-void WaitGPU()
+void FlushGPU()
 {
-    g_fenceValue++;
-    g_queue->Signal(g_fence.Get(), g_fenceValue);
-
-    if (g_fence->GetCompletedValue() < g_fenceValue)
+    if (g_queue && g_fence && g_fenceEvent)
     {
-        g_fence->SetEventOnCompletion(g_fenceValue, g_fenceEvent);
-        WaitForSingleObject(g_fenceEvent, INFINITE);
+        g_mainFenceValue++;
+        g_queue->Signal(g_fence.Get(), g_mainFenceValue);
+        if (g_fence->GetCompletedValue() < g_mainFenceValue)
+        {
+            g_fence->SetEventOnCompletion(g_mainFenceValue, g_fenceEvent);
+            WaitForSingleObject(g_fenceEvent, INFINITE);
+        }
     }
 }
 
@@ -842,28 +821,24 @@ void ResizeOverlayIfNeeded()
     UINT w = r.right - r.left;
     UINT h = r.bottom - r.top;
 
-    SetWindowPos(
-        g_overlayHwnd,
-        HWND_TOPMOST,
-        r.left,
-        r.top,
-        w,
-        h,
-        SWP_NOACTIVATE | SWP_SHOWWINDOW
-    );
+    if (w <= 0 || h <= 0) return;
+    if (w == g_width && h == g_height) return;
 
-    if (w == g_width && h == g_height || w == 0 || h == 0)
-        return;
+    // 1. Wait for ALL GPU work to finish across all buffers
+    FlushGPU();
+
+    // 2. IMPORTANT: You MUST release all buffer references before resizing
+    for (UINT i = 0; i < FRAME_COUNT; i++)
+    {
+        g_buffers[i].Reset();
+        g_frameFenceValues[i] = 0; // Reset these so Render() doesn't wait on old values
+    }
 
     g_width = w;
     g_height = h;
 
-    WaitGPU();
-
-    for (UINT i = 0; i < FRAME_COUNT; i++)
-        g_buffers[i].Reset();
-
-    g_swapchain->ResizeBuffers(
+    // 3. Resize the swapchain
+    HRESULT hr = g_swapchain->ResizeBuffers(
         FRAME_COUNT,
         g_width,
         g_height,
@@ -871,6 +846,9 @@ void ResizeOverlayIfNeeded()
         0
     );
 
+    if (FAILED(hr)) return;
+
+    // 4. Recreate RTVs
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = g_rtvHeap->GetCPUDescriptorHandleForHeapStart();
     for (UINT i = 0; i < FRAME_COUNT; i++)
     {
@@ -878,6 +856,12 @@ void ResizeOverlayIfNeeded()
         g_device->CreateRenderTargetView(g_buffers[i].Get(), nullptr, rtv);
         rtv.ptr += g_rtvSize;
     }
+
+    // 5. Update window and ImGui
+    SetWindowPos(g_overlayHwnd, HWND_TOPMOST, r.left, r.top, w, h, SWP_NOACTIVATE);
+
+    if (ImGui::GetCurrentContext())
+        ImGui::GetIO().DisplaySize = ImVec2((float)w, (float)h);
 }
 
 void UpdateInputState()
@@ -906,8 +890,7 @@ void UpdateInputState()
 // RENDER
 // ============================================================
 static bool g_showMenu = false; // Start with menu visible
-// Change global g_fenceValue to an array to track per-buffer
-UINT64 g_fenceValues[FRAME_COUNT] = { 0 };
+
 void Render()
 {
     ResizeOverlayIfNeeded();
@@ -1020,20 +1003,30 @@ void Render()
 
     ImGui::Render();
 
-    UINT idx = g_swapchain->GetCurrentBackBufferIndex();
-    g_alloc[idx]->Reset();
-    g_cmd->Reset(g_alloc[idx].Get(), nullptr);
+    // 1. Get the current index
+    UINT backBufferIdx = g_swapchain->GetCurrentBackBufferIndex();
+
+    // 2. Wait for this specific buffer to be ready
+    if (g_frameFenceValues[backBufferIdx] != 0 && g_fence->GetCompletedValue() < g_frameFenceValues[backBufferIdx])
+    {
+        g_fence->SetEventOnCompletion(g_frameFenceValues[backBufferIdx], g_fenceEvent);
+        WaitForSingleObject(g_fenceEvent, INFINITE);
+    }
+
+    // 3. Record commands
+    g_alloc[backBufferIdx]->Reset();
+    g_cmd->Reset(g_alloc[backBufferIdx].Get(), nullptr);
 
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Transition.pResource = g_buffers[idx].Get();
+    barrier.Transition.pResource = g_buffers[backBufferIdx].Get();
     barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
     barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     g_cmd->ResourceBarrier(1, &barrier);
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtv = g_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-    rtv.ptr += idx * g_rtvSize;
+    rtv.ptr += backBufferIdx * g_rtvSize;
 
     const float clear[4] = { 0,0,0,0 };
     g_cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
@@ -1047,29 +1040,17 @@ void Render()
     g_cmd->ResourceBarrier(1, &barrier);
 
     g_cmd->Close();
+
+    // 4. Execute and Present
     ID3D12CommandList* lists[] = { g_cmd.Get() };
     g_queue->ExecuteCommandLists(1, lists);
 
-    //g_swapchain->Present(1, 0); //Capped to Refresh Rate (e.g., 60 FPS)
-    g_swapchain->Present(2, 0); //Capped to half Refresh Rate(e.g., 30 FPS).Great for saving battery / CPU
-    //WaitGPU();
+    g_swapchain->Present(1, 0); // Recommended: use 1 for smoother resizing
 
-    // Instead of a full WaitGPU(), only wait if the NEXT buffer isn't ready
-    const UINT64 currentFenceValue = g_fenceValues[idx];
-    g_queue->Signal(g_fence.Get(), currentFenceValue);
-
-    // Move to next buffer index
-    UINT nextIdx = g_swapchain->GetCurrentBackBufferIndex();
-
-    // ONLY wait if the GPU hasn't finished the work for the buffer we are about to use
-    if (g_fence->GetCompletedValue() < g_fenceValues[nextIdx])
-    {
-        g_fence->SetEventOnCompletion(g_fenceValues[nextIdx], g_fenceEvent);
-        WaitForSingleObject(g_fenceEvent, INFINITE);
-    }
-
-    // Prepare fence value for the next time we use this buffer
-    g_fenceValues[nextIdx] = currentFenceValue + 1;
+    // 5. Signal the fence for this specific buffer
+    g_mainFenceValue++;
+    g_queue->Signal(g_fence.Get(), g_mainFenceValue);
+    g_frameFenceValues[backBufferIdx] = g_mainFenceValue;
 }
 
 // ============================================================
@@ -1078,7 +1059,7 @@ void Render()
 DWORD WINAPI OverlayThread(LPVOID)
 {
     while (!(g_gameHwnd = GetForegroundWindow()))
-    //while (!(g_gameHwnd = FindWindowA("UnrealWindow", nullptr))) //<---------------------------------------------------------
+        //while (!(g_gameHwnd = FindWindowA("UnrealWindow", nullptr))) //<---------------------------------------------------------
         Sleep(500);
 
     RECT r = GetGameRect();
@@ -1092,9 +1073,10 @@ DWORD WINAPI OverlayThread(LPVOID)
     LoadConfig(); // Load previous settings
 
     while (g_running)
+    {
         Render();
-    // Yields a tiny bit of time back to the OS to lower CPU usage
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));// Yields a tiny bit of time back to the OS to lower CPU usage
+    }
 
     return 0;
 }
