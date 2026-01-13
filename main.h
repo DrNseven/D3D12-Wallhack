@@ -503,8 +503,8 @@ thread_local struct {
     UINT currentNumRTVs = 0;
     UINT currentiSize = 0;
     DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
-    UINT currentGPUIAddress = 0;
-    UINT currentGPUVAddress = 0;
+    //UINT currentGPUIAddress = 0; //D3D12_GPU_VIRTUAL_ADDRESS
+    //UINT currentGPUVAddress = 0;
 } t_;
 
 
@@ -516,6 +516,7 @@ UINT countstride3 = 0;
 UINT countstride4 = 0;
 UINT countcurrentRootSigID = 0;
 UINT countcurrentRootSigID2 = 0;
+int countnumrendertarget = -1;
 UINT countfilterrootConstant = 0;
 UINT countfilterrootConstant2 = 0;
 UINT countfilterrootConstant3 = 0;
@@ -547,6 +548,7 @@ void SaveConfig()
     fout << "countstride4 " << countstride4 << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
     fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
+    fout << "countnumrendertarget " << countnumrendertarget << endl;
     fout << "countfilterrootConstant " << countfilterrootConstant << endl;
     fout << "countfilterrootConstant2 " << countfilterrootConstant2 << endl;
     fout << "countfilterrootConstant3 " << countfilterrootConstant3 << endl;
@@ -578,6 +580,7 @@ void LoadConfig()
     fin >> Word >> countstride4;
     fin >> Word >> countcurrentRootSigID;
     fin >> Word >> countcurrentRootSigID2;
+    fin >> Word >> countnumrendertarget;
     fin >> Word >> countfilterrootConstant;
     fin >> Word >> countfilterrootConstant2;
     fin >> Word >> countfilterrootConstant3;

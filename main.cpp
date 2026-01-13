@@ -187,6 +187,7 @@ namespace d3d12hook {
         const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor)
     {
         t_.currentNumRTVs = NumRenderTargetDescriptors;
+        //bool hasDepth = (pDepthStencilDescriptor != nullptr);
         //if (t_.currentNumRTVs > 0 && t_.currentViewport.Width > 512) filter for coloring
 
         return oOMSetRenderTargetsD3D12(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
@@ -208,9 +209,9 @@ namespace d3d12hook {
 
         // 3. IDENTIFICATION
         bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 || //t_.currentIndexFormat == 57
-            currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
-        //bool isModelDraw = ((g_GameSRVHeap) && (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 ||
-            //currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2));
+            t_.currentNumRTVs == countnumrendertarget || currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
+        //t_.currentNumRTVs == countnumrendertarget && IndexCountPerInstance > 100 && InstanceCount >= 1
+
 
         if (isModelDraw) {
             bool applyHack = true;
@@ -295,7 +296,7 @@ namespace d3d12hook {
 
         // 3. IDENTIFICATION 69, 38, 73
         bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 || //t_.currentIndexFormat == 57
-            currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
+            t_.currentNumRTVs == countnumrendertarget || currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
 
         if (isModelDraw) {
             bool applyHack = true;
@@ -941,6 +942,7 @@ void Render()
 
         ImGui::Begin("Main Menu", &g_showMenu, flags);
 
+        const UINT minus_val = -1;
         const UINT min_val = 0;
         const UINT max_val = 100;
         ImGui::Text("Wallhack:");
@@ -948,8 +950,9 @@ void Render()
         ImGui::SliderScalar("Find Stridehash 2", ImGuiDataType_U32, &countstride2, &min_val, &max_val, "%u");
         ImGui::SliderScalar("Find Stridehash 3", ImGuiDataType_U32, &countstride3, &min_val, &max_val, "%u");
         ImGui::SliderScalar("Find Stridehash 4", ImGuiDataType_U32, &countstride4, &min_val, &max_val, "%u");
-        ImGui::SliderScalar("Find currentRootID", ImGuiDataType_U32, &countcurrentRootSigID, &min_val, &max_val, "%u");
-        ImGui::SliderScalar("Find currentRootID2", ImGuiDataType_U32, &countcurrentRootSigID2, &min_val, &max_val, "%u");
+        ImGui::SliderScalar("Find CurrentRootID", ImGuiDataType_U32, &countcurrentRootSigID, &min_val, &max_val, "%u");
+        ImGui::SliderScalar("Find CurrentRootID2", ImGuiDataType_U32, &countcurrentRootSigID2, &min_val, &max_val, "%u");
+        ImGui::SliderInt("Find RenderTarget", &countnumrendertarget, minus_val, max_val);
 
         //ImGui::Text("Filter:");
         ImGui::Checkbox("Filter RootDescriptor", &filterRootDescriptor);
