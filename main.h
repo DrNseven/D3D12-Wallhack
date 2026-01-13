@@ -420,27 +420,39 @@ namespace hooks {
 
     void Remove()
     {
-        //if (pPresentTarget) {
-            //MH_DisableHook(pPresentTarget);
-            //MH_RemoveHook(pPresentTarget);
-            //pPresentTarget = nullptr;
-        //}
-        //if (pPresent1Target) {
-            //MH_DisableHook(pPresent1Target);
-            //MH_RemoveHook(pPresent1Target);
-            //pPresent1Target = nullptr;
-        //}
-        //if (pResizeBuffersTarget) {
-            //MH_DisableHook(pResizeBuffersTarget);
-            //MH_RemoveHook(pResizeBuffersTarget);
-            //pResizeBuffersTarget = nullptr;
-        //}
-        //if (pExecuteCommandListsTarget) {
-            //MH_DisableHook(pExecuteCommandListsTarget);
-            //MH_RemoveHook(pExecuteCommandListsTarget);
-            //pExecuteCommandListsTarget = nullptr;
-        //}
-        //to do the rest
+        auto DisableAndRemove = [](LPVOID& target)
+            {
+                if (target)
+                {
+                    MH_DisableHook(target);
+                    MH_RemoveHook(target);
+                    target = nullptr;
+                }
+            };
+
+        // SwapChain
+        //DisableAndRemove(pPresentTarget);
+        //DisableAndRemove(pPresent1Target);
+        //DisableAndRemove(pResizeBuffersTarget);
+
+        // CommandQueue
+        //DisableAndRemove(pExecuteCommandListsTarget);
+
+        // CommandList
+        DisableAndRemove(pRSSetViewportsTarget);
+        DisableAndRemove(pIASetVertexBuffersTarget);
+        DisableAndRemove(pDrawIndexedInstancedTarget);
+        DisableAndRemove(pSetGraphicsRootConstantBufferViewTarget);
+        DisableAndRemove(pSetDescriptorHeapsTarget);
+        DisableAndRemove(pSetGraphicsRootDescriptorTableTarget);
+        DisableAndRemove(pOMSetRenderTargetsTarget);
+        DisableAndRemove(pResolveQueryDataTarget);
+        DisableAndRemove(pExecuteIndirectTarget);
+        DisableAndRemove(pSetGraphicsRootSignatureTarget);
+        DisableAndRemove(pResetTarget);
+        DisableAndRemove(pIASetIndexBufferTarget);
+
+        Log("[hooks] All hooks removed.");
     }
 }
 
