@@ -124,7 +124,7 @@ namespace d3d12hook {
     //=========================================================================================================================//
 
     void STDMETHODCALLTYPE hookRSSetViewportsD3D12(ID3D12GraphicsCommandList* _this, UINT NumViewports, const D3D12_VIEWPORT* pViewports) {
-
+        gInitialized = true; //
         if (NumViewports > 0 && pViewports) {
             // Cache the game's intended viewport
             t_.currentViewport = pViewports[0];
@@ -186,6 +186,7 @@ namespace d3d12hook {
         BOOL RTsSingleHandleToDescriptorRange,
         const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor)
     {
+        //if(t_.currentViewport.Width > 512)
         t_.currentNumRTVs = NumRenderTargetDescriptors;
         //bool hasDepth = (pDepthStencilDescriptor != nullptr);
         //if (t_.currentNumRTVs > 0 && t_.currentViewport.Width > 512) filter for coloring
@@ -1108,7 +1109,7 @@ static bool TryInitBackend(globals::Backend backend)
         if (GetModuleHandleA("d3d12.dll") || GetModuleHandleA("dxgi.dll"))
         {
             Log("[DllMain] Attempting DX12 initialization.\n");
-            hooks::Init();
+            hooks::InitH();
             if (WaitForInitialization(d3d12hook::IsInitialized))
             {
                 Log("[DllMain] DX12 initialization succeeded.\n");

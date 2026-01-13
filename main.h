@@ -17,7 +17,7 @@ inline void Log(const char* fmt, ...) {
 //=========================================================================================================================//
 
 namespace hooks {
-    extern void Init();
+    extern void InitH();
 }
 
 namespace d3d12hook {
@@ -287,7 +287,7 @@ namespace hooks {
         return S_OK;
     }
 
-    void Init() {
+    void InitH() {
         Log("d3d12.dll loaded at %p", GetModuleHandleA("d3d12.dll"));
         Log("D3D12Core.dll loaded at %p", GetModuleHandleA("D3D12Core.dll"));
 
@@ -420,6 +420,7 @@ namespace hooks {
 
     void Remove()
     {
+        
         auto DisableAndRemove = [](LPVOID& target)
             {
                 if (target)
@@ -453,6 +454,7 @@ namespace hooks {
         DisableAndRemove(pIASetIndexBufferTarget);
 
         Log("[hooks] All hooks removed.");
+        
     }
 }
 
