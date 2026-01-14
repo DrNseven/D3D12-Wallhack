@@ -224,13 +224,19 @@ namespace d3d12hook {
             bool applyHack = true;
 
             // IGNORE/FILTER LOGIC
-            if(filterrendertarget) {
+            if(applyHack && filterrendertarget) {
                 if(t_.currentNumRTVs == countfilterrendertarget) {
                 applyHack = false;
                 }
             }
 
-            if (ignoreRootDescriptor) {
+            if (applyHack && ignorerendertarget) {
+                if (t_.currentNumRTVs != countignorerendertarget) {
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack && ignoreRootDescriptor) {
                 if (tls_cache.lastRDIndex == countignorerootDescriptor ||
                     tls_cache.lastRDIndex == countignorerootDescriptor2 ||
                     tls_cache.lastRDIndex == countignorerootDescriptor3) {
@@ -322,13 +328,19 @@ namespace d3d12hook {
             bool applyHack = true;
 
             // IGNORE/FILTER LOGIC
-            if (filterrendertarget) {
+            if (applyHack && filterrendertarget) {
                 if (t_.currentNumRTVs == countfilterrendertarget) {
                     applyHack = false;
                 }
             }
 
-            if (ignoreRootDescriptor) {
+            if (applyHack && ignorerendertarget) {
+                if (t_.currentNumRTVs != countignorerendertarget) {
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack && ignoreRootDescriptor) {
                 if (tls_cache.lastRDIndex == countignorerootDescriptor ||
                     tls_cache.lastRDIndex == countignorerootDescriptor2 ||
                     tls_cache.lastRDIndex == countignorerootDescriptor3) {
@@ -985,6 +997,13 @@ void Render()
         if (filterrendertarget)
         {
             ImGui::SliderInt("RenderTarget", &countfilterrendertarget, minus_val, max_val);
+        }
+
+        //ImGui::Text("Ignore:");
+        ImGui::Checkbox("Ignore RenderTarget", &ignorerendertarget);
+        if (ignorerendertarget)
+        {
+            ImGui::SliderInt("RenderTarget ", &countignorerendertarget, minus_val, max_val);
         }
 
         //ImGui::Text("Filter:");
