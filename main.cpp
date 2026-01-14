@@ -200,7 +200,7 @@ namespace d3d12hook {
     {
         // 1. SAFETY CHECK
         // Skip if list is null or if it's a COMPUTE/COPY queue (RSSetViewports could crash these)
-        if (!_this || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+        if (!_this || t_.currentNumRTVs == 0 || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) { //t_.currentNumRTVs == 0 This removes Shadow passes, Depth pre-pass, Hi-Z, Occlusion, Z-only geometry
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
@@ -209,15 +209,27 @@ namespace d3d12hook {
         uint32_t currentRootSigID = (tlsCurrentCmdList == _this) ? tlsCurrentRootSigID : 0;
 
         // 3. IDENTIFICATION
-        bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 || //t_.currentIndexFormat == 57
-            t_.currentNumRTVs == countnumrendertarget || currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
-        //t_.currentNumRTVs == countnumrendertarget && IndexCountPerInstance > 100 && InstanceCount >= 1
-
+        bool isModelDraw =
+            t_.currentNumRTVs > 0 && (
+                currentStrides == countstride1 ||
+                currentStrides == countstride2 ||
+                currentStrides == countstride3 ||
+                currentStrides == countstride4 ||
+                t_.currentNumRTVs == countfindrendertarget ||
+                currentRootSigID == countcurrentRootSigID ||
+                currentRootSigID == countcurrentRootSigID2
+                );
 
         if (isModelDraw) {
             bool applyHack = true;
 
             // IGNORE/FILTER LOGIC
+            if(filterrendertarget) {
+                if(t_.currentNumRTVs == countfilterrendertarget) {
+                applyHack = false;
+                }
+            }
+
             if (ignoreRootDescriptor) {
                 if (tls_cache.lastRDIndex == countignorerootDescriptor ||
                     tls_cache.lastRDIndex == countignorerootDescriptor2 ||
@@ -286,23 +298,36 @@ namespace d3d12hook {
     {
         // 1. SAFETY CHECK
         // Skip if list is null or if it's a COMPUTE/COPY queue (RSSetViewports could crash these)
-        if (!dCommandList || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+        if (!dCommandList || t_.currentNumRTVs == 0 || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
             return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount,
                 pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
-
         // 2. DATA CAPTURE
         UINT currentStrides = t_.StrideHash + t_.StartSlot;
         uint32_t currentRootSigID = (tlsCurrentCmdList == dCommandList) ? tlsCurrentRootSigID : 0;
 
-        // 3. IDENTIFICATION 69, 38, 73
-        bool isModelDraw = (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 || //t_.currentIndexFormat == 57
-            t_.currentNumRTVs == countnumrendertarget || currentRootSigID == countcurrentRootSigID || currentRootSigID == countcurrentRootSigID2);
+        // 3. IDENTIFICATION
+        bool isModelDraw =
+            t_.currentNumRTVs > 0 && (
+                currentStrides == countstride1 ||
+                currentStrides == countstride2 ||
+                currentStrides == countstride3 ||
+                currentStrides == countstride4 ||
+                t_.currentNumRTVs == countfindrendertarget ||
+                currentRootSigID == countcurrentRootSigID ||
+                currentRootSigID == countcurrentRootSigID2
+                );
 
         if (isModelDraw) {
             bool applyHack = true;
 
             // IGNORE/FILTER LOGIC
+            if (filterrendertarget) {
+                if (t_.currentNumRTVs == countfilterrendertarget) {
+                    applyHack = false;
+                }
+            }
+
             if (ignoreRootDescriptor) {
                 if (tls_cache.lastRDIndex == countignorerootDescriptor ||
                     tls_cache.lastRDIndex == countignorerootDescriptor2 ||
@@ -953,7 +978,14 @@ void Render()
         ImGui::SliderScalar("Find Stridehash 4", ImGuiDataType_U32, &countstride4, &min_val, &max_val, "%u");
         ImGui::SliderScalar("Find CurrentRootID", ImGuiDataType_U32, &countcurrentRootSigID, &min_val, &max_val, "%u");
         ImGui::SliderScalar("Find CurrentRootID2", ImGuiDataType_U32, &countcurrentRootSigID2, &min_val, &max_val, "%u");
-        ImGui::SliderInt("Find RenderTarget", &countnumrendertarget, minus_val, max_val);
+        ImGui::SliderInt("Find RenderTarget", &countfindrendertarget, minus_val, max_val);
+
+        //ImGui::Text("Filter:");
+        ImGui::Checkbox("Filter RenderTarget", &filterrendertarget);
+        if (filterrendertarget)
+        {
+            ImGui::SliderInt("RenderTarget", &countfilterrendertarget, minus_val, max_val);
+        }
 
         //ImGui::Text("Filter:");
         ImGui::Checkbox("Filter RootDescriptor", &filterRootDescriptor);

@@ -530,7 +530,8 @@ UINT countstride3 = 0;
 UINT countstride4 = 0;
 UINT countcurrentRootSigID = 0;
 UINT countcurrentRootSigID2 = 0;
-int countnumrendertarget = -1;
+int countfindrendertarget = -1;//
+int countfilterrendertarget = -1;//
 UINT countfilterrootConstant = 0;
 UINT countfilterrootConstant2 = 0;
 UINT countfilterrootConstant3 = 0;
@@ -543,6 +544,7 @@ UINT countfilterrootDescriptor3 = 0;
 UINT countignorerootDescriptor = 0;
 UINT countignorerootDescriptor2 = 0;
 UINT countignorerootDescriptor3 = 0;
+bool filterrendertarget = false;//
 bool reversedDepth = false;
 bool filterRootConstant = false;
 bool ignoreRootConstant = false;
@@ -562,7 +564,8 @@ void SaveConfig()
     fout << "countstride4 " << countstride4 << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
     fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
-    fout << "countnumrendertarget " << countnumrendertarget << endl;
+    fout << "countfindrendertarget " << countfindrendertarget << endl;
+    fout << "countfilterrendertarget " << countfilterrendertarget << endl;
     fout << "countfilterrootConstant " << countfilterrootConstant << endl;
     fout << "countfilterrootConstant2 " << countfilterrootConstant2 << endl;
     fout << "countfilterrootConstant3 " << countfilterrootConstant3 << endl;
@@ -575,6 +578,7 @@ void SaveConfig()
     fout << "countignorerootDescriptor " << countignorerootDescriptor << endl;
     fout << "countignorerootDescriptor2 " << countignorerootDescriptor2 << endl;
     fout << "countignorerootDescriptor3 " << countignorerootDescriptor3 << endl;
+    fout << "filterrendertarget " << filterrendertarget << endl;
     fout << "filterRootConstant " << filterRootConstant << endl;
     fout << "ignoreRootConstant " << ignoreRootConstant << endl;
     fout << "filterRootDescriptor " << filterRootDescriptor << endl;
@@ -594,7 +598,8 @@ void LoadConfig()
     fin >> Word >> countstride4;
     fin >> Word >> countcurrentRootSigID;
     fin >> Word >> countcurrentRootSigID2;
-    fin >> Word >> countnumrendertarget;
+    fin >> Word >> countfindrendertarget;
+    fin >> Word >> countfilterrendertarget;
     fin >> Word >> countfilterrootConstant;
     fin >> Word >> countfilterrootConstant2;
     fin >> Word >> countfilterrootConstant3;
@@ -607,6 +612,7 @@ void LoadConfig()
     fin >> Word >> countignorerootDescriptor;
     fin >> Word >> countignorerootDescriptor2;
     fin >> Word >> countignorerootDescriptor3;
+    fin >> Word >> filterrendertarget;
     fin >> Word >> filterRootConstant;
     fin >> Word >> ignoreRootConstant;
     fin >> Word >> filterRootDescriptor;
