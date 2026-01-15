@@ -186,8 +186,13 @@ namespace d3d12hook {
         BOOL RTsSingleHandleToDescriptorRange,
         const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor)
     {
+        if (dCommandList)
+            GetCmdState(dCommandList)->NumRTVs = NumRenderTargetDescriptors;
+
+        //usage: if (GetCmdState(_this)->NumRTVs == 0)
+
         //if(t_.currentViewport.Width > 512)
-        t_.currentNumRTVs = NumRenderTargetDescriptors;
+        //t_.currentNumRTVs = NumRenderTargetDescriptors;
         //bool hasDepth = (pDepthStencilDescriptor != nullptr);
         //if (t_.currentNumRTVs > 0 && t_.currentViewport.Width > 512) filter for coloring
 
@@ -200,7 +205,7 @@ namespace d3d12hook {
     {
         // 1. SAFETY CHECK
         // Skip if list is null or if it's a COMPUTE/COPY queue (RSSetViewports could crash these)
-        if (!_this || t_.currentNumRTVs == 0 || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) { //t_.currentNumRTVs == 0 This removes Shadow passes, Depth pre-pass, Hi-Z, Occlusion, Z-only geometry
+        if (!_this || GetCmdState(_this)->NumRTVs == 0 || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) { //t_.currentNumRTVs == 0 This removes Shadow passes, Depth pre-pass, Hi-Z, Occlusion, Z-only geomet
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
@@ -210,12 +215,12 @@ namespace d3d12hook {
 
         // 3. IDENTIFICATION
         bool isModelDraw =
-            t_.currentNumRTVs > 0 && (
+            GetCmdState(_this)->NumRTVs > 0 && (
                 currentStrides == countstride1 ||
                 currentStrides == countstride2 ||
                 currentStrides == countstride3 ||
                 currentStrides == countstride4 ||
-                t_.currentNumRTVs == countfindrendertarget ||
+                GetCmdState(_this)->NumRTVs == countfindrendertarget ||
                 currentRootSigID == countcurrentRootSigID ||
                 currentRootSigID == countcurrentRootSigID2
                 );
@@ -225,13 +230,13 @@ namespace d3d12hook {
 
             // IGNORE/FILTER LOGIC
             if(applyHack && filterrendertarget) {
-                if(t_.currentNumRTVs == countfilterrendertarget) {
+                if(GetCmdState(_this)->NumRTVs != countfilterrendertarget) {
                 applyHack = false;
                 }
             }
 
             if (applyHack && ignorerendertarget) {
-                if (t_.currentNumRTVs != countignorerendertarget) {
+                if (GetCmdState(_this)->NumRTVs == countignorerendertarget) {
                     applyHack = false;
                 }
             }
@@ -276,7 +281,7 @@ namespace d3d12hook {
                 // Only apply if the viewport looks like a valid screen-space viewport
                 if (originalVp.Width > 0 && originalVp.Width < 16384 && originalVp.Height > 0) {
                     D3D12_VIEWPORT hVp = originalVp;
-                    hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
+                    hVp.MinDepth = reversedDepth ? 0.0f : 0.99f;
                     hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
 
                     _this->RSSetViewports(1, &hVp);
@@ -302,9 +307,10 @@ namespace d3d12hook {
         ID3D12Resource* pCountBuffer,
         UINT64 CountBufferOffset)
     {
+        
         // 1. SAFETY CHECK
         // Skip if list is null or if it's a COMPUTE/COPY queue (RSSetViewports could crash these)
-        if (!dCommandList || t_.currentNumRTVs == 0 || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+        if (!dCommandList || GetCmdState(dCommandList)->NumRTVs == 0 || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
             return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount,
                 pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
@@ -314,12 +320,12 @@ namespace d3d12hook {
 
         // 3. IDENTIFICATION
         bool isModelDraw =
-            t_.currentNumRTVs > 0 && (
+            GetCmdState(dCommandList)->NumRTVs > 0 && (
                 currentStrides == countstride1 ||
                 currentStrides == countstride2 ||
                 currentStrides == countstride3 ||
                 currentStrides == countstride4 ||
-                t_.currentNumRTVs == countfindrendertarget ||
+                GetCmdState(dCommandList)->NumRTVs == countfindrendertarget ||
                 currentRootSigID == countcurrentRootSigID ||
                 currentRootSigID == countcurrentRootSigID2
                 );
@@ -329,13 +335,13 @@ namespace d3d12hook {
 
             // IGNORE/FILTER LOGIC
             if (applyHack && filterrendertarget) {
-                if (t_.currentNumRTVs == countfilterrendertarget) {
+                if (GetCmdState(dCommandList)->NumRTVs != countfilterrendertarget) {
                     applyHack = false;
                 }
             }
 
             if (applyHack && ignorerendertarget) {
-                if (t_.currentNumRTVs != countignorerendertarget) {
+                if (GetCmdState(dCommandList)->NumRTVs == countignorerendertarget) {
                     applyHack = false;
                 }
             }
@@ -391,7 +397,7 @@ namespace d3d12hook {
                 }
             }
         }
-
+        
         // 5. FALLBACK
         // This handles cases where:
         // - It's not a model we want.

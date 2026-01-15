@@ -514,7 +514,7 @@ thread_local struct {
     D3D12_VIEWPORT currentViewport = {};
     UINT numViewports = 0;
     D3D12_GPU_DESCRIPTOR_HANDLE LastDescriptorBase;
-    UINT currentNumRTVs = 0;
+    //UINT currentNumRTVs = 0;
     UINT currentiSize = 0;
     DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     //UINT currentGPUIAddress = 0; //D3D12_GPU_VIRTUAL_ADDRESS
@@ -656,6 +656,19 @@ thread_local CommandListState tls_cache;
 
 //=======================================================================================//
 
+//OMSetRenderTargets
+struct CmdListState {
+    UINT NumRTVs;
+};
+
+static CmdListState gCmdListState[4096];
+
+inline CmdListState* GetCmdState(ID3D12GraphicsCommandList* cl)
+{
+    return &gCmdListState[((uintptr_t)cl >> 4) & 4095];
+}
+
+//=======================================================================================//
 
 /*
 //vtable index values, from d3d12.h
