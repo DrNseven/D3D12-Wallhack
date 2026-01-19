@@ -49,7 +49,9 @@ namespace d3d12hook {
     RSSetViewportsFn        oRSSetViewportsD3D12 = nullptr;
     IASetVertexBuffersFn    oIASetVertexBuffersD3D12 = nullptr;
     DrawIndexedInstancedFn  oDrawIndexedInstancedD3D12 = nullptr;
-    SetGraphicsRootConstantBufferViewFn oSetGraphicsRootConstantBufferViewD3D12 = nullptr; //3
+    DrawInstancedFn  oDrawInstancedD3D12 = nullptr;
+    DispatchFn oDispatchD3D12 = nullptr;
+    SetGraphicsRootConstantBufferViewFn oSetGraphicsRootConstantBufferViewD3D12 = nullptr;
     SetDescriptorHeapsFn    oSetDescriptorHeapsD3D12 = nullptr;
     SetGraphicsRootDescriptorTableFn oSetGraphicsRootDescriptorTableD3D12 = nullptr;
     OMSetRenderTargetsFn oOMSetRenderTargetsD3D12 = nullptr;
@@ -57,7 +59,9 @@ namespace d3d12hook {
     ExecuteIndirectFn oExecuteIndirectD3D12 = nullptr;
     SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12 = nullptr;
     ResetFn oResetD3D12 = nullptr;
+    CloseFn oCloseD3D12 = nullptr;
     IASetIndexBufferFn oIASetIndexBufferD3D12 = nullptr;
+    DispatchMeshFn oDispatchMeshD3D12 = nullptr;
     //if unresolved external symbol d3d12hook::function, fix here
 
 
@@ -76,8 +80,7 @@ namespace d3d12hook {
         ID3D12Resource* renderTarget;
         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle;
 
-        // The specific fence value that must be reached 
-        // before this specific back-buffer can be reused.
+        // The specific fence value that must be reached before this specific back-buffer can be reused
         UINT64 FenceValue;
     };
     static FrameContext*          gFrameContexts = nullptr;
@@ -125,10 +128,36 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookRSSetViewportsD3D12(ID3D12GraphicsCommandList* _this, UINT NumViewports, const D3D12_VIEWPORT* pViewports) {
         gInitialized = true; //
+
+        if (!pViewports || NumViewports == 0) {
+            oRSSetViewportsD3D12(_this, NumViewports, pViewports);
+            return;
+        }
+
         if (NumViewports > 0 && pViewports) {
             // Cache the game's intended viewport
             t_.currentViewport = pViewports[0];
         }
+        
+    //for fucked up games, where it draws in unknown function 
+    if (countindexformat > 0 && GetCmdState(_this)->NumRTVs > 0) {
+        UINT currentindexformat = t_.currentIndexFormat + t_.numViewports + t_.StartSlot + GetCmdState(_this)->NumRTVs;
+
+        if (currentindexformat == countindexformat &&
+            t_.currentViewport.Width > 0 &&
+            t_.currentViewport.Height > 0 &&
+            t_.currentViewport.Width < 16384)
+        {
+            D3D12_VIEWPORT hVp = t_.currentViewport;
+
+            hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
+            hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
+
+            // submit modified viewport ONCE
+            oRSSetViewportsD3D12(_this, 1, &hVp);
+            return;
+        }
+    }
 
         oRSSetViewportsD3D12(_this, NumViewports, pViewports);
     }
@@ -160,7 +189,25 @@ namespace d3d12hook {
             // hash strides
             t_.StrideHash = TwoDigitStrideHash(strideData, NumViews);
         }
+        
+        /*
+        //test
+        if (countindexformat > 0)
+        {
+            D3D12_VIEWPORT originalVp = t_.currentViewport;
+            UINT currentindexformat = t_.currentIndexFormat + t_.numViewports + t_.StartSlot;
 
+            _this->RSSetViewports(1, &originalVp);
+            // Only apply if the viewport looks like a valid screen-space viewport
+            if (currentindexformat == countindexformat && originalVp.Width > 0 && originalVp.Width < 16384 && originalVp.Height > 0) {
+                D3D12_VIEWPORT hVp = originalVp;
+                hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
+                hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
+
+                _this->RSSetViewports(1, &hVp);
+            }
+        }    
+        */
         return oIASetVertexBuffersD3D12(_this, StartSlot, NumViews, pViews);
     }
 
@@ -174,6 +221,24 @@ namespace d3d12hook {
             //t_.currentGPUIAddress = pView->BufferLocation;
         }
 
+        /*
+        //test
+        if(countindexformat > 0)
+        {
+            D3D12_VIEWPORT originalVp = t_.currentViewport;
+            UINT currentindexformat = t_.currentIndexFormat + t_.numViewports + t_.StartSlot; //42, 57
+
+            dCommandList->RSSetViewports(1, &originalVp);
+            // Only apply if the viewport looks like a valid screen-space viewport
+            if (currentindexformat == countindexformat && originalVp.Width > 0 && originalVp.Width < 16384 && originalVp.Height > 0) {
+                D3D12_VIEWPORT hVp = originalVp;
+                hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
+                hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
+
+                dCommandList->RSSetViewports(1, &hVp);
+            }
+        }
+        */
         return oIASetIndexBufferD3D12(dCommandList, pView);
     }
 
@@ -186,10 +251,14 @@ namespace d3d12hook {
         BOOL RTsSingleHandleToDescriptorRange,
         const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor) {
 
-        //if(t_.currentViewport.Width > 512)
-        if(dCommandList)
-        t_.currentNumRTVs = NumRenderTargetDescriptors;
-        //bool hasDepth = (pDepthStencilDescriptor != nullptr);
+        if (dCommandList->GetType() == D3D12_COMMAND_LIST_TYPE_BUNDLE)
+            return oOMSetRenderTargetsD3D12(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
+
+        if (dCommandList) {
+            GetCmdState(dCommandList)->NumRTVs = NumRenderTargetDescriptors;
+        }
+
+        //t_.currentNumRTVs = NumRenderTargetDescriptors; //old
         //if (t_.currentNumRTVs > 0 && t_.currentViewport.Width > 512) filter for coloring
 
         return oOMSetRenderTargetsD3D12(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
@@ -199,9 +268,17 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation)
     {
-        // 1. SAFETY CHECK
-        // Skip if list is null or if it's a COMPUTE/COPY queue (RSSetViewports could crash these)
-        if (!_this || t_.currentNumRTVs == 0 || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) { //t_.currentNumRTVs == 0 This removes Shadow passes, Depth pre-pass, Hi-Z, Occlusion, Z-only geomet
+        if (!_this) {
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        }
+
+        // Cache the state pointer once to avoid multiple lookups
+        auto* cmdState = GetCmdState(_this);
+        UINT numRTVs = cmdState->NumRTVs;
+
+        // 1. QUICK SAFETY EXIT
+        // Combine checks to exit early. Most UI and shadow passes will fail here immediately.
+        if (numRTVs == 0 || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
@@ -211,12 +288,12 @@ namespace d3d12hook {
 
         // 3. IDENTIFICATION
         bool isModelDraw =
-            t_.currentNumRTVs > 0 && (
+            numRTVs > 0 && (
                 currentStrides == countstride1 ||
                 currentStrides == countstride2 ||
                 currentStrides == countstride3 ||
                 currentStrides == countstride4 ||
-                t_.currentNumRTVs == countfindrendertarget ||
+                numRTVs == countfindrendertarget ||
                 currentRootSigID == countcurrentRootSigID ||
                 currentRootSigID == countcurrentRootSigID2
                 );
@@ -225,14 +302,14 @@ namespace d3d12hook {
             bool applyHack = true;
 
             // IGNORE/FILTER LOGIC
-            if(applyHack && filterrendertarget) {
-                if(t_.currentNumRTVs != countfilterrendertarget) {
-                applyHack = false;
+            if (applyHack && filterrendertarget) {
+                if (numRTVs != countfilterrendertarget) {
+                    applyHack = false;
                 }
             }
 
             if (applyHack && ignorerendertarget) {
-                if (t_.currentNumRTVs == countignorerendertarget) {
+                if (numRTVs == countignorerendertarget) {
                     applyHack = false;
                 }
             }
@@ -277,7 +354,7 @@ namespace d3d12hook {
                 // Only apply if the viewport looks like a valid screen-space viewport
                 if (originalVp.Width > 0 && originalVp.Width < 16384 && originalVp.Height > 0) {
                     D3D12_VIEWPORT hVp = originalVp;
-                    hVp.MinDepth = reversedDepth ? 0.0f : 0.99f;
+                    hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
                     hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
 
                     _this->RSSetViewports(1, &hVp);
@@ -289,7 +366,15 @@ namespace d3d12hook {
             }
         }
 
+        // --- Draw ---
         oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookDrawInstancedD3D12(ID3D12GraphicsCommandList* cmd, UINT VertexCountPerInstance,UINT InstanceCount,UINT StartVertexLocation,UINT StartInstanceLocation)
+    {
+        oDrawInstancedD3D12(cmd, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation);
     }
 
     //=========================================================================================================================//
@@ -303,25 +388,33 @@ namespace d3d12hook {
         ID3D12Resource* pCountBuffer,
         UINT64 CountBufferOffset)
     {
-        
-        // 1. SAFETY CHECK
-        // Skip if list is null or if it's a COMPUTE/COPY queue (RSSetViewports could crash these)
-        if (!dCommandList || t_.currentNumRTVs == 0 || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
-            return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount,
-                pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+        if (!dCommandList) {
+            return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
+
+        // Cache the state pointer once to avoid multiple lookups
+        auto* cmdState = GetCmdState(dCommandList);
+        UINT numRTVs = cmdState->NumRTVs;
+
+        // 1. QUICK SAFETY EXIT
+        // Combine checks to exit early. Most UI and shadow passes will fail here immediately.
+        if (numRTVs == 0 || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+            return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+        }
+
         // 2. DATA CAPTURE
         UINT currentStrides = t_.StrideHash + t_.StartSlot;
         uint32_t currentRootSigID = (tlsCurrentCmdList == dCommandList) ? tlsCurrentRootSigID : 0;
+        //uint32_t shortID = static_cast<uint32_t>(MaxCommandCount % 100);
 
         // 3. IDENTIFICATION
         bool isModelDraw =
-            t_.currentNumRTVs > 0 && (
+            numRTVs > 0 && (
                 currentStrides == countstride1 ||
                 currentStrides == countstride2 ||
                 currentStrides == countstride3 ||
                 currentStrides == countstride4 ||
-                t_.currentNumRTVs == countfindrendertarget ||
+                numRTVs == countfindrendertarget ||
                 currentRootSigID == countcurrentRootSigID ||
                 currentRootSigID == countcurrentRootSigID2
                 );
@@ -331,13 +424,13 @@ namespace d3d12hook {
 
             // IGNORE/FILTER LOGIC
             if (applyHack && filterrendertarget) {
-                if (t_.currentNumRTVs != countfilterrendertarget) {
+                if (numRTVs != countfilterrendertarget) {
                     applyHack = false;
                 }
             }
 
             if (applyHack && ignorerendertarget) {
-                if (t_.currentNumRTVs == countignorerendertarget) {
+                if (numRTVs == countignorerendertarget) {
                     applyHack = false;
                 }
             }
@@ -393,13 +486,22 @@ namespace d3d12hook {
                 }
             }
         }
-        
-        // 5. FALLBACK
-        // This handles cases where:
-        // - It's not a model we want.
-        // - The hack was ignored/filtered.
-        // - The viewport was invalid (0x0).
+      
         oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+    }
+
+    //=========================================================================================================================//
+    
+    void STDMETHODCALLTYPE hookDispatchD3D12(ID3D12GraphicsCommandList* pList,UINT threadCountX, UINT threadCountY, UINT threadCountZ)
+    {     
+        oDispatchD3D12(pList, threadCountX, threadCountY, threadCountZ);
+    }
+
+    //=========================================================================================================================//
+    
+    void STDMETHODCALLTYPE hookDispatchMeshD3D12(ID3D12GraphicsCommandList6* cmd,UINT x, UINT y, UINT z)
+    {
+        oDispatchMeshD3D12(cmd, x, y, z);
     }
 
     //=========================================================================================================================//
@@ -449,7 +551,7 @@ namespace d3d12hook {
         if (tls_cache.cmdListPtr != _this) {
             tls_cache.cmdListPtr = _this;
             // Optionally: Reset state if it's a new command list context
-            tls_cache.lastCbvIndex = UINT_MAX;
+            //tls_cache.lastCbvIndex = UINT_MAX;
         }
 
         tls_cache.lastCbvIndex = RootParameterIndex;
@@ -464,7 +566,7 @@ namespace d3d12hook {
         if (tls_cache.cmdListPtr != dCommandList) {
             tls_cache.cmdListPtr = dCommandList;
 
-            tls_cache.lastRDIndex = UINT_MAX;
+            //tls_cache.lastRDIndex = UINT_MAX;
 
             if (BaseDescriptor.ptr != 0)
                 t_.LastDescriptorBase = BaseDescriptor;
@@ -485,7 +587,22 @@ namespace d3d12hook {
             tls_cache.lastRDIndex = UINT_MAX;
         }
 
+        CmdState* state = GetCmdState(_this);
+        state->NumRTVs = 0;
+
         return oResetD3D12(_this, pAllocator, pInitialState);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookCloseD3D12(ID3D12GraphicsCommandList* cl)
+    {
+        if (cl) {
+            CmdState* state = GetCmdState(cl);
+            state->NumRTVs = 0;
+        }
+
+        oCloseD3D12(cl);
     }
 
     //=========================================================================================================================//
@@ -524,7 +641,7 @@ namespace d3d12hook {
             for (UINT i = 0; i < NumQueries; ++i) {
                 D3D12_WRITEBUFFERIMMEDIATE_PARAMETER param;
                 param.Dest = pDestinationBuffer->GetGPUVirtualAddress() + AlignedDestinationBufferOffset + (i * sizeof(UINT64));
-                param.Value = 1; // 1 = Visible
+                param.Value = 1; // 1 = Visible //or 0xFFFF
 
                 // Note: Requires ID3D12GraphicsCommandList2 or higher
                 ID3D12GraphicsCommandList2* cl2 = nullptr;
@@ -987,12 +1104,14 @@ void Render()
         const UINT min_val = 0;
         const UINT max_val = 100;
         ImGui::Text("Wallhack:");
-        ImGui::SliderScalar("Find Stridehash 1", ImGuiDataType_U32, &countstride1, &min_val, &max_val, "%u");
-        ImGui::SliderScalar("Find Stridehash 2", ImGuiDataType_U32, &countstride2, &min_val, &max_val, "%u");
-        ImGui::SliderScalar("Find Stridehash 3", ImGuiDataType_U32, &countstride3, &min_val, &max_val, "%u");
-        ImGui::SliderScalar("Find Stridehash 4", ImGuiDataType_U32, &countstride4, &min_val, &max_val, "%u");
-        ImGui::SliderScalar("Find CurrentRootID", ImGuiDataType_U32, &countcurrentRootSigID, &min_val, &max_val, "%u");
-        ImGui::SliderScalar("Find CurrentRootID2", ImGuiDataType_U32, &countcurrentRootSigID2, &min_val, &max_val, "%u");
+        //ImGui::SliderScalar("Find Stridehash 1", ImGuiDataType_U32, &countstride1, &min_val, &max_val, "%u");
+        ImGui::SliderInt("Find Stridehash 1", &countstride1, minus_val, max_val);
+        ImGui::SliderInt("Find Stridehash 2", &countstride2, minus_val, max_val);
+        ImGui::SliderInt("Find Stridehash 3", &countstride3, minus_val, max_val);
+        ImGui::SliderInt("Find Stridehash 4", &countstride4, minus_val, max_val);
+        ImGui::SliderInt("Find IndexFormat+Vp", &countindexformat, minus_val, max_val);
+        ImGui::SliderInt("Find CurrentRootID", &countcurrentRootSigID, minus_val, max_val);
+        ImGui::SliderInt("Find CurrentRootID2", &countcurrentRootSigID2, minus_val, max_val);
         ImGui::SliderInt("Find RenderTarget", &countfindrendertarget, minus_val, max_val);
 
         //ImGui::Text("Filter:");
@@ -1013,36 +1132,36 @@ void Render()
         ImGui::Checkbox("Filter RootDescriptor", &filterRootDescriptor);
         if (filterRootDescriptor)
         {
-            ImGui::SliderScalar("RootDescriptor1", ImGuiDataType_U32, &countfilterrootDescriptor, &min_val, &max_val, "%u");
-            ImGui::SliderScalar("RootDescriptor2", ImGuiDataType_U32, &countfilterrootDescriptor2, &min_val, &max_val, "%u");
-            ImGui::SliderScalar("RootDescriptor3", ImGuiDataType_U32, &countfilterrootDescriptor3, &min_val, &max_val, "%u");
+            ImGui::SliderInt("RootDescriptor1", &countfilterrootDescriptor, minus_val, max_val);
+            ImGui::SliderInt("RootDescriptor2", &countfilterrootDescriptor2, minus_val, max_val);
+            ImGui::SliderInt("RootDescriptor3", &countfilterrootDescriptor3, minus_val, max_val);
         }
 
         //ImGui::Text("Filter:");
         ImGui::Checkbox("Filter RootConstant", &filterRootConstant);
         if (filterRootConstant)
         {
-            ImGui::SliderScalar("RootConstant1", ImGuiDataType_U32, &countfilterrootConstant, &min_val, &max_val, "%u");
-            ImGui::SliderScalar("RootConstant2", ImGuiDataType_U32, &countfilterrootConstant2, &min_val, &max_val, "%u");
-            ImGui::SliderScalar("RootConstant3", ImGuiDataType_U32, &countfilterrootConstant3, &min_val, &max_val, "%u");
+            ImGui::SliderInt("RootConstant1", &countfilterrootConstant, minus_val, max_val);
+            ImGui::SliderInt("RootConstant2", &countfilterrootConstant2, minus_val, max_val);
+            ImGui::SliderInt("RootConstant3", &countfilterrootConstant3, minus_val, max_val);
         }
 
         //ImGui::Text("Ignore");
         ImGui::Checkbox("Ignore RootDescriptor", &ignoreRootDescriptor);
         if (ignoreRootDescriptor)
         {
-            ImGui::SliderScalar("RootDescriptor 1", ImGuiDataType_U32, &countignorerootDescriptor, &min_val, &max_val, "%u");
-            ImGui::SliderScalar("RootDescriptor 2", ImGuiDataType_U32, &countignorerootDescriptor2, &min_val, &max_val, "%u");
-            ImGui::SliderScalar("RootDescriptor 3", ImGuiDataType_U32, &countignorerootDescriptor3, &min_val, &max_val, "%u");
+            ImGui::SliderInt("RootDescriptor 1", &countignorerootDescriptor, minus_val, max_val);
+            ImGui::SliderInt("RootDescriptor 2", &countignorerootDescriptor2, minus_val, max_val);
+            ImGui::SliderInt("RootDescriptor 3", &countignorerootDescriptor3, minus_val, max_val);
         }
 
         //ImGui::Text("Ignore");
         ImGui::Checkbox("Ignore RootConstant", &ignoreRootConstant);
         if (ignoreRootConstant)
         {
-            ImGui::SliderScalar("RootConstant 1", ImGuiDataType_U32, &countignorerootConstant, &min_val, &max_val, "%u");
-            ImGui::SliderScalar("RootConstant 2", ImGuiDataType_U32, &countignorerootConstant2, &min_val, &max_val, "%u");
-            ImGui::SliderScalar("RootConstant 3", ImGuiDataType_U32, &countignorerootConstant3, &min_val, &max_val, "%u");
+            ImGui::SliderInt("RootConstant 1", &countignorerootConstant, minus_val, max_val);
+            ImGui::SliderInt("RootConstant 2", &countignorerootConstant2, minus_val, max_val);
+            ImGui::SliderInt("RootConstant 3", &countignorerootConstant3, minus_val, max_val);
         }
 
         ImGui::Checkbox("Reverse Depth", &reversedDepth);

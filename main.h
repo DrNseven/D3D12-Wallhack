@@ -42,7 +42,12 @@ namespace d3d12hook {
     typedef void(STDMETHODCALLTYPE* DrawIndexedInstancedFn)(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation);
     extern DrawIndexedInstancedFn oDrawIndexedInstancedD3D12;
 
-    //1
+    typedef void(STDMETHODCALLTYPE* DrawInstancedFn)(ID3D12GraphicsCommandList* _this, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation);
+    extern DrawInstancedFn oDrawInstancedD3D12;
+
+    typedef void(STDMETHODCALLTYPE* DispatchFn)(ID3D12GraphicsCommandList* _this, UINT ThreadGroupCountX, UINT ThreadGroupCountY, UINT ThreadGroupCountZ);
+    extern DispatchFn oDispatchD3D12;
+    
     typedef void(STDMETHODCALLTYPE* SetGraphicsRootConstantBufferViewFn)(ID3D12GraphicsCommandList* _this, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
     extern SetGraphicsRootConstantBufferViewFn oSetGraphicsRootConstantBufferViewD3D12;
 
@@ -60,6 +65,9 @@ namespace d3d12hook {
 
     typedef void(STDMETHODCALLTYPE* ResetFn)(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState);
     extern ResetFn oResetD3D12;
+
+    typedef void(STDMETHODCALLTYPE* CloseFn)(ID3D12GraphicsCommandList* cl);
+    extern CloseFn oCloseD3D12;
 
     typedef void(STDMETHODCALLTYPE* IASetIndexBufferFn)(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
     extern IASetIndexBufferFn oIASetIndexBufferD3D12;
@@ -84,6 +92,10 @@ namespace d3d12hook {
         UINT64 CountBufferOffset);
     extern ExecuteIndirectFn oExecuteIndirectD3D12;
 
+    // ID3D12GraphicsCommandList6
+    typedef void(STDMETHODCALLTYPE* DispatchMeshFn)(ID3D12GraphicsCommandList6* cmd, UINT ThreadGroupCountX,UINT ThreadGroupCountY,UINT ThreadGroupCountZ);
+    extern DispatchMeshFn oDispatchMeshD3D12;
+
 
     extern long __fastcall hookPresentD3D12(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags);
     extern long __fastcall hookPresent1D3D12(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pParams);
@@ -92,14 +104,19 @@ namespace d3d12hook {
     extern void STDMETHODCALLTYPE hookRSSetViewportsD3D12(ID3D12GraphicsCommandList* _this, UINT NumViewports, const D3D12_VIEWPORT* pViewports);
     extern void STDMETHODCALLTYPE hookIASetVertexBuffersD3D12(ID3D12GraphicsCommandList* _this, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews);
     extern void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation);
-    extern void STDMETHODCALLTYPE hookSetGraphicsRootConstantBufferViewD3D12(ID3D12GraphicsCommandList* _this, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);//4
+    extern void STDMETHODCALLTYPE hookDrawInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation);
+    extern void STDMETHODCALLTYPE hookDispatchD3D12(ID3D12GraphicsCommandList* _this, UINT ThreadGroupCountX, UINT ThreadGroupCountY, UINT ThreadGroupCountZ);
+    extern void STDMETHODCALLTYPE hookSetGraphicsRootConstantBufferViewD3D12(ID3D12GraphicsCommandList* _this, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation);
     extern void STDMETHODCALLTYPE hookSetDescriptorHeapsD3D12(ID3D12GraphicsCommandList* cmdList, UINT NumHeaps, ID3D12DescriptorHeap* const* ppHeaps);
     extern void STDMETHODCALLTYPE hookSetGraphicsRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor);
     extern void STDMETHODCALLTYPE hookOMSetRenderTargetsD3D12(ID3D12GraphicsCommandList* dCommandList, UINT NumRenderTargetDescriptors, const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors, BOOL RTsSingleHandleToDescriptorRange, const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor);
     extern void STDMETHODCALLTYPE hookResolveQueryDataD3D12(ID3D12GraphicsCommandList* self, ID3D12QueryHeap* pQueryHeap, D3D12_QUERY_TYPE Type, UINT StartIndex, UINT NumQueries, ID3D12Resource* pDestinationBuffer, UINT64 AlignedDestinationBufferOffset);
     extern void STDMETHODCALLTYPE hookSetGraphicsRootSignatureD3D12(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature);
     extern void STDMETHODCALLTYPE hookResetD3D12(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState);
+    extern void STDMETHODCALLTYPE hookCloseD3D12(ID3D12GraphicsCommandList* cl);
     extern void STDMETHODCALLTYPE hookIASetIndexBufferD3D12(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
+    extern void STDMETHODCALLTYPE hookDispatchMeshD3D12(ID3D12GraphicsCommandList6* cmd,UINT ThreadGroupCountX, UINT ThreadGroupCountY, UINT ThreadGroupCountZ);
+
     extern void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
         ID3D12GraphicsCommandList* dCommandList,
         ID3D12CommandSignature* pCommandSignature,
@@ -127,7 +144,9 @@ namespace hooks {
     constexpr size_t kRSSetViewportsIndex = 21; //ID3D12GraphicsCommandList::RSSetViewports
     constexpr size_t kIASetVertexBuffersIndex = 44; //ID3D12GraphicsCommandList::IASetVertexBuffersIndex
     constexpr size_t kDrawIndexedInstancedIndex = 13;
-    constexpr size_t kSetGraphicsRootConstantBufferViewIndex = 38; //5
+    constexpr size_t kDrawInstancedIndex = 12;
+    constexpr size_t kDispatchIndex = 14;
+    constexpr size_t kSetGraphicsRootConstantBufferViewIndex = 38;
     constexpr size_t kSetDescriptorHeapsIndex = 28;
     constexpr size_t kSetGraphicsRootDescriptorTableIndex = 32;
     constexpr size_t kOMSetRenderTargetsIndex = 46;
@@ -135,7 +154,9 @@ namespace hooks {
     constexpr size_t kExecuteIndirectIndex = 59;
     constexpr size_t kSetGraphicsRootSignatureIndex = 30;
     constexpr size_t kResetIndex = 10;
+    constexpr size_t kCloseIndex = 9;
     constexpr size_t kIASetIndexBufferIndex = 43;
+    constexpr size_t kDispatchMeshIndex = 79; // stable across recent SDKs (AI claim)
 
 
     // Dummy objects pour extraire les v-tables
@@ -156,7 +177,9 @@ namespace hooks {
     static LPVOID pRSSetViewportsTarget = nullptr;
     static LPVOID pIASetVertexBuffersTarget = nullptr;
     static LPVOID pDrawIndexedInstancedTarget = nullptr;
-    static LPVOID pSetGraphicsRootConstantBufferViewTarget = nullptr; //6
+    static LPVOID pDrawInstancedTarget = nullptr;
+    static LPVOID pDispatchTarget = nullptr;
+    static LPVOID pSetGraphicsRootConstantBufferViewTarget = nullptr;
     static LPVOID pSetDescriptorHeapsTarget = nullptr;
     static LPVOID pSetGraphicsRootDescriptorTableTarget = nullptr;
     static LPVOID pOMSetRenderTargetsTarget = nullptr;
@@ -164,7 +187,10 @@ namespace hooks {
     static LPVOID pExecuteIndirectTarget = nullptr;
     static LPVOID pSetGraphicsRootSignatureTarget = nullptr;
     static LPVOID pResetTarget = nullptr;
+    static LPVOID pCloseTarget = nullptr;
     static LPVOID pIASetIndexBufferTarget = nullptr;
+    static LPVOID pDispatchMeshTarget = nullptr;
+
 
     static void CleanupDummyObjects()
     {
@@ -284,6 +310,19 @@ namespace hooks {
             return hr;
         }
 
+        //Detect Nanite
+        bool hasMeshShaders = false;
+        D3D12_FEATURE_DATA_D3D12_OPTIONS7 opt7{};
+        if (SUCCEEDED(pDevice->CheckFeatureSupport(
+            D3D12_FEATURE_D3D12_OPTIONS7,
+            &opt7,
+            sizeof(opt7))))
+        {
+            hasMeshShaders = opt7.MeshShaderTier != D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
+        }
+        Log("hasMeshShaders == %d", hasMeshShaders);
+
+
         return S_OK;
     }
 
@@ -332,7 +371,7 @@ namespace hooks {
             return;
         }
 
-        // --- Hook RSSetViewports ---
+        // CommandList base
         //auto slVTable = *reinterpret_cast<void***>(pCommandList.Get());//wrong
         ComPtr<ID3D12GraphicsCommandList> baseCL;
         HRESULT hr = pCommandList.As(&baseCL);
@@ -342,6 +381,17 @@ namespace hooks {
             return;
         }
         auto slVTable = *reinterpret_cast<void***>(baseCL.Get());
+
+        // Device base not needed for now
+        //auto cdVTable = *reinterpret_cast<void***>(pDevice.Get()); //wrong
+        //ComPtr<ID3D12Device> baseDevice;
+        //hr = pDevice.As(&baseDevice);
+        //if (FAILED(hr))
+        //{
+            //Log("Failed to QI Device\n");
+            //return;
+        //}
+        //auto cdVTable = *reinterpret_cast<void***>(baseDevice.Get());
 
         pRSSetViewportsTarget = reinterpret_cast<LPVOID>(slVTable[kRSSetViewportsIndex]);
         mh = MH_CreateHook(pRSSetViewportsTarget, reinterpret_cast<LPVOID>(d3d12hook::hookRSSetViewportsD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oRSSetViewportsD3D12));
@@ -355,7 +405,14 @@ namespace hooks {
         mh = MH_CreateHook(pDrawIndexedInstancedTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDrawIndexedInstancedD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDrawIndexedInstancedD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook DrawIndexedInstanced failed: %s\n", MH_StatusToString(mh));
 
-        //2
+        pDrawInstancedTarget = reinterpret_cast<LPVOID>(slVTable[kDrawInstancedIndex]);
+        mh = MH_CreateHook(pDrawInstancedTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDrawInstancedD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDrawInstancedD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook DrawInstanced failed: %s\n", MH_StatusToString(mh));
+
+        //pDispatchTarget = reinterpret_cast<LPVOID>(slVTable[kDispatchIndex]);
+        //mh = MH_CreateHook(pDispatchTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDispatchD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDispatchD3D12));
+        //if (mh != MH_OK) Log("[hooks] MH_CreateHook Dispatch failed: %s\n", MH_StatusToString(mh));
+
         pSetGraphicsRootConstantBufferViewTarget = reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootConstantBufferViewIndex]);
         mh = MH_CreateHook(pSetGraphicsRootConstantBufferViewTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootConstantBufferViewD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootConstantBufferViewD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootConstantBufferView failed: %s\n", MH_StatusToString(mh));
@@ -388,9 +445,27 @@ namespace hooks {
         mh = MH_CreateHook(pResetTarget, reinterpret_cast<LPVOID>(d3d12hook::hookResetD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oResetD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook Reset failed: %s\n", MH_StatusToString(mh));
 
+        pCloseTarget = reinterpret_cast<LPVOID>(slVTable[kCloseIndex]);
+        mh = MH_CreateHook(pCloseTarget, reinterpret_cast<LPVOID>(d3d12hook::hookCloseD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oCloseD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook Close failed: %s\n", MH_StatusToString(mh));
+
         pIASetIndexBufferTarget = reinterpret_cast<LPVOID>(slVTable[kIASetIndexBufferIndex]);
         mh = MH_CreateHook(pIASetIndexBufferTarget, reinterpret_cast<LPVOID>(d3d12hook::hookIASetIndexBufferD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oIASetIndexBufferD3D12));
-        if (mh != MH_OK) Log("[hooks] MH_CreateHook IASetIndexBuffer failed: %s\n", MH_StatusToString(mh));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook IASetIndexBuffer failed: %s\n", MH_StatusToString(mh));  
+
+        //cmdlist 6 table
+        //ComPtr<ID3D12GraphicsCommandList6> cl6;
+        //hr = pCommandList.As(&cl6);
+        //if (FAILED(hr))
+        //{
+            //Log("[hooks] ID3D12GraphicsCommandList6 not supported\n");
+            //return;
+        //}
+        //auto cl6VTable = *reinterpret_cast<void***>(cl6.Get());
+        //pDispatchMeshTarget = reinterpret_cast<LPVOID>(cl6VTable[kDispatchMeshIndex]);
+        //mh = MH_CreateHook(pDispatchMeshTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDispatchMeshD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDispatchMeshD3D12));
+        //if (mh != MH_OK) Log("[hooks] MH_CreateHook DispatchMesh failed: %s\n", MH_StatusToString(mh));
+
 
         // --- Enable all hooks ---
         mh = MH_EnableHook(MH_ALL_HOOKS);
@@ -398,23 +473,6 @@ namespace hooks {
         else
         {
             Log("[hooks] Hooks enabled.");
-            //reinterpret_cast<LPVOID>(scVTable[kPresentIndex]), kPresentIndex;
-            //reinterpret_cast<LPVOID>(scVTable[kPresent1Index]), kPresent1Index;
-            //reinterpret_cast<LPVOID>(scVTable[kResizeBuffersIndex]), kResizeBuffersIndex;
-            //reinterpret_cast<LPVOID>(cqVTable[kExecuteCommandListsIndex]), kExecuteCommandListsIndex;
-            reinterpret_cast<LPVOID>(slVTable[kRSSetViewportsIndex]), kRSSetViewportsIndex;
-            reinterpret_cast<LPVOID>(slVTable[kIASetVertexBuffersIndex]), kIASetVertexBuffersIndex;
-            reinterpret_cast<LPVOID>(slVTable[kDrawIndexedInstancedIndex]), kDrawIndexedInstancedIndex;
-            reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootConstantBufferViewIndex]), kSetGraphicsRootConstantBufferViewIndex; //7
-            reinterpret_cast<LPVOID>(slVTable[kSetDescriptorHeapsIndex]), kSetDescriptorHeapsIndex;
-            reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootDescriptorTableIndex]), kSetGraphicsRootDescriptorTableIndex;
-            reinterpret_cast<LPVOID>(slVTable[kOMSetRenderTargetsIndex]), kOMSetRenderTargetsIndex;
-            reinterpret_cast<LPVOID>(slVTable[kResolveQueryDataIndex]), kResolveQueryDataIndex;
-            reinterpret_cast<LPVOID>(slVTable[kExecuteIndirectIndex]), kExecuteIndirectIndex;
-            reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootSignatureIndex]), kSetGraphicsRootSignatureIndex;
-            reinterpret_cast<LPVOID>(slVTable[kResetIndex]), kResetIndex;
-            reinterpret_cast<LPVOID>(slVTable[kIASetIndexBufferIndex]), kIASetIndexBufferIndex;
-
         }
     }
 
@@ -443,6 +501,7 @@ namespace hooks {
         DisableAndRemove(pRSSetViewportsTarget);
         DisableAndRemove(pIASetVertexBuffersTarget);
         DisableAndRemove(pDrawIndexedInstancedTarget);
+        DisableAndRemove(pDrawInstancedTarget);
         DisableAndRemove(pSetGraphicsRootConstantBufferViewTarget);
         DisableAndRemove(pSetDescriptorHeapsTarget);
         DisableAndRemove(pSetGraphicsRootDescriptorTableTarget);
@@ -484,7 +543,7 @@ namespace globals {
     // Main game window handle
     HWND mainWindow = nullptr;
     // Key to uninject and exit (F11 by default)
-    int uninjectKey = VK_F11;
+    int uninjectKey = VK_F11; //removed, does not work
     // Key to open/close the ImGui menu (INSERT by default)
     int openMenuKey = VK_INSERT;
     // Preferred backend to hook (None = auto fallback -> Not recommanded, specify your engine here)
@@ -514,7 +573,7 @@ thread_local struct {
     D3D12_VIEWPORT currentViewport = {};
     UINT numViewports = 0;
     D3D12_GPU_DESCRIPTOR_HANDLE LastDescriptorBase;
-    UINT currentNumRTVs = 0;
+    //UINT currentNumRTVs = 0;
     UINT currentiSize = 0;
     DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     //UINT currentGPUIAddress = 0; //D3D12_GPU_VIRTUAL_ADDRESS
@@ -524,34 +583,36 @@ thread_local struct {
 
 //menu
 bool menuisOpen = false;
-UINT countstride1 = 0;
-UINT countstride2 = 0;
-UINT countstride3 = 0;
-UINT countstride4 = 0;
-UINT countcurrentRootSigID = 0;
-UINT countcurrentRootSigID2 = 0;
-int countfindrendertarget = -1;//
-int countfilterrendertarget = -1;//
-int countignorerendertarget = -1;//
-UINT countfilterrootConstant = 0;
-UINT countfilterrootConstant2 = 0;
-UINT countfilterrootConstant3 = 0;
-UINT countignorerootConstant = 0;
-UINT countignorerootConstant2 = 0;
-UINT countignorerootConstant3 = 0;
-UINT countfilterrootDescriptor = 0;
-UINT countfilterrootDescriptor2 = 0;
-UINT countfilterrootDescriptor3 = 0;
-UINT countignorerootDescriptor = 0;
-UINT countignorerootDescriptor2 = 0;
-UINT countignorerootDescriptor3 = 0;
-bool filterrendertarget = false;//
+int countstride1 = 0;
+int countstride2 = 0;
+int countstride3 = 0;
+int countstride4 = 0;
+int countindexformat = -1;
+int countcurrentRootSigID = 0;
+int countcurrentRootSigID2 = 0;
+int countfindrendertarget = -1;
+int countfilterrendertarget = -1;
+int countignorerendertarget = -1;
+int countfilterrootConstant = 0;
+int countfilterrootConstant2 = 0;
+int countfilterrootConstant3 = 0;
+int countignorerootConstant = 0;
+int countignorerootConstant2 = 0;
+int countignorerootConstant3 = 0;
+int countfilterrootDescriptor = 0;
+int countfilterrootDescriptor2 = 0;
+int countfilterrootDescriptor3 = 0;
+int countignorerootDescriptor = 0;
+int countignorerootDescriptor2 = 0;
+int countignorerootDescriptor3 = 0;
+bool filterrendertarget = false;
 bool ignorerendertarget = false;
 bool reversedDepth = false;
 bool filterRootConstant = false;
 bool ignoreRootConstant = false;
 bool filterRootDescriptor = false;
 bool ignoreRootDescriptor = false;
+//bool filterindexformat = false;
 
 using namespace std;
 #include <string>
@@ -564,6 +625,7 @@ void SaveConfig()
     fout << "countstride2 " << countstride2 << endl;
     fout << "countstride3 " << countstride3 << endl;
     fout << "countstride4 " << countstride4 << endl;
+    fout << "countindexformat " << countindexformat << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
     fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
     fout << "countfindrendertarget " << countfindrendertarget << endl;
@@ -598,6 +660,7 @@ void LoadConfig()
     fin >> Word >> countstride2;
     fin >> Word >> countstride3;
     fin >> Word >> countstride4;
+    fin >> Word >> countindexformat;
     fin >> Word >> countcurrentRootSigID;
     fin >> Word >> countcurrentRootSigID2;
     fin >> Word >> countfindrendertarget;
@@ -653,6 +716,54 @@ struct CommandListState {
 
 // Extremely fast: no mutex, no map lookup 99% of the time
 thread_local CommandListState tls_cache;
+
+//=======================================================================================//
+
+//OMSetRenderTargetsD3D12
+struct CmdState {
+    ID3D12GraphicsCommandList* cl; // The "Tag" to verify ownership
+    UINT NumRTVs;
+};
+
+// 1. We use a thread_local cache. No mutex needed because each thread has its own.
+// 2. We use a small power-of-two size for fast masking.
+#define CL_CACHE_SIZE 16 
+#define CL_CACHE_MASK (CL_CACHE_SIZE - 1)
+
+thread_local CmdState t_CmdCache[CL_CACHE_SIZE] = {};
+thread_local ID3D12GraphicsCommandList* t_LastCL = nullptr;
+thread_local CmdState* t_LastState = nullptr;
+
+inline CmdState* GetCmdState(ID3D12GraphicsCommandList* cl)
+{
+    if (cl == t_LastCL)
+        return t_LastState;
+
+    uintptr_t hash = ((uintptr_t)cl >> 4) & CL_CACHE_MASK;
+
+    for (int i = 0; i < CL_CACHE_SIZE; ++i) {
+        int idx = (hash + i) & CL_CACHE_MASK;
+        CmdState& slot = t_CmdCache[idx];
+
+        if (slot.cl == cl || slot.cl == nullptr) {
+            slot.cl = cl;
+            t_LastCL = cl;
+            t_LastState = &slot;
+            return &slot;
+        }
+    }
+
+    // Overwrite hashed slot deterministically
+    CmdState& slot = t_CmdCache[hash];
+    slot.cl = cl;
+    t_LastCL = cl;
+    t_LastState = &slot;
+    return &slot;
+}
+
+//=======================================================================================//
+
+
 
 //=======================================================================================//
 
