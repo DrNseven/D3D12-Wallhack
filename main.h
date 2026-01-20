@@ -511,6 +511,7 @@ namespace hooks {
         DisableAndRemove(pSetGraphicsRootSignatureTarget);
         DisableAndRemove(pResetTarget);
         DisableAndRemove(pIASetIndexBufferTarget);
+        DisableAndRemove(pCloseTarget);
 
         Log("[hooks] All hooks removed.");
         
@@ -573,7 +574,7 @@ thread_local struct {
     D3D12_VIEWPORT currentViewport = {};
     UINT numViewports = 0;
     D3D12_GPU_DESCRIPTOR_HANDLE LastDescriptorBase;
-    //UINT currentNumRTVs = 0;
+    UINT currentNumRTVs = 0;
     UINT currentiSize = 0;
     DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     //UINT currentGPUIAddress = 0; //D3D12_GPU_VIRTUAL_ADDRESS
@@ -718,7 +719,7 @@ struct CommandListState {
 thread_local CommandListState tls_cache;
 
 //=======================================================================================//
-
+/*
 //OMSetRenderTargetsD3D12
 struct CmdState {
     ID3D12GraphicsCommandList* cl; // The "Tag" to verify ownership
@@ -760,10 +761,7 @@ inline CmdState* GetCmdState(ID3D12GraphicsCommandList* cl)
     t_LastState = &slot;
     return &slot;
 }
-
-//=======================================================================================//
-
-
+*/
 
 //=======================================================================================//
 

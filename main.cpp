@@ -140,8 +140,8 @@ namespace d3d12hook {
         }
         
     //for fucked up games, where it draws in unknown function 
-    if (countindexformat > 0 && GetCmdState(_this)->NumRTVs > 0) {
-        UINT currentindexformat = t_.currentIndexFormat + t_.numViewports + t_.StartSlot + GetCmdState(_this)->NumRTVs;
+    if (countindexformat > 0 && t_.currentNumRTVs > 0) {
+        UINT currentindexformat = t_.currentIndexFormat + t_.StartSlot + t_.currentNumRTVs + NumViewports;
 
         if (currentindexformat == countindexformat &&
             t_.currentViewport.Width > 0 &&
@@ -190,24 +190,6 @@ namespace d3d12hook {
             t_.StrideHash = TwoDigitStrideHash(strideData, NumViews);
         }
         
-        /*
-        //test
-        if (countindexformat > 0)
-        {
-            D3D12_VIEWPORT originalVp = t_.currentViewport;
-            UINT currentindexformat = t_.currentIndexFormat + t_.numViewports + t_.StartSlot;
-
-            _this->RSSetViewports(1, &originalVp);
-            // Only apply if the viewport looks like a valid screen-space viewport
-            if (currentindexformat == countindexformat && originalVp.Width > 0 && originalVp.Width < 16384 && originalVp.Height > 0) {
-                D3D12_VIEWPORT hVp = originalVp;
-                hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
-                hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
-
-                _this->RSSetViewports(1, &hVp);
-            }
-        }    
-        */
         return oIASetVertexBuffersD3D12(_this, StartSlot, NumViews, pViews);
     }
 
@@ -254,11 +236,11 @@ namespace d3d12hook {
         if (dCommandList->GetType() == D3D12_COMMAND_LIST_TYPE_BUNDLE)
             return oOMSetRenderTargetsD3D12(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
 
-        if (dCommandList) {
-            GetCmdState(dCommandList)->NumRTVs = NumRenderTargetDescriptors;
-        }
+        //if (dCommandList) {
+            //GetCmdState(dCommandList)->NumRTVs = NumRenderTargetDescriptors;
+        //}
 
-        //t_.currentNumRTVs = NumRenderTargetDescriptors; //old
+        t_.currentNumRTVs = NumRenderTargetDescriptors; //old
         //if (t_.currentNumRTVs > 0 && t_.currentViewport.Width > 512) filter for coloring
 
         return oOMSetRenderTargetsD3D12(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
@@ -273,12 +255,12 @@ namespace d3d12hook {
         }
 
         // Cache the state pointer once to avoid multiple lookups
-        auto* cmdState = GetCmdState(_this);
-        UINT numRTVs = cmdState->NumRTVs;
+        //auto* cmdState = GetCmdState(_this);
+        //UINT numRTVs = cmdState->NumRTVs;
 
         // 1. QUICK SAFETY EXIT
         // Combine checks to exit early. Most UI and shadow passes will fail here immediately.
-        if (numRTVs == 0 || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+        if (t_.currentNumRTVs == 0 || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
@@ -288,12 +270,12 @@ namespace d3d12hook {
 
         // 3. IDENTIFICATION
         bool isModelDraw =
-            numRTVs > 0 && (
+            t_.currentNumRTVs > 0 && (
                 currentStrides == countstride1 ||
                 currentStrides == countstride2 ||
                 currentStrides == countstride3 ||
                 currentStrides == countstride4 ||
-                numRTVs == countfindrendertarget ||
+                t_.currentNumRTVs == countfindrendertarget ||
                 currentRootSigID == countcurrentRootSigID ||
                 currentRootSigID == countcurrentRootSigID2
                 );
@@ -303,13 +285,13 @@ namespace d3d12hook {
 
             // IGNORE/FILTER LOGIC
             if (applyHack && filterrendertarget) {
-                if (numRTVs != countfilterrendertarget) {
+                if (t_.currentNumRTVs != countfilterrendertarget) {
                     applyHack = false;
                 }
             }
 
             if (applyHack && ignorerendertarget) {
-                if (numRTVs == countignorerendertarget) {
+                if (t_.currentNumRTVs == countignorerendertarget) {
                     applyHack = false;
                 }
             }
@@ -393,12 +375,12 @@ namespace d3d12hook {
         }
 
         // Cache the state pointer once to avoid multiple lookups
-        auto* cmdState = GetCmdState(dCommandList);
-        UINT numRTVs = cmdState->NumRTVs;
+        //auto* cmdState = GetCmdState(dCommandList);
+        //UINT numRTVs = cmdState->NumRTVs;
 
         // 1. QUICK SAFETY EXIT
         // Combine checks to exit early. Most UI and shadow passes will fail here immediately.
-        if (numRTVs == 0 || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+        if (t_.currentNumRTVs == 0 || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
             return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
 
@@ -409,12 +391,12 @@ namespace d3d12hook {
 
         // 3. IDENTIFICATION
         bool isModelDraw =
-            numRTVs > 0 && (
+            t_.currentNumRTVs > 0 && (
                 currentStrides == countstride1 ||
                 currentStrides == countstride2 ||
                 currentStrides == countstride3 ||
                 currentStrides == countstride4 ||
-                numRTVs == countfindrendertarget ||
+                t_.currentNumRTVs == countfindrendertarget ||
                 currentRootSigID == countcurrentRootSigID ||
                 currentRootSigID == countcurrentRootSigID2
                 );
@@ -424,13 +406,13 @@ namespace d3d12hook {
 
             // IGNORE/FILTER LOGIC
             if (applyHack && filterrendertarget) {
-                if (numRTVs != countfilterrendertarget) {
+                if (t_.currentNumRTVs != countfilterrendertarget) {
                     applyHack = false;
                 }
             }
 
             if (applyHack && ignorerendertarget) {
-                if (numRTVs == countignorerendertarget) {
+                if (t_.currentNumRTVs == countignorerendertarget) {
                     applyHack = false;
                 }
             }
@@ -476,7 +458,7 @@ namespace d3d12hook {
                 if (originalVp.Width > 0 && originalVp.Width < 16384 && originalVp.Height > 0) {
                     D3D12_VIEWPORT hVp = originalVp;
                     hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
-                    hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
+                    hVp.MaxDepth = reversedDepth ? 0.004f : 1.0f;//0.01f
 
                     dCommandList->RSSetViewports(1, &hVp);
                     oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
@@ -587,8 +569,8 @@ namespace d3d12hook {
             tls_cache.lastRDIndex = UINT_MAX;
         }
 
-        CmdState* state = GetCmdState(_this);
-        state->NumRTVs = 0;
+        //CmdState* state = GetCmdState(_this);
+        //state->NumRTVs = 0;
 
         return oResetD3D12(_this, pAllocator, pInitialState);
     }
@@ -597,10 +579,10 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookCloseD3D12(ID3D12GraphicsCommandList* cl)
     {
-        if (cl) {
-            CmdState* state = GetCmdState(cl);
-            state->NumRTVs = 0;
-        }
+        //if (cl) {
+            //CmdState* state = GetCmdState(cl);
+            //state->NumRTVs = 0;
+        //}
 
         oCloseD3D12(cl);
     }
