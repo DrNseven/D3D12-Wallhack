@@ -458,7 +458,7 @@ namespace d3d12hook {
                 if (originalVp.Width > 0 && originalVp.Width < 16384 && originalVp.Height > 0) {
                     D3D12_VIEWPORT hVp = originalVp;
                     hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
-                    hVp.MaxDepth = reversedDepth ? 0.004f : 1.0f;//0.01f
+                    hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
 
                     dCommandList->RSSetViewports(1, &hVp);
                     oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
