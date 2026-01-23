@@ -495,7 +495,7 @@ namespace d3d12hook {
     }
 
     //=========================================================================================================================//
-    //uint32_t shortID = static_cast<uint32_t>(MaxCommandCount % 100);
+    
     void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
         ID3D12GraphicsCommandList* dCommandList,
         ID3D12CommandSignature* pCommandSignature,
@@ -514,9 +514,15 @@ namespace d3d12hook {
             return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
 
+        // 1. QUICK EXIT
+        if (t_.currentNumRTVs == 0 || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
+            return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);;
+        }
+
         // 2. DATA CAPTURE
         UINT currentStrides = t_.StrideHash + t_.StartSlot;
         uint32_t currentRootSigID = (tlsCurrentCmdList == dCommandList) ? tlsCurrentRootSigID : 0;
+        //uint32_t shortID = static_cast<uint32_t>(MaxCommandCount % 100);
 
         // 3. IDENTIFICATION
         bool isModelDraw =
@@ -532,6 +538,30 @@ namespace d3d12hook {
             bool applyHack = true;
 
             // 4. IGNORE/FILTER LOGIC
+            if (applyHack && filternumViews) {
+                if (t_.numViews != countfilternumViews) {
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack && ignorenumViews) {
+                if (t_.numViews == countignorenumViews) {
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack && filternumViewports) {
+                if (t_.numViewports != countfilternumViewports) {
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack && ignorenumViewports) {
+                if (t_.numViewports == countignorenumViewports) {
+                    applyHack = false;
+                }
+            }
+
             if (applyHack && filterrendertarget) {
                 if (t_.currentNumRTVs != countfilterrendertarget) {
                     applyHack = false;
@@ -943,6 +973,7 @@ HWND CreateOverlayWindow()
     wc.lpfnWndProc = WndProc;
     wc.hInstance = GetModuleHandle(nullptr);
     wc.lpszClassName = L"DCompDX12Overlay";
+    wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH); //
     RegisterClassEx(&wc);
 
     // Add WS_EX_LAYERED and WS_EX_TRANSPARENT here 
@@ -957,7 +988,7 @@ HWND CreateOverlayWindow()
     );
 
     // Set transparency/alpha (Required for some older Win 10 versions with WS_EX_LAYERED)
-    SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+    //SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);//no
 
     ShowWindow(hwnd, SW_SHOW);
     return hwnd;
@@ -1424,7 +1455,7 @@ DWORD WINAPI OverlayThread(LPVOID)
 {
     // Wait for game window
     while (g_running && !(g_gameHwnd = GetForegroundWindow()))
-        //while (g_running && !(g_gameHwnd = FindWindowA("UnrealWindow", nullptr))) //<---------------------------------------------------------
+    //while (g_running && !(g_gameHwnd = FindWindowA("UnrealWindow", nullptr))) //<---------------------------------------------------------
     {
         Sleep(500);
     }
