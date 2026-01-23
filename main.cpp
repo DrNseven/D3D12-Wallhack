@@ -514,11 +514,6 @@ namespace d3d12hook {
             return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
 
-        // 1. QUICK EXIT
-        if (t_.currentNumRTVs == 0 || dCommandList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT) {
-            return oExecuteIndirectD3D12(dCommandList, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);;
-        }
-
         // 2. DATA CAPTURE
         UINT currentStrides = t_.StrideHash + t_.StartSlot;
         uint32_t currentRootSigID = (tlsCurrentCmdList == dCommandList) ? tlsCurrentRootSigID : 0;
