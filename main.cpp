@@ -279,7 +279,7 @@ namespace d3d12hook {
         uint32_t currentRootSigID = (tlsCurrentCmdList == _this) ? tlsCurrentRootSigID : 0;
 
         // 3. IDENTIFICATION
-        bool isModelDraw =
+        bool isModelDraw =          
                 currentStrides == countstride1 ||
                 currentStrides == countstride2 ||
                 currentStrides == countstride3 ||
@@ -292,6 +292,30 @@ namespace d3d12hook {
             bool applyHack = true;
 
             // 4. IGNORE/FILTER LOGIC
+            if (applyHack && filternumViews) {
+                if (t_.numViews != countfilternumViews) {
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack && ignorenumViews) {
+                if (t_.numViews == countignorenumViews) {
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack && filternumViewports) {
+                if (t_.numViewports != countfilternumViewports) {
+                    applyHack = false;
+                }
+            }
+
+            if (applyHack && ignorenumViewports) {
+                if (t_.numViewports == countignorenumViewports) {
+                    applyHack = false;
+                }
+            }
+
             if (applyHack && filterrendertarget) {
                 if (t_.currentNumRTVs != countfilterrendertarget) {
                     applyHack = false;
@@ -1193,21 +1217,43 @@ void Render()
         ImGui::SliderInt("Find CurrentRootID2", &countcurrentRootSigID2, minus_val, max_val);
         ImGui::SliderInt("Find RenderTarget", &countfindrendertarget, minus_val, max_val);
 
-        //ImGui::Text("Filter:");
+        //
+        ImGui::Checkbox("Filter NumViews", &filternumViews);
+        if (filternumViews)
+        {
+            ImGui::SliderInt("NumViews", &countfilternumViews, minus_val, max_val);
+        }
+
+        ImGui::Checkbox("Ignore NumViews", &ignorenumViews);
+        if (ignorenumViews)
+        {
+            ImGui::SliderInt("NumViews ", &countignorenumViews, minus_val, max_val);
+        }
+
+        ImGui::Checkbox("Filter NumViewports", &filternumViewports);
+        if (filternumViewports)
+        {
+            ImGui::SliderInt("NumViewports", &countfilternumViewports, minus_val, max_val);
+        }
+
+        ImGui::Checkbox("Ignore NumViewports", &ignorenumViewports);
+        if (ignorenumViewports)
+        {
+            ImGui::SliderInt("NumViewports ", &countignorenumViewports, minus_val, max_val);
+        }
+
         ImGui::Checkbox("Filter RenderTarget", &filterrendertarget);
         if (filterrendertarget)
         {
             ImGui::SliderInt("RenderTarget", &countfilterrendertarget, minus_val, max_val);
         }
 
-        //ImGui::Text("Ignore:");
         ImGui::Checkbox("Ignore RenderTarget", &ignorerendertarget);
         if (ignorerendertarget)
         {
             ImGui::SliderInt("RenderTarget ", &countignorerendertarget, minus_val, max_val);
         }
 
-        //ImGui::Text("Filter:");
         ImGui::Checkbox("Filter RootDescriptor", &filterRootDescriptor);
         if (filterRootDescriptor)
         {
@@ -1216,7 +1262,6 @@ void Render()
             ImGui::SliderInt("RootDescriptor3", &countfilterrootDescriptor3, minus_val, max_val);
         }
 
-        //ImGui::Text("Filter:");
         ImGui::Checkbox("Filter RootConstant", &filterRootConstant);
         if (filterRootConstant)
         {
@@ -1225,7 +1270,6 @@ void Render()
             ImGui::SliderInt("RootConstant3", &countfilterrootConstant3, minus_val, max_val);
         }
 
-        //ImGui::Text("Ignore");
         ImGui::Checkbox("Ignore RootDescriptor", &ignoreRootDescriptor);
         if (ignoreRootDescriptor)
         {
@@ -1234,7 +1278,6 @@ void Render()
             ImGui::SliderInt("RootDescriptor 3", &countignorerootDescriptor3, minus_val, max_val);
         }
 
-        //ImGui::Text("Ignore");
         ImGui::Checkbox("Ignore RootConstant", &ignoreRootConstant);
         if (ignoreRootConstant)
         {

@@ -558,10 +558,14 @@ int countstride1 = -1;
 int countstride2 = -1;
 int countstride3 = -1;
 int countstride4 = -1;
-int countindexformat = -1;
 int countcurrentRootSigID = -1;
 int countcurrentRootSigID2 = -1;
 int countfindrendertarget = -1;
+int countindexformat = -1;
+int countfilternumViews = -1;
+int countfilternumViewports = -1;
+int countignorenumViews = -1;
+int countignorenumViewports = -1;
 int countfilterrendertarget = -1;
 int countignorerendertarget = -1;
 int countfilterrootConstant = -1;
@@ -576,14 +580,17 @@ int countfilterrootDescriptor3 = -1;
 int countignorerootDescriptor = -1;
 int countignorerootDescriptor2 = -1;
 int countignorerootDescriptor3 = -1;
+bool filternumViews = false;
+bool filternumViewports = false;
+bool ignorenumViews = false;
+bool ignorenumViewports = false;
 bool filterrendertarget = false;
 bool ignorerendertarget = false;
-bool reversedDepth = false;
 bool filterRootConstant = false;
 bool ignoreRootConstant = false;
 bool filterRootDescriptor = false;
 bool ignoreRootDescriptor = false;
-//bool filterindexformat = false;
+bool reversedDepth = false;
 
 using namespace std;
 #include <string>
@@ -596,24 +603,40 @@ void SaveConfig()
     fout << "countstride2 " << countstride2 << endl;
     fout << "countstride3 " << countstride3 << endl;
     fout << "countstride4 " << countstride4 << endl;
-    fout << "countindexformat " << countindexformat << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
     fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
     fout << "countfindrendertarget " << countfindrendertarget << endl;
+    fout << "countindexformat " << countindexformat << endl;
+
+    fout << "countfilternumViews " << countfilternumViews << endl;
+    fout << "countfilternumViewports " << countfilternumViewports << endl; 
+    fout << "countignorenumViews " << countignorenumViews << endl;
+    fout << "countignorenumViewports " << countignorenumViewports << endl;
+
     fout << "countfilterrendertarget " << countfilterrendertarget << endl;
+    fout << "countignorerendertarget " << countignorerendertarget << endl;
+
     fout << "countfilterrootConstant " << countfilterrootConstant << endl;
     fout << "countfilterrootConstant2 " << countfilterrootConstant2 << endl;
     fout << "countfilterrootConstant3 " << countfilterrootConstant3 << endl;
     fout << "countignorerootConstant " << countignorerootConstant << endl;
     fout << "countignorerootConstant2 " << countignorerootConstant2 << endl;
     fout << "countignorerootConstant3 " << countignorerootConstant3 << endl;
+
     fout << "countfilterrootDescriptor " << countfilterrootDescriptor << endl;
     fout << "countfilterrootDescriptor2 " << countfilterrootDescriptor2 << endl;
     fout << "countfilterrootDescriptor3 " << countfilterrootDescriptor3 << endl;
     fout << "countignorerootDescriptor " << countignorerootDescriptor << endl;
     fout << "countignorerootDescriptor2 " << countignorerootDescriptor2 << endl;
     fout << "countignorerootDescriptor3 " << countignorerootDescriptor3 << endl;
+
+    fout << "filternumViews " << filternumViews << endl;
+    fout << "filternumViewports " << filternumViewports << endl;
+    fout << "ignorenumViews " << ignorenumViews << endl;
+    fout << "ignorenumViewports " << ignorenumViewports << endl;
+
     fout << "filterrendertarget " << filterrendertarget << endl;
+    fout << "ignorerendertarget " << ignorerendertarget << endl;
     fout << "filterRootConstant " << filterRootConstant << endl;
     fout << "ignoreRootConstant " << ignoreRootConstant << endl;
     fout << "filterRootDescriptor " << filterRootDescriptor << endl;
@@ -631,24 +654,40 @@ void LoadConfig()
     fin >> Word >> countstride2;
     fin >> Word >> countstride3;
     fin >> Word >> countstride4;
-    fin >> Word >> countindexformat;
     fin >> Word >> countcurrentRootSigID;
     fin >> Word >> countcurrentRootSigID2;
     fin >> Word >> countfindrendertarget;
+    fin >> Word >> countindexformat;
+
+    fin >> Word >> countfilternumViews;
+    fin >> Word >> countfilternumViewports;
+    fin >> Word >> countignorenumViews;
+    fin >> Word >> countignorenumViewports;
+
     fin >> Word >> countfilterrendertarget;
+    fin >> Word >> countignorerendertarget;
+
     fin >> Word >> countfilterrootConstant;
     fin >> Word >> countfilterrootConstant2;
     fin >> Word >> countfilterrootConstant3;
     fin >> Word >> countignorerootConstant;
     fin >> Word >> countignorerootConstant2;
     fin >> Word >> countignorerootConstant3;
+
     fin >> Word >> countfilterrootDescriptor;
     fin >> Word >> countfilterrootDescriptor2;
     fin >> Word >> countfilterrootDescriptor3;
     fin >> Word >> countignorerootDescriptor;
     fin >> Word >> countignorerootDescriptor2;
     fin >> Word >> countignorerootDescriptor3;
+
+    fin >> Word >> filternumViews;
+    fin >> Word >> filternumViewports;
+    fin >> Word >> ignorenumViews;
+    fin >> Word >> ignorenumViewports;
+
     fin >> Word >> filterrendertarget;
+    fin >> Word >> ignorerendertarget;
     fin >> Word >> filterRootConstant;
     fin >> Word >> ignoreRootConstant;
     fin >> Word >> filterRootDescriptor;
