@@ -571,12 +571,18 @@ thread_local struct {
     UINT vertexBufferSizes[16] = { 0 };
     UINT cachedStrideSum = 0;
     UINT StrideHash = 0;
+    UINT numViews=0;
     D3D12_VIEWPORT currentViewport = {};
     UINT numViewports = 0;
     D3D12_GPU_DESCRIPTOR_HANDLE LastDescriptorBase;
     UINT currentNumRTVs = 0;
+    D3D12_CPU_DESCRIPTOR_HANDLE currentRTVHandles[8] = {};
+    D3D12_CPU_DESCRIPTOR_HANDLE currentDSVHandle = {};
+    BOOL currentRTsSingleHandle = FALSE;
+    bool hasDSV = false;
     UINT currentiSize = 0;
     DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
+    UINT lastCbvRootParameterIndex2 = UINT_MAX;
     //UINT currentGPUIAddress = 0; //D3D12_GPU_VIRTUAL_ADDRESS
     //UINT currentGPUVAddress = 0;
 } t_;
@@ -719,6 +725,51 @@ struct CommandListState {
 thread_local CommandListState tls_cache;
 
 //=======================================================================================//
+
+constexpr UINT MAX_ROOT_PARAMS = 32;
+constexpr UINT MAX_TRACKED_CMDLISTS = 4096;
+
+struct CommandListState2
+{
+    ID3D12GraphicsCommandList* cmd = nullptr;
+
+    D3D12_GPU_DESCRIPTOR_HANDLE tables[MAX_ROOT_PARAMS]{};
+    bool valid[MAX_ROOT_PARAMS]{};
+
+    void Reset()
+    {
+        for (UINT i = 0; i < MAX_ROOT_PARAMS; ++i)
+        {
+            tables[i].ptr = 0;
+            valid[i] = false;
+        }
+    }
+};
+
+static CommandListState2 g_cmdStates[MAX_TRACKED_CMDLISTS];
+
+static inline UINT HashCmdList(ID3D12GraphicsCommandList* p)
+{
+    return (reinterpret_cast<uintptr_t>(p) >> 4) & (MAX_TRACKED_CMDLISTS - 1);
+}
+
+static inline CommandListState2* GetCmdState(ID3D12GraphicsCommandList* cmd)
+{
+    UINT idx = HashCmdList(cmd);
+    CommandListState2& slot = g_cmdStates[idx];
+
+    if (slot.cmd != cmd)
+    {
+        slot.cmd = cmd;
+        slot.Reset();
+    }
+
+    return &slot;
+}
+
+
+
+
 /*
 //OMSetRenderTargetsD3D12
 struct CmdState {
@@ -947,3 +998,75 @@ inline CmdState* GetCmdState(ID3D12GraphicsCommandList* cl)
 59 #define ID3D12GraphicsCommandList_ExecuteIndirect(This,pCommandSignature,MaxCommandCount,pArgumentBuffer,ArgumentBufferOffset,pCountBuffer,CountBufferOffset)	\
     ( (This)->lpVtbl -> ExecuteIndirect(This,pCommandSignature,MaxCommandCount,pArgumentBuffer,ArgumentBufferOffset,pCountBuffer,CountBufferOffset) )
 */
+
+/*
+//buggy shit
+if (applyHack) {
+                
+                // Remember original DSV so we restore exactly
+                D3D12_CPU_DESCRIPTOR_HANDLE originalDSV = t_.hasDSV ? t_.currentDSVHandle : D3D12_CPU_DESCRIPTOR_HANDLE{ 0 };
+
+                // 1. Draw without depth
+                _this->OMSetRenderTargets(
+                    t_.currentNumRTVs,
+                    t_.currentRTVHandles,               // Note: use array or single handle correctly
+                    t_.currentRTsSingleHandle,
+                    nullptr
+                );
+
+                oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+                // 2. ALWAYS restore — even if no original DSV (pass nullptr again if none)
+                _this->OMSetRenderTargets(
+                    t_.currentNumRTVs,
+                    t_.currentRTVHandles,
+                    t_.currentRTsSingleHandle,
+                    t_.hasDSV ? &originalDSV : nullptr
+                );
+
+                return;
+                */
+
+                /*
+                // 1. Temporarily UNBIND the depth buffer
+                // This makes the object draw "on top" of everything without fighting the world or itself
+                _this->OMSetRenderTargets(
+                    t_.currentNumRTVs,
+                    t_.currentRTVHandles,
+                    t_.currentRTsSingleHandle,
+                    nullptr // <--- Passing nullptr here disables depth testing/writing
+                );
+
+                // 2. Draw the model
+                oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+                // 3. Restore the depth buffer immediately so other objects render correctly
+                if (t_.hasDSV) {
+                    _this->OMSetRenderTargets(
+                        t_.currentNumRTVs,
+                        t_.currentRTVHandles,
+                        t_.currentRTsSingleHandle,
+                        &t_.currentDSVHandle
+                    );
+                }
+
+                return; // Done
+                */
+
+                /*
+                // 1. Get the current RTVs
+                D3D12_CPU_DESCRIPTOR_HANDLE rtvHandles[8];
+                // You'll need to track the current RTVs in your OMSetRenderTargets hook
+                // and store them in t_.currentRTVHandles
+
+                // 2. Re-bind RTVs but pass NULL/0 for the Depth Stencil
+                _this->OMSetRenderTargets(t_.currentNumRTVs, t_.currentRTVHandles, FALSE, nullptr);
+
+                // 3. Draw
+                oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+                // 4. Restore the original Depth Stencil
+                _this->OMSetRenderTargets(t_.currentNumRTVs, t_.currentRTVHandles, FALSE, &t_.currentDSVHandle);
+
+                return;
+                */
