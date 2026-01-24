@@ -83,7 +83,7 @@ namespace d3d12hook {
     extern ResolveQueryDataFn oResolveQueryDataD3D12;
 
     typedef void(STDMETHODCALLTYPE* ExecuteIndirectFn)(
-        ID3D12GraphicsCommandList* dCommandList,
+        ID3D12GraphicsCommandList* _this,
         ID3D12CommandSignature* pCommandSignature,
         UINT MaxCommandCount,
         ID3D12Resource* pArgumentBuffer,
@@ -118,7 +118,7 @@ namespace d3d12hook {
     extern void STDMETHODCALLTYPE hookDispatchMeshD3D12(ID3D12GraphicsCommandList6* cmd,UINT ThreadGroupCountX, UINT ThreadGroupCountY, UINT ThreadGroupCountZ);
 
     extern void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
-        ID3D12GraphicsCommandList* dCommandList,
+        ID3D12GraphicsCommandList* _this,
         ID3D12CommandSignature* pCommandSignature,
         UINT MaxCommandCount,
         ID3D12Resource* pArgumentBuffer,
@@ -560,6 +560,10 @@ int countstride3 = -1;
 int countstride4 = -1;
 int countcurrentRootSigID = -1;
 int countcurrentRootSigID2 = -1;
+int countcurrentindexid = -1;
+int countcurrentindexid2 = -1;
+int countcurrentindexid3 = -1;
+int countcurrentindexid4 = -1;
 int countfindrendertarget = -1;
 int countindexformat = -1;
 int countfilternumViews = -1;
@@ -580,6 +584,7 @@ int countfilterrootDescriptor3 = -1;
 int countignorerootDescriptor = -1;
 int countignorerootDescriptor2 = -1;
 int countignorerootDescriptor3 = -1;
+bool temporaryids = false;
 bool filternumViews = false;
 bool filternumViewports = false;
 bool ignorenumViews = false;
@@ -605,6 +610,13 @@ void SaveConfig()
     fout << "countstride4 " << countstride4 << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
     fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
+
+    fout << "temporaryids " << temporaryids << endl;
+    fout << "countcurrentindexid " << countcurrentindexid << endl;
+    fout << "countcurrentindexid2 " << countcurrentindexid2 << endl;
+    fout << "countcurrentindexid3 " << countcurrentindexid3 << endl;
+    fout << "countcurrentindexid4 " << countcurrentindexid4 << endl;
+
     fout << "countfindrendertarget " << countfindrendertarget << endl;
     fout << "countindexformat " << countindexformat << endl;
 
@@ -656,6 +668,13 @@ void LoadConfig()
     fin >> Word >> countstride4;
     fin >> Word >> countcurrentRootSigID;
     fin >> Word >> countcurrentRootSigID2;
+
+    fin >> Word >> temporaryids;
+    fin >> Word >> countcurrentindexid;
+    fin >> Word >> countcurrentindexid2;
+    fin >> Word >> countcurrentindexid3;
+    fin >> Word >> countcurrentindexid4;
+
     fin >> Word >> countfindrendertarget;
     fin >> Word >> countindexformat;
 
@@ -703,6 +722,7 @@ thread_local struct {
     UINT StartSlot = 0;
     UINT Strides[16] = {};
     UINT numViews = 0;
+    UINT currentGPUVAddress=0;
     //UINT vertexBufferSizes[16] = {};
 
     UINT CanonicalStrides[8] = {};
@@ -716,6 +736,8 @@ thread_local struct {
     UINT currentNumRTVs = 0;
     UINT currentiSize = 0;
     DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
+    UINT currentGPUIAddress;
+    UINT currentGPURAddress;
 } t_;
 
 //=========================================================================================================================//
@@ -1055,8 +1077,96 @@ bool CreateCustomConstantBuffer()
 */
 
 
-//buggy shit
 /*
+//colors
+// One time initialization
+if (!initialized && IndexCountPerInstance > 0 && InstanceCount > 0) {
+    HRESULT hr = _this->GetDevice(__uuidof(ID3D12Device), (void**)&pDevice);
+    if (FAILED(hr)) {
+        Log("GetDevice failed: 0x%08X", hr);
+        return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+    }
+
+    if (CreateCustomConstantBuffer()) {
+        initialized = true;
+        //Log("Constant buffer initialized");
+    }
+    else {
+        Log("Failed to create constant buffer");
+    }
+}
+
+//hold down P key until a texture is erased, press END to log values of those textures
+if (GetAsyncKeyState(VK_OEM_COMMA) & 1) //-
+    countnum--;
+if (GetAsyncKeyState(VK_OEM_PERIOD) & 1) //+
+    countnum++;
+if (GetAsyncKeyState('9') & 1) //reset, set to 0
+    countnum = 0;
+
+if (t_.currentNumRTVs && tls_cache.lastCbvIndex == countnum)
+    //if (t_.StrideHash == 1 && tls_cache.lastCbvIndex == 8 || t_.StrideHash == 75 && tls_cache.lastCbvIndex == 6 || t_.StrideHash == 99 && tls_cache.lastCbvIndex == 6)//models
+{
+    // Ensure CBV alignment is 256 bytes.
+    constexpr size_t CB_ALIGN = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+    static_assert(CB_ALIGN == 256, "CBV alignment must be 256 bytes.");
+
+    // Scan state (persistent across frames)
+    static bool scanning = true;
+    static size_t scanBase = 0;   // 256-aligned base
+    static size_t inner16 = 0;   // 0..240 in 16-byte steps inside block
+    static size_t frameCount = 0;
+
+    // Advance scan only every 2 frames
+    if (scanning && (frameCount++ % 2) == 0)
+    {
+        inner16 += 16;
+
+        if (inner16 >= CB_ALIGN) // Changed condition: if inner16 reaches or exceeds CB_ALIGN
+        {
+            inner16 = 0;
+            scanBase += CB_ALIGN;
+
+            // Stop scanning if we reach the end of the buffer
+            // Make sure g_constantBufferSize is also 256-byte aligned if you're writing blocks
+            if (scanBase >= g_constantBufferSize)
+            {
+                scanning = false;
+                scanBase = 0; // Reset for next scan cycle if needed
+                inner16 = 0;
+            }
+        }
+    }
+
+    // Compute CBV write offset
+    const size_t writeOffset = scanBase + inner16;
+    //size_t writeOffset = scanBase + countnum; //2. brute force this if models are still black
+    //size_t writeOffset = inner16 + countnum;
+    //size_t writeOffset = scanBase + inner16 + countnum;
+
+    // Choose color based on IndexCountPerInstance
+    // Use standard 0.0-1.0 range for color components
+    DirectX::XMFLOAT4 newColor = { 1.0f, 1.0f, 0.0f, 1.0f }; // Default
+
+    // FIX: Write only to the calculated 'writeOffset'
+    if (g_pMappedConstantBuffer && (writeOffset + sizeof(DirectX::XMFLOAT4) <= g_constantBufferSize))
+    {
+        *reinterpret_cast<DirectX::XMFLOAT4*>(reinterpret_cast<BYTE*>(g_pMappedConstantBuffer) + writeOffset) = newColor;
+    }
+
+    if (g_pCustomConstantBuffer && scanBase < g_constantBufferSize) // Ensure scanBase is valid
+    {
+        // The CBV must be aligned. We bind the 256-byte aligned block.
+        const D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = g_pCustomConstantBuffer->GetGPUVirtualAddress() + scanBase;
+
+        // Bind CBV to this block
+        _this->SetGraphicsRootConstantBufferView(tls_cache.lastCbvIndex, bufferAddress);
+    }
+}
+*/
+
+/*
+//buggy shit
 if (applyHack) {
 
     // Remember original DSV so we restore exactly
