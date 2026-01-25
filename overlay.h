@@ -488,6 +488,7 @@ void Render()
 
     if (GetAsyncKeyState(VK_INSERT) & 1)
     {
+        SaveConfig(); //Save settings
         g_showMenu = !g_showMenu;
         g_clickThrough = !g_showMenu;
 

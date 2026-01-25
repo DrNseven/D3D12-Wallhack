@@ -559,6 +559,7 @@ namespace d3d12hook {
         ID3D12Resource* pDestinationBuffer,
         UINT64 AlignedDestinationBufferOffset)
     {
+
         // Filter: Only handle occlusion-related queries
         if (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION) {
 
