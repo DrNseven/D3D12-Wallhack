@@ -1,4 +1,11 @@
+//main.h
 #pragma once
+
+#if defined _M_X64
+typedef uint64_t uintx_t;
+#elif defined _M_IX86
+typedef uint32_t uintx_t;
+#endif
 
 #include <fstream>
 inline void Log(const char* fmt, ...) {
@@ -116,7 +123,6 @@ namespace d3d12hook {
     extern void STDMETHODCALLTYPE hookCloseD3D12(ID3D12GraphicsCommandList* cl);
     extern void STDMETHODCALLTYPE hookIASetIndexBufferD3D12(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
     extern void STDMETHODCALLTYPE hookDispatchMeshD3D12(ID3D12GraphicsCommandList6* cmd,UINT ThreadGroupCountX, UINT ThreadGroupCountY, UINT ThreadGroupCountZ);
-
     extern void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
         ID3D12GraphicsCommandList* _this,
         ID3D12CommandSignature* pCommandSignature,
@@ -212,28 +218,14 @@ namespace hooks {
     // Create hidden Window + device + DX12 swapchain
     static HRESULT CreateDeviceAndSwapChain() {
         // 1. Register dummy window
-        WNDCLASSEXW wc = {
-            sizeof(WNDCLASSEXW),
-            CS_CLASSDC,
-            DefWindowProcW,
-            0, 0,
-            GetModuleHandleW(nullptr),
-            nullptr, nullptr, nullptr, nullptr,
-            dummyClassName,
-            nullptr
-        };
+        WNDCLASSEXW wc = {sizeof(WNDCLASSEXW),CS_CLASSDC,DefWindowProcW,0, 0,GetModuleHandleW(nullptr),nullptr, nullptr, nullptr, nullptr,dummyClassName,nullptr};
         if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
             Log("[hooks] RegisterClassExW failed: %u\n", GetLastError());
             return E_FAIL;
         }
 
         // 2. Create hidden window
-        hDummyWindow = CreateWindowExW(
-            0, dummyClassName, L"Dummy",
-            WS_OVERLAPPEDWINDOW,
-            0, 0, 1, 1,
-            nullptr, nullptr, wc.hInstance, nullptr
-        );
+        hDummyWindow = CreateWindowExW(0, dummyClassName, L"Dummy",WS_OVERLAPPEDWINDOW,0, 0, 1, 1,nullptr, nullptr, wc.hInstance, nullptr);
         if (!hDummyWindow) {
             Log("[hooks] CreateWindowExW failed: %u\n", GetLastError());
             return E_FAIL;
@@ -291,13 +283,7 @@ namespace hooks {
         scDesc.SampleDesc.Count = 1;
 
         ComPtr<IDXGISwapChain1> swapChain1;
-        hr = factory->CreateSwapChainForHwnd(
-            pCommandQueue.Get(),
-            hDummyWindow,
-            &scDesc,
-            nullptr, nullptr,
-            &swapChain1
-        );
+        hr = factory->CreateSwapChainForHwnd(pCommandQueue.Get(),hDummyWindow,&scDesc,nullptr, nullptr,&swapChain1);
         if (FAILED(hr)) {
             Log("[hooks] CreateSwapChainForHwnd failed: 0x%08X\n", hr);
             return hr;
@@ -310,22 +296,11 @@ namespace hooks {
             return hr;
         }
 
-        //Detect Nanite?
-        //bool hasMeshShaders = false;
-        //D3D12_FEATURE_DATA_D3D12_OPTIONS7 opt7{};
-        //if (SUCCEEDED(pDevice->CheckFeatureSupport(
-            //D3D12_FEATURE_D3D12_OPTIONS7,
-            //&opt7,
-            //sizeof(opt7))))
-        //{
-            //hasMeshShaders = opt7.MeshShaderTier != D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
-        //}
-        //Log("hasMeshShaders == %d", hasMeshShaders);
-
         return S_OK;
     }
 
     void InitH() {
+        //show if it is really a d3d12 game
         Log("d3d12.dll loaded at %p", GetModuleHandleA("d3d12.dll"));
         Log("D3D12Core.dll loaded at %p", GetModuleHandleA("D3D12Core.dll"));
 
@@ -464,7 +439,6 @@ namespace hooks {
         //mh = MH_CreateHook(pDispatchMeshTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDispatchMeshD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDispatchMeshD3D12));
         //if (mh != MH_OK) Log("[hooks] MH_CreateHook DispatchMesh failed: %s\n", MH_StatusToString(mh));
 
-
         // --- Enable all hooks ---
         mh = MH_EnableHook(MH_ALL_HOOKS);
         if (mh != MH_OK)Log("[hooks] MH_EnableHook failed: %s\n", MH_StatusToString(mh));
@@ -532,7 +506,6 @@ namespace globals {
     extern Backend activeBackend;
     // Preferred backend to hook. None means auto with fallback order
     extern Backend preferredBackend;
-    extern bool enableDebugLog;
 }
 
 namespace globals {
@@ -540,180 +513,17 @@ namespace globals {
     HMODULE mainModule = nullptr;
     // Main game window handle
     HWND mainWindow = nullptr;
-    // Key to uninject and exit
+    // Menu key toggler
     int openMenuKey = VK_INSERT;
-    // Preferred backend to hook (None = auto fallback -> Not recommanded, specify your engine here)
+    // Preferred backend to hook 
     Backend preferredBackend = Backend::DX12;
-    // Flag controlling runtime debug logging
-    bool enableDebugLog = true;
     // Currently active rendering backend
-    Backend activeBackend = Backend::None; // DO NOT MODIFY THIS LINE.
+    Backend activeBackend = Backend::None; // DO NOT MODIFY THIS LINE
 }
 
 //=========================================================================================================================//
 
-//menu
-bool menuisOpen = false;
-int countstride1 = -1;
-int countstride2 = -1;
-int countstride3 = -1;
-int countstride4 = -1;
-int countcurrentRootSigID = -1;
-int countcurrentRootSigID2 = -1;
-int countcurrentindexid = -1;
-int countcurrentindexid2 = -1;
-int countcurrentindexid3 = -1;
-int countcurrentindexid4 = -1;
-int countfindrendertarget = -1;
-int countindexformat = -1;
-int countfilternumViews = -1;
-int countfilternumViewports = -1;
-int countignorenumViews = -1;
-int countignorenumViewports = -1;
-int countfilterrendertarget = -1;
-int countignorerendertarget = -1;
-int countfilterrootConstant = -1;
-int countfilterrootConstant2 = -1;
-int countfilterrootConstant3 = -1;
-int countignorerootConstant = -1;
-int countignorerootConstant2 = -1;
-int countignorerootConstant3 = -1;
-int countfilterrootDescriptor = -1;
-int countfilterrootDescriptor2 = -1;
-int countfilterrootDescriptor3 = -1;
-int countignorerootDescriptor = -1;
-int countignorerootDescriptor2 = -1;
-int countignorerootDescriptor3 = -1;
-bool temporaryids = false;
-bool filternumViews = false;
-bool filternumViewports = false;
-bool ignorenumViews = false;
-bool ignorenumViewports = false;
-bool filterrendertarget = false;
-bool ignorerendertarget = false;
-bool filterRootConstant = false;
-bool ignoreRootConstant = false;
-bool filterRootDescriptor = false;
-bool ignoreRootDescriptor = false;
-bool reversedDepth = false;
 
-using namespace std;
-#include <string>
-#include <fstream>
-void SaveConfig()
-{
-    ofstream fout;
-    fout.open("d3d12wh.ini", ios::trunc);
-    fout << "countstride1 " << countstride1 << endl;
-    fout << "countstride2 " << countstride2 << endl;
-    fout << "countstride3 " << countstride3 << endl;
-    fout << "countstride4 " << countstride4 << endl;
-    fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
-    fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
-
-    fout << "temporaryids " << temporaryids << endl;
-    fout << "countcurrentindexid " << countcurrentindexid << endl;
-    fout << "countcurrentindexid2 " << countcurrentindexid2 << endl;
-    fout << "countcurrentindexid3 " << countcurrentindexid3 << endl;
-    fout << "countcurrentindexid4 " << countcurrentindexid4 << endl;
-
-    fout << "countfindrendertarget " << countfindrendertarget << endl;
-    fout << "countindexformat " << countindexformat << endl;
-
-    fout << "countfilternumViews " << countfilternumViews << endl;
-    fout << "countfilternumViewports " << countfilternumViewports << endl; 
-    fout << "countignorenumViews " << countignorenumViews << endl;
-    fout << "countignorenumViewports " << countignorenumViewports << endl;
-
-    fout << "countfilterrendertarget " << countfilterrendertarget << endl;
-    fout << "countignorerendertarget " << countignorerendertarget << endl;
-
-    fout << "countfilterrootConstant " << countfilterrootConstant << endl;
-    fout << "countfilterrootConstant2 " << countfilterrootConstant2 << endl;
-    fout << "countfilterrootConstant3 " << countfilterrootConstant3 << endl;
-    fout << "countignorerootConstant " << countignorerootConstant << endl;
-    fout << "countignorerootConstant2 " << countignorerootConstant2 << endl;
-    fout << "countignorerootConstant3 " << countignorerootConstant3 << endl;
-
-    fout << "countfilterrootDescriptor " << countfilterrootDescriptor << endl;
-    fout << "countfilterrootDescriptor2 " << countfilterrootDescriptor2 << endl;
-    fout << "countfilterrootDescriptor3 " << countfilterrootDescriptor3 << endl;
-    fout << "countignorerootDescriptor " << countignorerootDescriptor << endl;
-    fout << "countignorerootDescriptor2 " << countignorerootDescriptor2 << endl;
-    fout << "countignorerootDescriptor3 " << countignorerootDescriptor3 << endl;
-
-    fout << "filternumViews " << filternumViews << endl;
-    fout << "filternumViewports " << filternumViewports << endl;
-    fout << "ignorenumViews " << ignorenumViews << endl;
-    fout << "ignorenumViewports " << ignorenumViewports << endl;
-
-    fout << "filterrendertarget " << filterrendertarget << endl;
-    fout << "ignorerendertarget " << ignorerendertarget << endl;
-    fout << "filterRootConstant " << filterRootConstant << endl;
-    fout << "ignoreRootConstant " << ignoreRootConstant << endl;
-    fout << "filterRootDescriptor " << filterRootDescriptor << endl;
-    fout << "ignoreRootDescriptor " << ignoreRootDescriptor << endl;
-    fout << "reversedDepth " << reversedDepth << endl;
-    fout.close();
-}
-
-void LoadConfig()
-{
-    ifstream fin;
-    string Word = "";
-    fin.open("d3d12wh.ini", ifstream::in);
-    fin >> Word >> countstride1;
-    fin >> Word >> countstride2;
-    fin >> Word >> countstride3;
-    fin >> Word >> countstride4;
-    fin >> Word >> countcurrentRootSigID;
-    fin >> Word >> countcurrentRootSigID2;
-
-    fin >> Word >> temporaryids;
-    fin >> Word >> countcurrentindexid;
-    fin >> Word >> countcurrentindexid2;
-    fin >> Word >> countcurrentindexid3;
-    fin >> Word >> countcurrentindexid4;
-
-    fin >> Word >> countfindrendertarget;
-    fin >> Word >> countindexformat;
-
-    fin >> Word >> countfilternumViews;
-    fin >> Word >> countfilternumViewports;
-    fin >> Word >> countignorenumViews;
-    fin >> Word >> countignorenumViewports;
-
-    fin >> Word >> countfilterrendertarget;
-    fin >> Word >> countignorerendertarget;
-
-    fin >> Word >> countfilterrootConstant;
-    fin >> Word >> countfilterrootConstant2;
-    fin >> Word >> countfilterrootConstant3;
-    fin >> Word >> countignorerootConstant;
-    fin >> Word >> countignorerootConstant2;
-    fin >> Word >> countignorerootConstant3;
-
-    fin >> Word >> countfilterrootDescriptor;
-    fin >> Word >> countfilterrootDescriptor2;
-    fin >> Word >> countfilterrootDescriptor3;
-    fin >> Word >> countignorerootDescriptor;
-    fin >> Word >> countignorerootDescriptor2;
-    fin >> Word >> countignorerootDescriptor3;
-
-    fin >> Word >> filternumViews;
-    fin >> Word >> filternumViewports;
-    fin >> Word >> ignorenumViews;
-    fin >> Word >> ignorenumViewports;
-
-    fin >> Word >> filterrendertarget;
-    fin >> Word >> ignorerendertarget;
-    fin >> Word >> filterRootConstant;
-    fin >> Word >> ignoreRootConstant;
-    fin >> Word >> filterRootDescriptor;
-    fin >> Word >> ignoreRootDescriptor;
-    fin >> Word >> reversedDepth;
-    fin.close();
-}
 
 //=========================================================================================================================//
 
