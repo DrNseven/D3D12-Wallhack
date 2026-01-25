@@ -79,6 +79,9 @@ namespace d3d12hook {
     typedef void(STDMETHODCALLTYPE* IASetIndexBufferFn)(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
     extern IASetIndexBufferFn oIASetIndexBufferD3D12;
 
+    typedef void(STDMETHODCALLTYPE* SetPredicationFn)(ID3D12GraphicsCommandList* self, ID3D12Resource* pBuffer, UINT64 AlignedBufferOffset, D3D12_PREDICATION_OP Operation);
+    extern SetPredicationFn oSetPredicationD3D12;
+
     typedef void(STDMETHODCALLTYPE* ResolveQueryDataFn)(
         ID3D12GraphicsCommandList* self,
         ID3D12QueryHeap* pQueryHeap,
@@ -122,6 +125,7 @@ namespace d3d12hook {
     extern void STDMETHODCALLTYPE hookResetD3D12(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState);
     extern void STDMETHODCALLTYPE hookCloseD3D12(ID3D12GraphicsCommandList* cl);
     extern void STDMETHODCALLTYPE hookIASetIndexBufferD3D12(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
+    extern void STDMETHODCALLTYPE hookSetPredicationD3D12(ID3D12GraphicsCommandList* self, ID3D12Resource* pBuffer, UINT64 AlignedBufferOffset, D3D12_PREDICATION_OP Operation);
     extern void STDMETHODCALLTYPE hookDispatchMeshD3D12(ID3D12GraphicsCommandList6* cmd,UINT ThreadGroupCountX, UINT ThreadGroupCountY, UINT ThreadGroupCountZ);
     extern void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
         ID3D12GraphicsCommandList* _this,
@@ -162,7 +166,8 @@ namespace hooks {
     constexpr size_t kResetIndex = 10;
     constexpr size_t kCloseIndex = 9;
     constexpr size_t kIASetIndexBufferIndex = 43;
-    constexpr size_t kDispatchMeshIndex = 79; // stable across recent SDKs (AI claim)
+    constexpr size_t kDispatchMeshIndex = 79;
+    constexpr size_t kSetPredicationIndex = 55;
 
 
     // Dummy objects pour extraire les v-tables
@@ -196,6 +201,7 @@ namespace hooks {
     static LPVOID pCloseTarget = nullptr;
     static LPVOID pIASetIndexBufferTarget = nullptr;
     static LPVOID pDispatchMeshTarget = nullptr;
+    static LPVOID pSetPredicationTarget = nullptr;
 
 
     static void CleanupDummyObjects()
@@ -426,6 +432,10 @@ namespace hooks {
         mh = MH_CreateHook(pIASetIndexBufferTarget, reinterpret_cast<LPVOID>(d3d12hook::hookIASetIndexBufferD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oIASetIndexBufferD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook IASetIndexBuffer failed: %s\n", MH_StatusToString(mh));  
 
+        pSetPredicationTarget = reinterpret_cast<LPVOID>(slVTable[kSetPredicationIndex]);
+        mh = MH_CreateHook(pSetPredicationTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetPredicationD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetPredicationD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetPredication failed: %s\n", MH_StatusToString(mh));
+
         //cmdlist 6 table
         //ComPtr<ID3D12GraphicsCommandList6> cl6;
         //hr = pCommandList.As(&cl6);
@@ -483,6 +493,7 @@ namespace hooks {
         DisableAndRemove(pSetGraphicsRootSignatureTarget);
         DisableAndRemove(pResetTarget);
         DisableAndRemove(pIASetIndexBufferTarget);
+        DisableAndRemove(pSetPredicationTarget);
         //DisableAndRemove(pCloseTarget);
 
         Log("[hooks] All hooks removed.");

@@ -44,26 +44,27 @@ namespace d3d12hook {
     RSSetViewportsFn        oRSSetViewportsD3D12 = nullptr;
     IASetVertexBuffersFn    oIASetVertexBuffersD3D12 = nullptr;
     DrawIndexedInstancedFn  oDrawIndexedInstancedD3D12 = nullptr;
-    DrawInstancedFn  oDrawInstancedD3D12 = nullptr;
-    DispatchFn oDispatchD3D12 = nullptr;
+    DrawInstancedFn         oDrawInstancedD3D12 = nullptr;
+    DispatchFn              oDispatchD3D12 = nullptr;
     SetGraphicsRootConstantBufferViewFn oSetGraphicsRootConstantBufferViewD3D12 = nullptr;
     SetDescriptorHeapsFn    oSetDescriptorHeapsD3D12 = nullptr;
     SetGraphicsRootDescriptorTableFn oSetGraphicsRootDescriptorTableD3D12 = nullptr;
-    OMSetRenderTargetsFn oOMSetRenderTargetsD3D12 = nullptr;
-    ResolveQueryDataFn oResolveQueryDataD3D12 = nullptr;
-    ExecuteIndirectFn oExecuteIndirectD3D12 = nullptr;
+    OMSetRenderTargetsFn    oOMSetRenderTargetsD3D12 = nullptr;
+    ResolveQueryDataFn      oResolveQueryDataD3D12 = nullptr;
+    ExecuteIndirectFn       oExecuteIndirectD3D12 = nullptr;
     SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12 = nullptr;
     ResetFn oResetD3D12 = nullptr;
     CloseFn oCloseD3D12 = nullptr;
-    IASetIndexBufferFn oIASetIndexBufferD3D12 = nullptr;
-    DispatchMeshFn oDispatchMeshD3D12 = nullptr;
+    IASetIndexBufferFn      oIASetIndexBufferD3D12 = nullptr;
+    DispatchMeshFn          oDispatchMeshD3D12 = nullptr;
+    SetPredicationFn        oSetPredicationD3D12 = nullptr;
     //if unresolved external symbol d3d12hook::function, fix here
 
 
-    static ID3D12Device* gDevice = nullptr;
-    static ID3D12CommandQueue* gCommandQueue = nullptr;
-    static ID3D12DescriptorHeap* gHeapRTV = nullptr;
-    static ID3D12DescriptorHeap* gHeapSRV = nullptr;
+    static ID3D12Device*            gDevice = nullptr;
+    static ID3D12CommandQueue*      gCommandQueue = nullptr;
+    static ID3D12DescriptorHeap*    gHeapRTV = nullptr;
+    static ID3D12DescriptorHeap*    gHeapSRV = nullptr;
     static ID3D12GraphicsCommandList* gCommandList = nullptr;
     static ID3D12Fence*            gOverlayFence = nullptr;
     static HANDLE                  gFenceEvent = nullptr;
@@ -253,7 +254,7 @@ namespace d3d12hook {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
-        // 2. IDENTIFICATION (Short-circuiting logic)
+        // 2. IDENTIFICATION
         const UINT currentStrides = t_.StrideHash + t_.StartSlot;
         bool isModelDraw = false;
 
@@ -284,7 +285,7 @@ namespace d3d12hook {
 
         if (isModelDraw)
         {
-            // 3. FILTER LOGIC (Fail-Fast)
+            // 3. FILTER LOGIC
             // If any filter fails, we immediately jump to the original draw
             if (filternumViews && t_.numViews != countfilternumViews) goto skip;
             if (ignorenumViews && t_.numViews == countignorenumViews) goto skip;
@@ -330,9 +331,9 @@ namespace d3d12hook {
             return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
 
-        // 2. IDENTIFICATION (Short-circuiting logic)
+        // 2. IDENTIFICATION
         const UINT currentStrides = t_.StrideHash + t_.StartSlot;
-        //uint32_t shortID = static_cast<uint32_t>(MaxCommandCount % 100);
+        //uint8_t shortCount = static_cast<uint8_t>((MaxCommandCount >> 12) % 100);
         bool isModelDraw = false;
 
         if (currentStrides == countstride1 || currentStrides == countstride2 ||
@@ -362,7 +363,7 @@ namespace d3d12hook {
 
         if (isModelDraw)
         {
-            // 3. FILTER LOGIC (Fail-Fast)
+            // 3. FILTER LOGIC
             // If any filter fails, we immediately jump to the original draw
             if (filternumViews && t_.numViews != countfilternumViews) goto skip;
             if (ignorenumViews && t_.numViews == countignorenumViews) goto skip;
@@ -533,6 +534,22 @@ namespace d3d12hook {
 
     //=========================================================================================================================//
 
+    //occlusion culling try 1 (most games do not call this)
+    void STDMETHODCALLTYPE hookSetPredicationD3D12(ID3D12GraphicsCommandList* self,ID3D12Resource* pBuffer,UINT64 AlignedBufferOffset,D3D12_PREDICATION_OP Operation)
+    {
+        /*
+        // If pBuffer is NOT null, the game is trying to skip drawing something based on a previous occlusion query result.
+        if (pBuffer != nullptr) {
+            // By passing nullptr to the original function, we tell the GPU: "Ignore the query results and DRAW EVERYTHING."
+            return oSetPredicationD3D12(self, nullptr, 0, Operation);
+        }
+        */
+        return oSetPredicationD3D12(self, pBuffer, AlignedBufferOffset, Operation);
+    }
+
+    //=========================================================================================================================//
+
+    //occlusion culling try 2 
     void STDMETHODCALLTYPE hookResolveQueryDataD3D12(
         ID3D12GraphicsCommandList* self,
         ID3D12QueryHeap* pQueryHeap,
@@ -540,35 +557,105 @@ namespace d3d12hook {
         UINT StartIndex,
         UINT NumQueries,
         ID3D12Resource* pDestinationBuffer,
-        UINT64 AlignedDestinationBufferOffset) {
-
+        UINT64 AlignedDestinationBufferOffset)
+    {
+        // Filter: Only handle occlusion-related queries
         if (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION) {
-        // We use a GPU command to write '1' directly into the destination buffer. This avoids the CPU-GPU sync bottleneck.
 
-            for (UINT i = 0; i < NumQueries; ++i) {
-                D3D12_WRITEBUFFERIMMEDIATE_PARAMETER param;
-                param.Dest = pDestinationBuffer->GetGPUVirtualAddress() + AlignedDestinationBufferOffset + (i * sizeof(UINT64));
-                param.Value = 1; // 1 = Visible //or 0xFFFF
+            // WriteBufferImmediate is not allowed in Bundles
+            if (self->GetType() != D3D12_COMMAND_LIST_TYPE_BUNDLE) {
 
-                // Note: Requires ID3D12GraphicsCommandList2 or higher
                 ID3D12GraphicsCommandList2* cl2 = nullptr;
                 if (SUCCEEDED(self->QueryInterface(IID_PPV_ARGS(&cl2)))) {
-                    cl2->WriteBufferImmediate(1, &param, nullptr);
+
+                    UINT64 visibleValue = 1ull; // Default to 1
+
+                    if (Type == D3D12_QUERY_TYPE_OCCLUSION) {
+                        // Standard occlusion: use a high pixel count to pass engine thresholds
+                        visibleValue = 0xFFFFFFFFull;
+                    }
+                    else {
+                        // Binary occlusion: strictly 1
+                        visibleValue = 1ull;
+                    }
+                    // ---------------------------------
+
+                    const UINT batchSize = 32;
+                    D3D12_WRITEBUFFERIMMEDIATE_PARAMETER params[batchSize];
+                    UINT64 gpuAddrBase = pDestinationBuffer->GetGPUVirtualAddress() + AlignedDestinationBufferOffset;
+
+                    for (UINT i = 0; i < NumQueries; i += batchSize) {
+                        UINT currentBatchCount = (NumQueries - i) < batchSize ? (NumQueries - i) : batchSize;
+
+                        for (UINT j = 0; j < currentBatchCount; ++j) {
+                            params[j].Dest = gpuAddrBase + ((UINT64(i) + j) * sizeof(UINT64));
+                            params[j].Value = visibleValue;
+                        }
+
+                        cl2->WriteBufferImmediate(currentBatchCount, params, nullptr);
+                    }
+
                     cl2->Release();
+                    return; // Successfully spoofed, skip original call
                 }
             }
-            return; // Skip original
         }
+
+        // Fallback: Call original for non-occlusion types or if spoofing failed
         oResolveQueryDataD3D12(self, pQueryHeap, Type, StartIndex, NumQueries, pDestinationBuffer, AlignedDestinationBufferOffset);
     }
 
-    //ResolveQueryData Improvements for Stability
-    //If you want to make it compatible with more games, consider these improvements:
-    //Check for Binary Occlusion: Some games expect 0 or 1 (Binary), while others expect the actual number of samples passed (Occlusion). Writing a very large number like 0xFFFF 
-    //can sometimes be more effective for standard occlusion to ensure the game treats it as "fully visible."
-    //Handle Resource Barriers: If you use GPU commands to overwrite the data, you must ensure the pDestinationBuffer is in the D3D12_RESOURCE_STATE_COPY_DEST or COMMON state.
-    //Performance: WriteBufferImmediate is excellent, but if NumQueries is large (e.g., 500+), it’s better to have a small "source" buffer containing many 1s and use CopyBufferRegion.
+    //=========================================================================================================================//
 
+    /*
+    // occlusion culling try 3 (not implemented)
+    HRESULT STDMETHODCALLTYPE hookMap(ID3D12Resource* self,UINT Subresource,const D3D12_RANGE* pReadRange,void** ppData)
+    {
+        HRESULT hr = oMap(self, Subresource, pReadRange, ppData);
+
+        // 1. Basic Validation
+        if (FAILED(hr) || !ppData || !*ppData)
+            return hr;
+
+        D3D12_RESOURCE_DESC desc = self->GetDesc();
+        if (desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+            return hr;
+
+        // 2. Heap Validation (Excellent safety check)
+        D3D12_HEAP_PROPERTIES heapProps;
+        if (FAILED(self->GetHeapProperties(&heapProps, nullptr)))
+            return hr;
+
+        if (heapProps.Type != D3D12_HEAP_TYPE_READBACK)
+            return hr;
+
+        // 3. Heuristic: query buffers are usually small and 8-byte aligned
+        UINT64 totalSize = desc.Width;
+        if (totalSize < 8 || totalSize > 1024 * 1024 || (totalSize % 8) != 0)
+            return hr;
+
+        // 4. Determine the range to overwrite
+        SIZE_T begin = 0;
+        SIZE_T end = (SIZE_T)totalSize;
+
+        if (pReadRange != nullptr) {
+            // If End <= Begin, the spec says no CPU read is intended
+            if (pReadRange->End <= pReadRange->Begin)
+                return hr;
+
+            begin = pReadRange->Begin;
+            end = min((SIZE_T)totalSize, pReadRange->End);
+        }
+
+        // 5. Overwrite with "Visible" values
+        // We use 0x01 repeated. This results in the UINT64 value: 
+        // 0x0101010101010101 (approx 72 quadrillion).
+        // This is high enough for sample counts and satisfies "!= 0" for binary.
+        memset((uint8_t*)(*ppData) + begin, 0x01, end - begin);
+
+        return hr;
+    }
+    */
     //=========================================================================================================================//
 
     void STDMETHODCALLTYPE hookDispatchD3D12(ID3D12GraphicsCommandList* pList, UINT threadCountX, UINT threadCountY, UINT threadCountZ)
