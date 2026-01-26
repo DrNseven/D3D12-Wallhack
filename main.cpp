@@ -58,6 +58,8 @@ namespace d3d12hook {
     IASetIndexBufferFn      oIASetIndexBufferD3D12 = nullptr;
     DispatchMeshFn          oDispatchMeshD3D12 = nullptr;
     SetPredicationFn        oSetPredicationD3D12 = nullptr;
+    BeginQueryFn            oBeginQueryD3D12 = nullptr;
+    EndQueryFn              oEndQueryD3D12 = nullptr;
     //if unresolved external symbol d3d12hook::function, fix here
 
 
@@ -209,36 +211,34 @@ namespace d3d12hook {
         BOOL RTsSingleHandleToDescriptorRange,
         const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor) {
 
+        // Filter only Direct Command Lists (standard rendering)
         if (dCommandList->GetType() == D3D12_COMMAND_LIST_TYPE_DIRECT)
         {
             t_.currentNumRTVs = NumRenderTargetDescriptors;
-            //t_.currentRTsSingleHandle = RTsSingleHandleToDescriptorRange;
-            /*
-            // 1. Capture RTV Handles
+
+            // 1. Capture DSV State (The most important performance filter)
+            if (pDepthStencilDescriptor != nullptr && pDepthStencilDescriptor->ptr != 0) {
+                t_.currentDSVHandle = *pDepthStencilDescriptor;
+                t_.hasDSV = true;
+            }
+            else {
+                t_.hasDSV = false;
+                t_.currentDSVHandle.ptr = 0;
+            }
+
+            // 2. Capture RTV Handles (Optional, if you need to know WHERE it renders)
             if (pRenderTargetDescriptors != nullptr && NumRenderTargetDescriptors > 0)
             {
                 if (RTsSingleHandleToDescriptorRange) {
-                    // Just store the first handle (the base of the range)
                     t_.currentRTVHandles[0] = pRenderTargetDescriptors[0];
                 }
                 else {
-                    // Store the whole array (up to 8)
                     UINT count = (NumRenderTargetDescriptors > 8) ? 8 : NumRenderTargetDescriptors;
                     for (UINT i = 0; i < count; ++i) {
                         t_.currentRTVHandles[i] = pRenderTargetDescriptors[i];
                     }
                 }
             }
-
-            // 2. Capture DSV Handle
-            if (pDepthStencilDescriptor != nullptr) {
-                t_.currentDSVHandle = *pDepthStencilDescriptor;
-                t_.hasDSV = true;
-            }
-            else {
-                t_.hasDSV = false;
-            }
-            */
         }
 
         return oOMSetRenderTargetsD3D12(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
@@ -248,19 +248,45 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation)
     {
-        // 1. QUICK EXIT
-        if (!_this || t_.currentNumRTVs == 0 || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        // --- LEVEL 1: REGISTER-ONLY CHECKS (ZERO COST) ---
+        // These use values already in CPU registers (passed as arguments).
+        // We check InstanceCount and IndexCount first because they require NO memory lookups.
+        if (!_this || InstanceCount == 0 || InstanceCount > 5 || IndexCountPerInstance < 100)
+        {
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        }
+
+        // --- LEVEL 2: COMMAND LIST TYPE ---
+        // GetType() is a virtual call. Fast, but slightly more expensive than a register check.
+        if (_this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        {
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        }
+
+        // --- LEVEL 3: CACHED STATE CHECKS (LOW COST) ---
+        // These look up your thread_local 't_' struct. 
+        // Filter 3 & 4 combined: If no RTV or no Depth, it's UI/Post-FX/Shadows.
+        if (t_.currentNumRTVs == 0 || !t_.hasDSV)
+        {
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        }
+
+        // --- LEVEL 4: VIEWPORT CHECKS (MEDIUM COST) ---
+        // Floating point comparisons and slightly deeper memory offset.
+        // Filters out reflection probes, tiny icons, and sub-renders.
+        if (t_.currentViewport.Width < 500.0f)
         {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
         // 2. IDENTIFICATION
         const UINT currentStrides = t_.StrideHash + t_.StartSlot;
+
         bool isModelDraw = false;
 
         if (currentStrides == countstride1 || currentStrides == countstride2 ||
             currentStrides == countstride3 || currentStrides == countstride4 ||
-            t_.currentNumRTVs == countfindrendertarget)
+            t_.currentNumRTVs == countfindrendertarget|| IndexCountPerInstance / 500 == countIndexCount)
         {
             isModelDraw = true;
         }
@@ -325,12 +351,28 @@ namespace d3d12hook {
     void STDMETHODCALLTYPE hookExecuteIndirectD3D12(ID3D12GraphicsCommandList* _this,ID3D12CommandSignature* pCommandSignature,UINT MaxCommandCount,ID3D12Resource* pArgumentBuffer,
         UINT64 ArgumentBufferOffset,ID3D12Resource* pCountBuffer,UINT64 CountBufferOffset)
     {
-        // 1. QUICK EXIT
-        if (!_this || t_.currentNumRTVs == 0 || _this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
-        {
+        // 1. Mandatory Exits
+        if (!_this || MaxCommandCount == 0)
             return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
-        }
 
+        // 2. Command List Type
+        if (_this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // 3. State Filters (The most important ones here!)
+        // These ensure we aren't looking at UI, Shadows, or Post-Processing
+        if (t_.currentNumRTVs == 0 || !t_.hasDSV || t_.currentViewport.Width < 500.0f)
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // 4. Batch Size Filter
+        // Environment meshes (grass, etc) are usually drawn in large batches.
+        // Players/Characters are usually drawn in small batches or single calls.
+        if (MaxCommandCount > 50) //?
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // 5. Signature Pointer Filter (Optional but recommended)
+        // if (pCommandSignature == knownComputeSignature) return ...;
+        
         // 2. IDENTIFICATION
         const UINT currentStrides = t_.StrideHash + t_.StartSlot;
         //uint8_t shortCount = static_cast<uint8_t>((MaxCommandCount >> 12) % 100);
@@ -400,10 +442,10 @@ namespace d3d12hook {
 
     //=========================================================================================================================//
 
-    void STDMETHODCALLTYPE hookDrawInstancedD3D12(ID3D12GraphicsCommandList* cmd, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation)
+    void STDMETHODCALLTYPE hookDrawInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation)
     {
-        //same as above, but games almost never draw models here
-        oDrawInstancedD3D12(cmd, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation);
+       
+        oDrawInstancedD3D12(_this, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation);
     }
 
     //=========================================================================================================================//
@@ -533,23 +575,8 @@ namespace d3d12hook {
     }
 
     //=========================================================================================================================//
-
-    //occlusion culling try 1 (most games do not call this)
-    void STDMETHODCALLTYPE hookSetPredicationD3D12(ID3D12GraphicsCommandList* self,ID3D12Resource* pBuffer,UINT64 AlignedBufferOffset,D3D12_PREDICATION_OP Operation)
-    {
-        /*
-        // If pBuffer is NOT null, the game is trying to skip drawing something based on a previous occlusion query result.
-        if (pBuffer != nullptr) {
-            // By passing nullptr to the original function, we tell the GPU: "Ignore the query results and DRAW EVERYTHING."
-            return oSetPredicationD3D12(self, nullptr, 0, Operation);
-        }
-        */
-        return oSetPredicationD3D12(self, pBuffer, AlignedBufferOffset, Operation);
-    }
-
-    //=========================================================================================================================//
-
-    //occlusion culling try 2 
+    
+    //occlusion culling try 1 
     void STDMETHODCALLTYPE hookResolveQueryDataD3D12(
         ID3D12GraphicsCommandList* self,
         ID3D12QueryHeap* pQueryHeap,
@@ -559,9 +586,10 @@ namespace d3d12hook {
         ID3D12Resource* pDestinationBuffer,
         UINT64 AlignedDestinationBufferOffset)
     {
-
+        
         // Filter: Only handle occlusion-related queries
-        if (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION) {
+        if (DisableOcclusionCulling &&
+            (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)) {
 
             // WriteBufferImmediate is not allowed in Bundles
             if (self->GetType() != D3D12_COMMAND_LIST_TYPE_BUNDLE) {
@@ -579,7 +607,6 @@ namespace d3d12hook {
                         // Binary occlusion: strictly 1
                         visibleValue = 1ull;
                     }
-                    // ---------------------------------
 
                     const UINT batchSize = 32;
                     D3D12_WRITEBUFFERIMMEDIATE_PARAMETER params[batchSize];
@@ -601,19 +628,33 @@ namespace d3d12hook {
                 }
             }
         }
-
-        // Fallback: Call original for non-occlusion types or if spoofing failed
+        
         oResolveQueryDataD3D12(self, pQueryHeap, Type, StartIndex, NumQueries, pDestinationBuffer, AlignedDestinationBufferOffset);
+    }
+    
+    //=========================================================================================================================//
+
+    //occlusion culling try 2 (most games do not call this, so it's useless)
+    void STDMETHODCALLTYPE hookSetPredicationD3D12(ID3D12GraphicsCommandList* self, ID3D12Resource* pBuffer, UINT64 AlignedBufferOffset, D3D12_PREDICATION_OP Operation)
+    {
+        //if (pBuffer != nullptr)
+        //{
+            // Disable predication → draw everything
+            //oSetPredicationD3D12(self, nullptr, 0, Operation);
+            //return;
+        //}
+
+        oSetPredicationD3D12(self, pBuffer, AlignedBufferOffset, Operation);
     }
 
     //=========================================================================================================================//
 
-    /*
-    // occlusion culling try 3 (not implemented)
-    HRESULT STDMETHODCALLTYPE hookMap(ID3D12Resource* self,UINT Subresource,const D3D12_RANGE* pReadRange,void** ppData)
+    //occlusion culling try 3 (can cause black screen)
+    HRESULT STDMETHODCALLTYPE hookMapD3D12(ID3D12Resource* self, UINT Subresource, const D3D12_RANGE* pReadRange, void** ppData)
     {
-        HRESULT hr = oMap(self, Subresource, pReadRange, ppData);
-
+     
+        HRESULT hr = oMapD3D12(self, Subresource, pReadRange, ppData);
+        /*
         // 1. Basic Validation
         if (FAILED(hr) || !ppData || !*ppData)
             return hr;
@@ -653,10 +694,37 @@ namespace d3d12hook {
         // 0x0101010101010101 (approx 72 quadrillion).
         // This is high enough for sample counts and satisfies "!= 0" for binary.
         memset((uint8_t*)(*ppData) + begin, 0x01, end - begin);
-
+        */
         return hr;
     }
-    */
+
+    //=========================================================================================================================//
+    
+    //Warning, this doesn't work, can have the opposite effect
+    void STDMETHODCALLTYPE hookBeginQueryD3D12(
+        ID3D12GraphicsCommandList* self,
+        ID3D12QueryHeap* pQueryHeap,
+        D3D12_QUERY_TYPE Type,
+        UINT Index)
+    {
+        //if (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION) 
+        //{ return; }
+
+        oBeginQueryD3D12(self, pQueryHeap, Type, Index);
+    }
+
+    void STDMETHODCALLTYPE hookEndQueryD3D12(
+        ID3D12GraphicsCommandList* self,
+        ID3D12QueryHeap* pQueryHeap,
+        D3D12_QUERY_TYPE Type,
+        UINT Index)
+    {
+        //if (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION) 
+        //{ return; }
+
+        oEndQueryD3D12(self, pQueryHeap, Type, Index);
+    }
+
     //=========================================================================================================================//
 
     void STDMETHODCALLTYPE hookDispatchD3D12(ID3D12GraphicsCommandList* pList, UINT threadCountX, UINT threadCountY, UINT threadCountZ)

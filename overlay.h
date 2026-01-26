@@ -27,12 +27,12 @@ int countstride1 = -1;
 int countstride2 = -1;
 int countstride3 = -1;
 int countstride4 = -1;
+int countIndexCount = -1;
 int countcurrentRootSigID = -1;
 int countcurrentRootSigID2 = -1;
 int countcurrentindexid = -1;
 int countcurrentindexid2 = -1;
 int countcurrentindexid3 = -1;
-int countcurrentindexid4 = -1;
 int countfindrendertarget = -1;
 int countindexformat = -1;
 int countfilternumViews = -1;
@@ -65,6 +65,7 @@ bool ignoreRootConstant = false;
 bool filterRootDescriptor = false;
 bool ignoreRootDescriptor = false;
 bool reversedDepth = false;
+bool DisableOcclusionCulling = false;
 
 using namespace std;
 #include <string>
@@ -77,6 +78,7 @@ void SaveConfig()
     fout << "countstride2 " << countstride2 << endl;
     fout << "countstride3 " << countstride3 << endl;
     fout << "countstride4 " << countstride4 << endl;
+    fout << "countIndexCount " << countIndexCount << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
     fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
 
@@ -84,7 +86,6 @@ void SaveConfig()
     fout << "countcurrentindexid " << countcurrentindexid << endl;
     fout << "countcurrentindexid2 " << countcurrentindexid2 << endl;
     fout << "countcurrentindexid3 " << countcurrentindexid3 << endl;
-    fout << "countcurrentindexid4 " << countcurrentindexid4 << endl;
 
     fout << "countfindrendertarget " << countfindrendertarget << endl;
     fout << "countindexformat " << countindexformat << endl;
@@ -123,6 +124,7 @@ void SaveConfig()
     fout << "filterRootDescriptor " << filterRootDescriptor << endl;
     fout << "ignoreRootDescriptor " << ignoreRootDescriptor << endl;
     fout << "reversedDepth " << reversedDepth << endl;
+    fout << "DisableOcclusionCulling " << DisableOcclusionCulling << endl;
     fout.close();
 }
 
@@ -135,6 +137,7 @@ void LoadConfig()
     fin >> Word >> countstride2;
     fin >> Word >> countstride3;
     fin >> Word >> countstride4;
+    fin >> Word >> countIndexCount;
     fin >> Word >> countcurrentRootSigID;
     fin >> Word >> countcurrentRootSigID2;
 
@@ -142,7 +145,6 @@ void LoadConfig()
     fin >> Word >> countcurrentindexid;
     fin >> Word >> countcurrentindexid2;
     fin >> Word >> countcurrentindexid3;
-    fin >> Word >> countcurrentindexid4;
 
     fin >> Word >> countfindrendertarget;
     fin >> Word >> countindexformat;
@@ -181,6 +183,7 @@ void LoadConfig()
     fin >> Word >> filterRootDescriptor;
     fin >> Word >> ignoreRootDescriptor;
     fin >> Word >> reversedDepth;
+    fin >> Word >> DisableOcclusionCulling;
     fin.close();
 }
 
@@ -544,6 +547,7 @@ void Render()
         ImGui::SliderInt("Find Stridehash 2", &countstride2, minus_val, max_val);
         ImGui::SliderInt("Find Stridehash 3", &countstride3, minus_val, max_val);
         ImGui::SliderInt("Find Stridehash 4", &countstride4, minus_val, max_val);
+        ImGui::SliderInt("Find IndexCount", &countIndexCount, minus_val, max_val);
         ImGui::SliderInt("Find RenderTarget", &countfindrendertarget, minus_val, max_val);
         ImGui::SliderInt("Find IndexFormat+Vp", &countindexformat, minus_val, max_val);
 
@@ -551,12 +555,11 @@ void Render()
         ImGui::Checkbox("Temporary IDs", &temporaryids);
         if (temporaryids)
         {
-            ImGui::SliderInt("Find CurrentRootID", &countcurrentRootSigID, minus_val, max_val);
-            ImGui::SliderInt("Find CurrentRootID2", &countcurrentRootSigID2, minus_val, max_val);
+            ImGui::SliderInt("Find CurrentRoot ID", &countcurrentRootSigID, minus_val, max_val);
+            ImGui::SliderInt("Find CurrentRoot ID2", &countcurrentRootSigID2, minus_val, max_val);
             ImGui::SliderInt("Find CurrentIndexID", &countcurrentindexid, minus_val, max_val);
             ImGui::SliderInt("Find CurrentIndexID2", &countcurrentindexid2, minus_val, max_val);
             ImGui::SliderInt("Find CurrentIndexID3", &countcurrentindexid3, minus_val, max_val);
-            ImGui::SliderInt("Find CurrentIndexID4", &countcurrentindexid4, minus_val, max_val);
         }
 
         //Filter/Ignore
@@ -629,6 +632,7 @@ void Render()
         }
 
         ImGui::Checkbox("Reverse Depth", &reversedDepth);
+        ImGui::Checkbox("Try to Disable Occlusion", &DisableOcclusionCulling);
         //ImGui::Checkbox("Color", &colors);
 
         ImGui::End();

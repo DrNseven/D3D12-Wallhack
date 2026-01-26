@@ -82,6 +82,12 @@ namespace d3d12hook {
     typedef void(STDMETHODCALLTYPE* SetPredicationFn)(ID3D12GraphicsCommandList* self, ID3D12Resource* pBuffer, UINT64 AlignedBufferOffset, D3D12_PREDICATION_OP Operation);
     extern SetPredicationFn oSetPredicationD3D12;
 
+    typedef void(STDMETHODCALLTYPE* BeginQueryFn)(ID3D12GraphicsCommandList* self, ID3D12QueryHeap* pQueryHeap, D3D12_QUERY_TYPE Type, UINT Index);
+    extern BeginQueryFn oBeginQueryD3D12;
+
+    typedef void(STDMETHODCALLTYPE* EndQueryFn)(ID3D12GraphicsCommandList* self, ID3D12QueryHeap* pQueryHeap, D3D12_QUERY_TYPE Type, UINT Index);
+    extern EndQueryFn oEndQueryD3D12;
+
     typedef void(STDMETHODCALLTYPE* ResolveQueryDataFn)(
         ID3D12GraphicsCommandList* self,
         ID3D12QueryHeap* pQueryHeap,
@@ -106,11 +112,15 @@ namespace d3d12hook {
     typedef void(STDMETHODCALLTYPE* DispatchMeshFn)(ID3D12GraphicsCommandList6* cmd, UINT ThreadGroupCountX,UINT ThreadGroupCountY,UINT ThreadGroupCountZ);
     extern DispatchMeshFn oDispatchMeshD3D12;
 
+    typedef HRESULT(STDMETHODCALLTYPE* MapFn)(ID3D12Resource*, UINT, const D3D12_RANGE*, void**);
+    extern MapFn oMapD3D12 = nullptr;
+
 
     extern long __fastcall hookPresentD3D12(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags);
     extern long __fastcall hookPresent1D3D12(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pParams);
     extern void STDMETHODCALLTYPE hookExecuteCommandListsD3D12(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists);
     extern HRESULT STDMETHODCALLTYPE hookResizeBuffersD3D12(IDXGISwapChain3* pSwapChain, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags);
+    extern HRESULT STDMETHODCALLTYPE hookMapD3D12(ID3D12Resource*, UINT, const D3D12_RANGE*, void**);
     extern void STDMETHODCALLTYPE hookRSSetViewportsD3D12(ID3D12GraphicsCommandList* _this, UINT NumViewports, const D3D12_VIEWPORT* pViewports);
     extern void STDMETHODCALLTYPE hookIASetVertexBuffersD3D12(ID3D12GraphicsCommandList* _this, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews);
     extern void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation);
@@ -126,6 +136,8 @@ namespace d3d12hook {
     extern void STDMETHODCALLTYPE hookCloseD3D12(ID3D12GraphicsCommandList* cl);
     extern void STDMETHODCALLTYPE hookIASetIndexBufferD3D12(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
     extern void STDMETHODCALLTYPE hookSetPredicationD3D12(ID3D12GraphicsCommandList* self, ID3D12Resource* pBuffer, UINT64 AlignedBufferOffset, D3D12_PREDICATION_OP Operation);
+    extern void STDMETHODCALLTYPE hookBeginQueryD3D12(ID3D12GraphicsCommandList* self, ID3D12QueryHeap* pQueryHeap, D3D12_QUERY_TYPE Type, UINT Index);
+    extern void STDMETHODCALLTYPE hookEndQueryD3D12(ID3D12GraphicsCommandList* self, ID3D12QueryHeap* pQueryHeap, D3D12_QUERY_TYPE Type, UINT Index);
     extern void STDMETHODCALLTYPE hookDispatchMeshD3D12(ID3D12GraphicsCommandList6* cmd,UINT ThreadGroupCountX, UINT ThreadGroupCountY, UINT ThreadGroupCountZ);
     extern void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
         ID3D12GraphicsCommandList* _this,
@@ -168,6 +180,9 @@ namespace hooks {
     constexpr size_t kIASetIndexBufferIndex = 43;
     constexpr size_t kDispatchMeshIndex = 79;
     constexpr size_t kSetPredicationIndex = 55;
+    constexpr size_t kMapIndex = 8;
+    constexpr size_t kBeginQueryIndex = 52;
+    constexpr size_t kEndQueryIndex = 53;
 
 
     // Dummy objects pour extraire les v-tables
@@ -202,6 +217,9 @@ namespace hooks {
     static LPVOID pIASetIndexBufferTarget = nullptr;
     static LPVOID pDispatchMeshTarget = nullptr;
     static LPVOID pSetPredicationTarget = nullptr;
+    static LPVOID pMapTarget = nullptr;
+    static LPVOID pBeginQueryTarget = nullptr;
+    static LPVOID pEndQueryTarget = nullptr;
 
 
     static void CleanupDummyObjects()
@@ -300,6 +318,35 @@ namespace hooks {
         if (FAILED(hr)) {
             Log("[hooks] QueryInterface IDXGISwapChain3 failed: 0x%08X\n", hr);
             return hr;
+        }
+
+        // 10. This is for MAP
+        D3D12_HEAP_PROPERTIES heapProps = {};
+        heapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // Required for Map access
+
+        D3D12_RESOURCE_DESC resDesc = {};
+        resDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resDesc.Width = 1024;
+        resDesc.Height = 1;
+        resDesc.DepthOrArraySize = 1;
+        resDesc.MipLevels = 1;
+        resDesc.Format = DXGI_FORMAT_UNKNOWN;
+        resDesc.SampleDesc.Count = 1;
+        resDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        ComPtr<ID3D12Resource> pDummyResource;
+        hr = pDevice->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &resDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&pDummyResource)
+        );
+
+        if (SUCCEEDED(hr)) {
+            auto resVTable = *reinterpret_cast<void***>(pDummyResource.Get());
+            pMapTarget = resVTable[kMapIndex];
         }
 
         return S_OK;
@@ -436,6 +483,14 @@ namespace hooks {
         mh = MH_CreateHook(pSetPredicationTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetPredicationD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetPredicationD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook SetPredication failed: %s\n", MH_StatusToString(mh));
 
+        pBeginQueryTarget = reinterpret_cast<LPVOID>(slVTable[kBeginQueryIndex]);
+        mh = MH_CreateHook(pBeginQueryTarget, reinterpret_cast<LPVOID>(d3d12hook::hookBeginQueryD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oBeginQueryD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook BeginQuery failed: %s\n", MH_StatusToString(mh));
+        
+        pEndQueryTarget = reinterpret_cast<LPVOID>(slVTable[kEndQueryIndex]);
+        mh = MH_CreateHook(pEndQueryTarget, reinterpret_cast<LPVOID>(d3d12hook::hookEndQueryD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oEndQueryD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook EndQuery failed: %s\n", MH_StatusToString(mh));
+
         //cmdlist 6 table
         //ComPtr<ID3D12GraphicsCommandList6> cl6;
         //hr = pCommandList.As(&cl6);
@@ -448,6 +503,12 @@ namespace hooks {
         //pDispatchMeshTarget = reinterpret_cast<LPVOID>(cl6VTable[kDispatchMeshIndex]);
         //mh = MH_CreateHook(pDispatchMeshTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDispatchMeshD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDispatchMeshD3D12));
         //if (mh != MH_OK) Log("[hooks] MH_CreateHook DispatchMesh failed: %s\n", MH_StatusToString(mh));
+
+        //if (pMapTarget) {
+            //mh = MH_CreateHook(pMapTarget, reinterpret_cast<LPVOID>(d3d12hook::hookMapD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oMapD3D12));
+            //if (mh != MH_OK) Log("[hooks] MH_CreateHook Map failed: %s\n", MH_StatusToString(mh));
+        //}
+
 
         // --- Enable all hooks ---
         mh = MH_EnableHook(MH_ALL_HOOKS);
@@ -494,7 +555,10 @@ namespace hooks {
         DisableAndRemove(pResetTarget);
         DisableAndRemove(pIASetIndexBufferTarget);
         DisableAndRemove(pSetPredicationTarget);
+        //DisableAndRemove(pMapTarget);
         //DisableAndRemove(pCloseTarget);
+        DisableAndRemove(pBeginQueryTarget);
+        DisableAndRemove(pEndQueryTarget);
 
         Log("[hooks] All hooks removed.");
         
@@ -551,7 +615,7 @@ thread_local struct {
     uint32_t StrideHash = 0;
 
     // states
-    D3D12_VIEWPORT currentViewport = {};
+    D3D12_VIEWPORT currentViewport = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     UINT numViewports = 0;
     D3D12_GPU_DESCRIPTOR_HANDLE LastDescriptorBase;
     UINT currentNumRTVs = 0;
@@ -559,6 +623,11 @@ thread_local struct {
     DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     UINT currentGPUIAddress;
     UINT currentGPURAddress;
+
+    D3D12_CPU_DESCRIPTOR_HANDLE currentRTVHandles[8] = {};
+    D3D12_CPU_DESCRIPTOR_HANDLE currentDSVHandle = {};
+    BOOL currentRTsSingleHandle = FALSE;
+    bool hasDSV = false;
 } t_;
 
 //=========================================================================================================================//
@@ -642,7 +711,7 @@ thread_local CommandListState tls_cache;
 #include <DirectXMath.h>
 using namespace DirectX;
 
-int countnum = 4;
+int countnum = -1;
 ComPtr<ID3D12Device> pDevice = nullptr;
 bool initialized = false;
 
