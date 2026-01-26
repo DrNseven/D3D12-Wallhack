@@ -136,8 +136,8 @@ namespace d3d12hook {
             UINT currentindexformat = t_.currentIndexFormat + t_.numViewports;
 
             if (currentindexformat == countindexformat &&
-                t_.currentViewport.Width > 0 &&
-                t_.currentViewport.Height > 0 &&
+                t_.currentViewport.Width > 128 &&
+                t_.currentViewport.Height > 128 &&
                 t_.currentViewport.Width < 16384)
             {
                 D3D12_VIEWPORT hVp = t_.currentViewport;
@@ -168,12 +168,10 @@ namespace d3d12hook {
         }
 
         if (pViews && NumViews > 0) {
-            t_.CanonicalCount = BuildCanonicalStrides(pViews,NumViews,t_.CanonicalStrides,_countof(t_.CanonicalStrides)
-            );
+            t_.CanonicalCount = BuildCanonicalStrides(pViews,NumViews,t_.CanonicalStrides,_countof(t_.CanonicalStrides));
 
             if (t_.CanonicalCount > 0) {
-                uint32_t h = HashStrides(t_.CanonicalStrides,t_.CanonicalCount
-                );
+                uint32_t h = HashStrides(t_.CanonicalStrides,t_.CanonicalCount);
 
                 //hash
                 t_.StrideHash = FoldToTwoDigits(h);
@@ -225,7 +223,7 @@ namespace d3d12hook {
                 t_.hasDSV = false;
                 t_.currentDSVHandle.ptr = 0;
             }
-
+            /*
             // 2. Capture RTV Handles (Optional, if you need to know WHERE it renders)
             if (pRenderTargetDescriptors != nullptr && NumRenderTargetDescriptors > 0)
             {
@@ -239,6 +237,7 @@ namespace d3d12hook {
                     }
                 }
             }
+            */
         }
 
         return oOMSetRenderTargetsD3D12(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
@@ -477,8 +476,8 @@ namespace d3d12hook {
 
             //tls_cache.lastRDIndex = UINT_MAX;
 
-            if (BaseDescriptor.ptr != 0)
-                t_.LastDescriptorBase = BaseDescriptor;
+            //if (BaseDescriptor.ptr != 0)
+                //t_.LastDescriptorBase = BaseDescriptor;
         }
 
         if (BaseDescriptor.ptr != 0)
@@ -493,9 +492,10 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookSetGraphicsRootSignatureD3D12(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature) {
 
-        if (!dCommandList || !pRootSignature) return oSetGraphicsRootSignatureD3D12(dCommandList, pRootSignature);
+        if (!dCommandList || !pRootSignature) 
+            return oSetGraphicsRootSignatureD3D12(dCommandList, pRootSignature);
 
-        if (dCommandList && pRootSignature) {
+        if ((countcurrentindexid > 0 || countcurrentindexid2 > 0 || countcurrentindexid3 > 0) && (dCommandList && pRootSignature)) {
             uint32_t idToStore = 0;
 
             // 1. Try to find the ID with a shared lock (multiple threads can do this at once)
@@ -588,8 +588,7 @@ namespace d3d12hook {
     {
         
         // Filter: Only handle occlusion-related queries
-        if (DisableOcclusionCulling &&
-            (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)) {
+        if (DisableOcclusionCulling && (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)) {
 
             // WriteBufferImmediate is not allowed in Bundles
             if (self->GetType() != D3D12_COMMAND_LIST_TYPE_BUNDLE) {

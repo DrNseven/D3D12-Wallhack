@@ -65,7 +65,7 @@ bool ignoreRootConstant = false;
 bool filterRootDescriptor = false;
 bool ignoreRootDescriptor = false;
 bool reversedDepth = false;
-bool DisableOcclusionCulling = false;
+bool DisableOcclusionCulling = true;
 
 using namespace std;
 #include <string>
