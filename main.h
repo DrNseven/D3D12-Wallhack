@@ -79,6 +79,12 @@ namespace d3d12hook {
     typedef void(STDMETHODCALLTYPE* IASetIndexBufferFn)(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
     extern IASetIndexBufferFn oIASetIndexBufferD3D12;
 
+    typedef void(STDMETHODCALLTYPE* SetPipelineStateFn)(ID3D12GraphicsCommandList* _this, ID3D12PipelineState* pso);
+    extern SetPipelineStateFn oSetPipelineStateD3D12;
+
+    typedef void(STDMETHODCALLTYPE* IASetPrimitiveTopologyFn)(ID3D12GraphicsCommandList* _this, D3D12_PRIMITIVE_TOPOLOGY PrimitiveTopology);
+    extern IASetPrimitiveTopologyFn oIASetPrimitiveTopologyD3D12;
+
     typedef void(STDMETHODCALLTYPE* SetPredicationFn)(ID3D12GraphicsCommandList* self, ID3D12Resource* pBuffer, UINT64 AlignedBufferOffset, D3D12_PREDICATION_OP Operation);
     extern SetPredicationFn oSetPredicationD3D12;
 
@@ -108,10 +114,6 @@ namespace d3d12hook {
         UINT64 CountBufferOffset);
     extern ExecuteIndirectFn oExecuteIndirectD3D12;
 
-    // ID3D12GraphicsCommandList6
-    typedef void(STDMETHODCALLTYPE* DispatchMeshFn)(ID3D12GraphicsCommandList6* cmd, UINT ThreadGroupCountX,UINT ThreadGroupCountY,UINT ThreadGroupCountZ);
-    extern DispatchMeshFn oDispatchMeshD3D12;
-
     typedef HRESULT(STDMETHODCALLTYPE* MapFn)(ID3D12Resource*, UINT, const D3D12_RANGE*, void**);
     extern MapFn oMapD3D12 = nullptr;
 
@@ -135,10 +137,11 @@ namespace d3d12hook {
     extern void STDMETHODCALLTYPE hookResetD3D12(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState);
     extern void STDMETHODCALLTYPE hookCloseD3D12(ID3D12GraphicsCommandList* cl);
     extern void STDMETHODCALLTYPE hookIASetIndexBufferD3D12(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
+    extern void STDMETHODCALLTYPE hookSetPipelineStateD3D12(ID3D12GraphicsCommandList* _this, ID3D12PipelineState* pso);
+    extern void STDMETHODCALLTYPE hookIASetPrimitiveTopologyD3D12(ID3D12GraphicsCommandList* _this, D3D12_PRIMITIVE_TOPOLOGY PrimitiveTopology);
     extern void STDMETHODCALLTYPE hookSetPredicationD3D12(ID3D12GraphicsCommandList* self, ID3D12Resource* pBuffer, UINT64 AlignedBufferOffset, D3D12_PREDICATION_OP Operation);
     extern void STDMETHODCALLTYPE hookBeginQueryD3D12(ID3D12GraphicsCommandList* self, ID3D12QueryHeap* pQueryHeap, D3D12_QUERY_TYPE Type, UINT Index);
     extern void STDMETHODCALLTYPE hookEndQueryD3D12(ID3D12GraphicsCommandList* self, ID3D12QueryHeap* pQueryHeap, D3D12_QUERY_TYPE Type, UINT Index);
-    extern void STDMETHODCALLTYPE hookDispatchMeshD3D12(ID3D12GraphicsCommandList6* cmd,UINT ThreadGroupCountX, UINT ThreadGroupCountY, UINT ThreadGroupCountZ);
     extern void STDMETHODCALLTYPE hookExecuteIndirectD3D12(
         ID3D12GraphicsCommandList* _this,
         ID3D12CommandSignature* pCommandSignature,
@@ -176,9 +179,10 @@ namespace hooks {
     constexpr size_t kExecuteIndirectIndex = 59;
     constexpr size_t kSetGraphicsRootSignatureIndex = 30;
     constexpr size_t kResetIndex = 10;
+    constexpr size_t kSetPipelineStateIndex = 25;
+    constexpr size_t kIASetPrimitiveTopologyIndex = 20;
     constexpr size_t kCloseIndex = 9;
     constexpr size_t kIASetIndexBufferIndex = 43;
-    constexpr size_t kDispatchMeshIndex = 79;
     constexpr size_t kSetPredicationIndex = 55;
     constexpr size_t kMapIndex = 8;
     constexpr size_t kBeginQueryIndex = 52;
@@ -215,7 +219,8 @@ namespace hooks {
     static LPVOID pResetTarget = nullptr;
     static LPVOID pCloseTarget = nullptr;
     static LPVOID pIASetIndexBufferTarget = nullptr;
-    static LPVOID pDispatchMeshTarget = nullptr;
+    static LPVOID pSetPipelineStateTarget = nullptr;
+    static LPVOID pIASetPrimitiveTopologyTarget = nullptr;
     static LPVOID pSetPredicationTarget = nullptr;
     static LPVOID pMapTarget = nullptr;
     static LPVOID pBeginQueryTarget = nullptr;
@@ -319,8 +324,8 @@ namespace hooks {
             Log("[hooks] QueryInterface IDXGISwapChain3 failed: 0x%08X\n", hr);
             return hr;
         }
-
-        // 10. This is for MAP
+        /*
+        // 10. This is for MAP (optional)
         D3D12_HEAP_PROPERTIES heapProps = {};
         heapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // Required for Map access
 
@@ -348,7 +353,7 @@ namespace hooks {
             auto resVTable = *reinterpret_cast<void***>(pDummyResource.Get());
             pMapTarget = resVTable[kMapIndex];
         }
-
+        */
         return S_OK;
     }
 
@@ -477,7 +482,15 @@ namespace hooks {
 
         pIASetIndexBufferTarget = reinterpret_cast<LPVOID>(slVTable[kIASetIndexBufferIndex]);
         mh = MH_CreateHook(pIASetIndexBufferTarget, reinterpret_cast<LPVOID>(d3d12hook::hookIASetIndexBufferD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oIASetIndexBufferD3D12));
-        if (mh != MH_OK) Log("[hooks] MH_CreateHook IASetIndexBuffer failed: %s\n", MH_StatusToString(mh));  
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook IASetIndexBuffer failed: %s\n", MH_StatusToString(mh)); 
+
+        pSetPipelineStateTarget = reinterpret_cast<LPVOID>(slVTable[kSetPipelineStateIndex]);
+        mh = MH_CreateHook(pSetPipelineStateTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetPipelineStateD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetPipelineStateD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetPipelineState failed: %s\n", MH_StatusToString(mh));
+
+        pIASetPrimitiveTopologyTarget = reinterpret_cast<LPVOID>(slVTable[kIASetPrimitiveTopologyIndex]);
+        mh = MH_CreateHook(pIASetPrimitiveTopologyTarget, reinterpret_cast<LPVOID>(d3d12hook::hookIASetPrimitiveTopologyD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oIASetPrimitiveTopologyD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook IASetPrimitiveTopology failed: %s\n", MH_StatusToString(mh));
 
         pSetPredicationTarget = reinterpret_cast<LPVOID>(slVTable[kSetPredicationIndex]);
         mh = MH_CreateHook(pSetPredicationTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetPredicationD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetPredicationD3D12));
@@ -490,24 +503,6 @@ namespace hooks {
         pEndQueryTarget = reinterpret_cast<LPVOID>(slVTable[kEndQueryIndex]);
         mh = MH_CreateHook(pEndQueryTarget, reinterpret_cast<LPVOID>(d3d12hook::hookEndQueryD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oEndQueryD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook EndQuery failed: %s\n", MH_StatusToString(mh));
-
-        //cmdlist 6 table
-        //ComPtr<ID3D12GraphicsCommandList6> cl6;
-        //hr = pCommandList.As(&cl6);
-        //if (FAILED(hr))
-        //{
-            //Log("[hooks] ID3D12GraphicsCommandList6 not supported\n");
-            //return;
-        //}
-        //auto cl6VTable = *reinterpret_cast<void***>(cl6.Get());
-        //pDispatchMeshTarget = reinterpret_cast<LPVOID>(cl6VTable[kDispatchMeshIndex]);
-        //mh = MH_CreateHook(pDispatchMeshTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDispatchMeshD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDispatchMeshD3D12));
-        //if (mh != MH_OK) Log("[hooks] MH_CreateHook DispatchMesh failed: %s\n", MH_StatusToString(mh));
-
-        //if (pMapTarget) {
-            //mh = MH_CreateHook(pMapTarget, reinterpret_cast<LPVOID>(d3d12hook::hookMapD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oMapD3D12));
-            //if (mh != MH_OK) Log("[hooks] MH_CreateHook Map failed: %s\n", MH_StatusToString(mh));
-        //}
 
 
         // --- Enable all hooks ---
@@ -554,6 +549,8 @@ namespace hooks {
         DisableAndRemove(pSetGraphicsRootSignatureTarget);
         DisableAndRemove(pResetTarget);
         DisableAndRemove(pIASetIndexBufferTarget);
+        DisableAndRemove(pSetPipelineStateTarget);
+        DisableAndRemove(pIASetPrimitiveTopologyTarget);
         DisableAndRemove(pSetPredicationTarget);
         //DisableAndRemove(pMapTarget);
         //DisableAndRemove(pCloseTarget);
@@ -628,7 +625,26 @@ thread_local struct {
     D3D12_CPU_DESCRIPTOR_HANDLE currentDSVHandle = {};
     BOOL currentRTsSingleHandle = FALSE;
     bool hasDSV = false;
+
+    ID3D12PipelineState* currentPSO = nullptr;
+    // optional safety
+    //UINT64 frameId = 0;
+    D3D12_PRIMITIVE_TOPOLOGY currentTopology;
 } t_;
+
+//=========================================================================================================================//
+//SetPipelineState
+struct PSOStats
+{
+    ID3D12PipelineState* pso;
+    UINT maxIndexCount;
+};
+
+// Use thread_local to prevent crashes
+// Fast (one CPU cache line is usually 64 bytes, 
+// this whole array is about 1.5KB, which fits easily in L1 cache)
+thread_local static PSOStats psoStats[128] = {};
+thread_local static UINT psoCount = 0;
 
 //=========================================================================================================================//
 

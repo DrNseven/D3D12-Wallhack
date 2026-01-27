@@ -56,7 +56,8 @@ namespace d3d12hook {
     ResetFn oResetD3D12 = nullptr;
     CloseFn oCloseD3D12 = nullptr;
     IASetIndexBufferFn      oIASetIndexBufferD3D12 = nullptr;
-    DispatchMeshFn          oDispatchMeshD3D12 = nullptr;
+    SetPipelineStateFn      oSetPipelineStateD3D12 = nullptr;
+    IASetPrimitiveTopologyFn oIASetPrimitiveTopologyD3D12 = nullptr;
     SetPredicationFn        oSetPredicationD3D12 = nullptr;
     BeginQueryFn            oBeginQueryD3D12 = nullptr;
     EndQueryFn              oEndQueryD3D12 = nullptr;
@@ -114,6 +115,25 @@ namespace d3d12hook {
     HRESULT STDMETHODCALLTYPE hookResizeBuffersD3D12(IDXGISwapChain3* pSwapChain,UINT BufferCount,UINT Width,UINT Height,DXGI_FORMAT NewFormat,UINT SwapChainFlags)
     {
         return oResizeBuffersD3D12(pSwapChain, BufferCount, Width, Height, NewFormat, SwapChainFlags);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookSetPipelineStateD3D12(ID3D12GraphicsCommandList* _this,ID3D12PipelineState* pso)
+    {
+        // cache for fast filtering
+        t_.currentPSO = pso;
+
+        return oSetPipelineStateD3D12(_this, pso);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookIASetPrimitiveTopologyD3D12(ID3D12GraphicsCommandList* _this, D3D12_PRIMITIVE_TOPOLOGY PrimitiveTopology)
+    {
+        t_.currentTopology = PrimitiveTopology;
+      
+        return oIASetPrimitiveTopologyD3D12(_this, PrimitiveTopology);
     }
 
     //=========================================================================================================================//
@@ -278,6 +298,55 @@ namespace d3d12hook {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
+        // --- LEVEL 5
+        if (t_.currentTopology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+        // --- LEVEL 6
+        if (!t_.currentPSO) //Guard against t_.currentPSO == nullptr
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+        PSOStats* stats = nullptr;
+
+        // 1. Find or Create Entry
+        for (UINT i = 0; i < psoCount; ++i)
+        {
+            if (psoStats[i].pso == t_.currentPSO)
+            {
+                stats = &psoStats[i];
+                break;
+            }
+        }
+
+        if (!stats)
+        {
+            // If cache is full, we can't learn more on this thread.
+            // We allow the draw to proceed without the PSO-filter safety.
+            if (psoCount < 128)
+            {
+                stats = &psoStats[psoCount++];
+                stats->pso = t_.currentPSO;
+                stats->maxIndexCount = 0;
+            }
+        }
+
+        // 2. Update the Heuristic
+        if (stats)
+        {
+            if (IndexCountPerInstance > stats->maxIndexCount)
+                stats->maxIndexCount = IndexCountPerInstance;
+
+            // 3. The Filter
+            // If this PSO has never drawn anything > 300 indices, skip heavy logic.
+            // Note: If the CURRENT call is > 300, it just updated maxIndexCount,
+            // so it will NOT be skipped. This is perfect.
+            if (stats->maxIndexCount < 300)
+            {
+                return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+            }
+        }
+
+
         // 2. IDENTIFICATION
         const UINT currentStrides = t_.StrideHash + t_.StartSlot;
 
@@ -328,7 +397,7 @@ namespace d3d12hook {
             // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
 
-            if (originalVp.Width >= 128 && originalVp.Width < 16384 && originalVp.Height >= 128)
+            if (originalVp.Width >= 128 && originalVp.Width < 16384)
             {
                 D3D12_VIEWPORT hVp = originalVp;
                 hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
@@ -360,6 +429,9 @@ namespace d3d12hook {
 
         // 3. State Filters (The most important ones here!)
         // These ensure we aren't looking at UI, Shadows, or Post-Processing
+        // Be careful with NumRTVs == 0 (Good for perfromance but RISKY)
+        // If the game uses a Depth - Pre - Pass(common in Warzone, Halo, Battlefield), the players are drawn to the Depth buffer first with 0 RTVs.
+        // If you filter this, you will miss them
         if (t_.currentNumRTVs == 0 || !t_.hasDSV || t_.currentViewport.Width < 500.0f)
             return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
 
@@ -369,8 +441,28 @@ namespace d3d12hook {
         if (MaxCommandCount > 50) //?
             return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
 
-        // 5. Signature Pointer Filter (Optional but recommended)
+        // 5.
+        if (t_.currentTopology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // 5. PSO Logic (Simplified for ExecuteIndirect)
+        PSOStats* stats = nullptr;
+        for (UINT i = 0; i < psoCount; ++i) {
+            if (psoStats[i].pso == t_.currentPSO) {
+                stats = &psoStats[i];
+                break;
+            }
+        }
+
+        // 6. Only filter if we are CERTAIN this PSO is for tiny objects (UI)
+        // We learned this certainty from the DrawIndexedInstanced hook!
+        if (stats && stats->maxIndexCount > 0 && stats->maxIndexCount < 100) {
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+        }
+
+        // 7. Signature Pointer Filter (Optional but recommended)
         // if (pCommandSignature == knownComputeSignature) return ...;
+
         
         // 2. IDENTIFICATION
         const UINT currentStrides = t_.StrideHash + t_.StartSlot;
@@ -422,7 +514,7 @@ namespace d3d12hook {
             // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
 
-            if (originalVp.Width >= 128 && originalVp.Width < 16384 && originalVp.Height >= 128)
+            if (originalVp.Width >= 128 && originalVp.Width < 16384)
             {
                 D3D12_VIEWPORT hVp = originalVp;
                 hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
@@ -638,7 +730,7 @@ namespace d3d12hook {
     {
         //if (pBuffer != nullptr)
         //{
-            // Disable predication → draw everything
+            // Disable predication -> draw everything
             //oSetPredicationD3D12(self, nullptr, 0, Operation);
             //return;
         //}
@@ -729,13 +821,6 @@ namespace d3d12hook {
     void STDMETHODCALLTYPE hookDispatchD3D12(ID3D12GraphicsCommandList* pList, UINT threadCountX, UINT threadCountY, UINT threadCountZ)
     {
         oDispatchD3D12(pList, threadCountX, threadCountY, threadCountZ);
-    }
-
-    //=========================================================================================================================//
-
-    void STDMETHODCALLTYPE hookDispatchMeshD3D12(ID3D12GraphicsCommandList6* cmd, UINT x, UINT y, UINT z)
-    {
-        oDispatchMeshD3D12(cmd, x, y, z);
     }
 
     //=========================================================================================================================//
