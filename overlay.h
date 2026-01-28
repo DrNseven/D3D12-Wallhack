@@ -34,6 +34,9 @@ int countcurrentindexid = -1;
 int countcurrentindexid2 = -1;
 int countcurrentindexid3 = -1;
 int countfindrendertarget = -1;
+int countconstantbuffer = -1;
+int countrootdescriptor = -1;
+int countcomputerootdescriptor = -2;
 int countindexformat = -1;
 int countfilternumViews = -1;
 int countfilternumViewports = -1;
@@ -78,6 +81,9 @@ void SaveConfig()
     fout << "countstride2 " << countstride2 << endl;
     fout << "countstride3 " << countstride3 << endl;
     fout << "countstride4 " << countstride4 << endl;
+    fout << "countconstantbuffer " << countconstantbuffer << endl;
+    fout << "countrootdescriptor " << countrootdescriptor << endl;
+
     fout << "countIndexCount " << countIndexCount << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
     fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
@@ -137,6 +143,8 @@ void LoadConfig()
     fin >> Word >> countstride2;
     fin >> Word >> countstride3;
     fin >> Word >> countstride4;
+    fin >> Word >> countconstantbuffer;
+    fin >> Word >> countrootdescriptor;
     fin >> Word >> countIndexCount;
     fin >> Word >> countcurrentRootSigID;
     fin >> Word >> countcurrentRootSigID2;
@@ -540,6 +548,7 @@ void Render()
         //ImGui::Begin("Wallhack", nullptr, flags | ImGuiWindowFlags_NoFocusOnAppearing);
 
         const UINT minus_val = -1;
+        const UINT minus_val2 = -2;
         const UINT min_val = 0;
         const UINT max_val = 100;
         ImGui::Text("Permanent Values");
@@ -547,9 +556,12 @@ void Render()
         ImGui::SliderInt("Find Stridehash 2", &countstride2, minus_val, max_val);
         ImGui::SliderInt("Find Stridehash 3", &countstride3, minus_val, max_val);
         ImGui::SliderInt("Find Stridehash 4", &countstride4, minus_val, max_val);
+        ImGui::SliderInt("Find ConstantBuffer", &countconstantbuffer, minus_val, max_val);
+        ImGui::SliderInt("Find RootDescriptor", &countrootdescriptor, minus_val, max_val);
+        ImGui::SliderInt("Find ComputeDescriptor", &countcomputerootdescriptor, minus_val2, max_val);
         ImGui::SliderInt("Find IndexCount", &countIndexCount, minus_val, max_val);
         ImGui::SliderInt("Find RenderTarget", &countfindrendertarget, minus_val, max_val);
-        ImGui::SliderInt("Find IndexFormat+Vp", &countindexformat, minus_val, max_val);
+        //ImGui::SliderInt("Find IndexFormat+Vp", &countindexformat, minus_val, max_val);
 
         //temporary IDs below (changes after game restart)
         ImGui::Checkbox("Temporary IDs", &temporaryids);

@@ -49,10 +49,12 @@ namespace d3d12hook {
     SetGraphicsRootConstantBufferViewFn oSetGraphicsRootConstantBufferViewD3D12 = nullptr;
     SetDescriptorHeapsFn    oSetDescriptorHeapsD3D12 = nullptr;
     SetGraphicsRootDescriptorTableFn oSetGraphicsRootDescriptorTableD3D12 = nullptr;
+    SetComputeRootDescriptorTableFn oSetComputeRootDescriptorTableD3D12 = nullptr;
     OMSetRenderTargetsFn    oOMSetRenderTargetsD3D12 = nullptr;
     ResolveQueryDataFn      oResolveQueryDataD3D12 = nullptr;
     ExecuteIndirectFn       oExecuteIndirectD3D12 = nullptr;
     SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12 = nullptr;
+    ClearUnorderedAccessViewUintFn oClearUnorderedAccessViewUintD3D12 = nullptr;
     ResetFn oResetD3D12 = nullptr;
     CloseFn oCloseD3D12 = nullptr;
     IASetIndexBufferFn      oIASetIndexBufferD3D12 = nullptr;
@@ -61,7 +63,7 @@ namespace d3d12hook {
     SetPredicationFn        oSetPredicationD3D12 = nullptr;
     BeginQueryFn            oBeginQueryD3D12 = nullptr;
     EndQueryFn              oEndQueryD3D12 = nullptr;
-    //if unresolved external symbol d3d12hook::function, fix here
+    //if unresolved external symbol d3d12hook::function, add fix here
 
 
     static ID3D12Device*            gDevice = nullptr;
@@ -176,34 +178,43 @@ namespace d3d12hook {
 
     //=========================================================================================================================//
 
-    void STDMETHODCALLTYPE hookIASetVertexBuffersD3D12(ID3D12GraphicsCommandList* _this, UINT StartSlot, UINT NumViews, const D3D12_VERTEX_BUFFER_VIEW* pViews) {
-
+    void STDMETHODCALLTYPE hookIASetVertexBuffersD3D12(ID3D12GraphicsCommandList* _this,UINT StartSlot,UINT NumViews,const D3D12_VERTEX_BUFFER_VIEW* pViews)
+    {
+        // 1. Reset current state
         t_.StartSlot = StartSlot;
         t_.numViews = NumViews;
+        //t_.cachedStrideSum = 0;
 
-        for (UINT i = 0; i < 16; ++i) {
-            t_.Strides[i] = (pViews && i < NumViews)
-                ? pViews[i].StrideInBytes: 0;
-            //t_.currentGPUVAddress = pViews[0].BufferLocation;
+        // Clear old data
+        for (int i = 0; i < 16; ++i) {
+            t_.Strides[i] = 0;
+            //t_.vertexBufferSizes[i] = 0;
         }
 
-        if (pViews && NumViews > 0) {
-            t_.CanonicalCount = BuildCanonicalStrides(pViews,NumViews,t_.CanonicalStrides,_countof(t_.CanonicalStrides));
+        // 2. Process views
+        if (NumViews > 0 && pViews) {
+            uint32_t strideData[16] = {};
+            UINT validCount = (NumViews > 16) ? 16 : NumViews;
 
-            if (t_.CanonicalCount > 0) {
-                uint32_t h = HashStrides(t_.CanonicalStrides,t_.CanonicalCount);
+            for (UINT i = 0; i < validCount; ++i) {
+                // Filter out clearly invalid strides or huge raw buffers
+                if (pViews[i].StrideInBytes > 0 && pViews[i].StrideInBytes <= 999) {
+                    t_.Strides[i] = pViews[i].StrideInBytes;
+                    //t_.vertexBufferSizes[i] = pViews[i].SizeInBytes;
 
-                //hash
-                t_.StrideHash = FoldToTwoDigits(h);
+                    strideData[i] = pViews[i].StrideInBytes;
+                    //t_.cachedStrideSum += pViews[i].StrideInBytes;
+                }
             }
-            else {
-                t_.StrideHash = 0;
-            }
+
+            // 3. Generate a High-Precision Hash
+            // Use the full 32-bit result for internal logic to prevent flickering
+            t_.StrideHash = fastStrideHash(strideData, validCount);
         }
         else {
             t_.StrideHash = 0;
         }
-        
+
         return oIASetVertexBuffersD3D12(_this, StartSlot, NumViews, pViews);
     }
 
@@ -285,7 +296,7 @@ namespace d3d12hook {
         // --- LEVEL 3: CACHED STATE CHECKS (LOW COST) ---
         // These look up your thread_local 't_' struct. 
         // Filter 3 & 4 combined: If no RTV or no Depth, it's UI/Post-FX/Shadows.
-        if (t_.currentNumRTVs == 0 || !t_.hasDSV)
+        if (t_.currentNumRTVs == 999 || !t_.hasDSV) //sadly t_.currentNumRTVs == 0 can be models, usually big performance boost if we filter 0 out
         {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
@@ -354,6 +365,7 @@ namespace d3d12hook {
 
         if (currentStrides == countstride1 || currentStrides == countstride2 ||
             currentStrides == countstride3 || currentStrides == countstride4 ||
+            tls_cache.lastRDTindex == countrootdescriptor || tls_cache.lastRCBVindex == countconstantbuffer || tls_cache.lastCRDTindex == countcomputerootdescriptor ||
             t_.currentNumRTVs == countfindrendertarget|| IndexCountPerInstance / 500 == countIndexCount)
         {
             isModelDraw = true;
@@ -389,10 +401,10 @@ namespace d3d12hook {
             if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;
 
             // Root Descriptor/Constant Filters
-            if (filterRootDescriptor && (tls_cache.lastRDIndex != countfilterrootDescriptor && tls_cache.lastRDIndex != countfilterrootDescriptor2 && tls_cache.lastRDIndex != countfilterrootDescriptor3)) goto skip;
-            if (ignoreRootDescriptor && (tls_cache.lastRDIndex == countignorerootDescriptor || tls_cache.lastRDIndex == countignorerootDescriptor2 || tls_cache.lastRDIndex == countignorerootDescriptor3)) goto skip;
-            if (filterRootConstant && (tls_cache.lastCbvIndex != countfilterrootConstant && tls_cache.lastCbvIndex != countfilterrootConstant2 && tls_cache.lastCbvIndex != countfilterrootConstant3)) goto skip;
-            if (ignoreRootConstant && (tls_cache.lastCbvIndex == countignorerootConstant || tls_cache.lastCbvIndex == countignorerootConstant2 || tls_cache.lastCbvIndex == countignorerootConstant3)) goto skip;
+            if (filterRootDescriptor && (tls_cache.lastRDTindex != countfilterrootDescriptor && tls_cache.lastRDTindex != countfilterrootDescriptor2 && tls_cache.lastRDTindex != countfilterrootDescriptor3)) goto skip;
+            if (ignoreRootDescriptor && (tls_cache.lastRDTindex == countignorerootDescriptor || tls_cache.lastRDTindex == countignorerootDescriptor2 || tls_cache.lastRDTindex == countignorerootDescriptor3)) goto skip;
+            if (filterRootConstant && (tls_cache.lastRCBVindex != countfilterrootConstant && tls_cache.lastRCBVindex != countfilterrootConstant2 && tls_cache.lastRCBVindex != countfilterrootConstant3)) goto skip;
+            if (ignoreRootConstant && (tls_cache.lastRCBVindex == countignorerootConstant || tls_cache.lastRCBVindex == countignorerootConstant2 || tls_cache.lastRCBVindex == countignorerootConstant3)) goto skip;
 
             // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
@@ -419,6 +431,7 @@ namespace d3d12hook {
     void STDMETHODCALLTYPE hookExecuteIndirectD3D12(ID3D12GraphicsCommandList* _this,ID3D12CommandSignature* pCommandSignature,UINT MaxCommandCount,ID3D12Resource* pArgumentBuffer,
         UINT64 ArgumentBufferOffset,ID3D12Resource* pCountBuffer,UINT64 CountBufferOffset)
     {
+        
         // 1. Mandatory Exits
         if (!_this || MaxCommandCount == 0)
             return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
@@ -432,7 +445,7 @@ namespace d3d12hook {
         // Be careful with NumRTVs == 0 (Good for perfromance but RISKY)
         // If the game uses a Depth - Pre - Pass(common in Warzone, Halo, Battlefield), the players are drawn to the Depth buffer first with 0 RTVs.
         // If you filter this, you will miss them
-        if (t_.currentNumRTVs == 0 || !t_.hasDSV || t_.currentViewport.Width < 500.0f)
+        if (t_.currentNumRTVs == 999 || !t_.hasDSV || t_.currentViewport.Width < 500.0f) //sadly t_.currentNumRTVs == 0 can be models, usually big performance boost if we filter 0 out
             return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
 
         // 4. Batch Size Filter
@@ -471,6 +484,7 @@ namespace d3d12hook {
 
         if (currentStrides == countstride1 || currentStrides == countstride2 ||
             currentStrides == countstride3 || currentStrides == countstride4 ||
+            tls_cache.lastRDTindex == countrootdescriptor || tls_cache.lastRCBVindex == countconstantbuffer || tls_cache.lastCRDTindex == countcomputerootdescriptor ||
             t_.currentNumRTVs == countfindrendertarget)
         {
             isModelDraw = true;
@@ -506,10 +520,10 @@ namespace d3d12hook {
             if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;
 
             // Root Descriptor/Constant Filters
-            if (filterRootDescriptor && (tls_cache.lastRDIndex != countfilterrootDescriptor && tls_cache.lastRDIndex != countfilterrootDescriptor2 && tls_cache.lastRDIndex != countfilterrootDescriptor3)) goto skip;
-            if (ignoreRootDescriptor && (tls_cache.lastRDIndex == countignorerootDescriptor || tls_cache.lastRDIndex == countignorerootDescriptor2 || tls_cache.lastRDIndex == countignorerootDescriptor3)) goto skip;
-            if (filterRootConstant && (tls_cache.lastCbvIndex != countfilterrootConstant && tls_cache.lastCbvIndex != countfilterrootConstant2 && tls_cache.lastCbvIndex != countfilterrootConstant3)) goto skip;
-            if (ignoreRootConstant && (tls_cache.lastCbvIndex == countignorerootConstant || tls_cache.lastCbvIndex == countignorerootConstant2 || tls_cache.lastCbvIndex == countignorerootConstant3)) goto skip;
+            if (filterRootDescriptor && (tls_cache.lastRDTindex != countfilterrootDescriptor && tls_cache.lastRDTindex != countfilterrootDescriptor2 && tls_cache.lastRDTindex != countfilterrootDescriptor3)) goto skip;
+            if (ignoreRootDescriptor && (tls_cache.lastRDTindex == countignorerootDescriptor || tls_cache.lastRDTindex == countignorerootDescriptor2 || tls_cache.lastRDTindex == countignorerootDescriptor3)) goto skip;
+            if (filterRootConstant && (tls_cache.lastRCBVindex != countfilterrootConstant && tls_cache.lastRCBVindex != countfilterrootConstant2 && tls_cache.lastRCBVindex != countfilterrootConstant3)) goto skip;
+            if (ignoreRootConstant && (tls_cache.lastRCBVindex == countignorerootConstant || tls_cache.lastRCBVindex == countignorerootConstant2 || tls_cache.lastRCBVindex == countignorerootConstant3)) goto skip;
 
             // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
@@ -527,19 +541,6 @@ namespace d3d12hook {
             }
         }
 
-        //if (MaxCommandCount > 0) {
-            // Try Strategy A: Force draw all slots
-            //oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, nullptr, 0);
-            //return;
-        //}
-
-        //if (pCountBuffer && MaxCommandCount > 0 && MaxCommandCount < 5000) // Safety cap
-        //{
-            // Passing NULL for pCountBuffer forces the GPU to draw 
-            // every single command slot up to MaxCommandCount.
-            //return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount,pArgumentBuffer, ArgumentBufferOffset,nullptr, 0);
-        //}
-
     skip:
         oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
     }
@@ -556,17 +557,17 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookSetGraphicsRootConstantBufferViewD3D12(ID3D12GraphicsCommandList* _this, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
 
-        // Synchronize cache if the engine switched command lists on this thread
+        // 1. Sync the command list context
         if (tls_cache.cmdListPtr != _this) {
             tls_cache.cmdListPtr = _this;
-            // Optionally: Reset state if it's a new command list context
-            //tls_cache.lastCbvIndex = UINT_MAX;
+            // Reset to a sentinel value because we don't know the state of this new list
+            tls_cache.lastRCBVindex = UINT_MAX;
         }
 
-        if(_this)
-        {
-            tls_cache.lastCbvIndex = RootParameterIndex;
-            //t_.currentGPURAddress = BufferLocation;
+        // 2. Only update the cache if the address is valid
+        if (BufferLocation != 0) {
+            tls_cache.lastRCBVindex = RootParameterIndex;
+            // tls_cache.currentGPURAddress = BufferLocation; // Useful if you need to track address ranges
         }
 
         return oSetGraphicsRootConstantBufferViewD3D12(_this, RootParameterIndex, BufferLocation);
@@ -576,21 +577,41 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookSetGraphicsRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
 
+        // 1. Update the command list context if it switched
         if (tls_cache.cmdListPtr != dCommandList) {
             tls_cache.cmdListPtr = dCommandList;
-
-            //tls_cache.lastRDIndex = UINT_MAX;
-
-            //if (BaseDescriptor.ptr != 0)
-                //t_.LastDescriptorBase = BaseDescriptor;
+            tls_cache.lastRDTindex = UINT_MAX; // Reset index for the new list
         }
 
-        if (BaseDescriptor.ptr != 0)
-        {
-            tls_cache.lastRDIndex = RootParameterIndex;
+        // 2. Only cache and pass through if it's a valid handle
+        // or if you specifically want to track the 'null' state.
+        if (BaseDescriptor.ptr != 0) {
+            if (tls_cache.lastRDTindex != RootParameterIndex) {
+                tls_cache.lastRDTindex = RootParameterIndex;
+            }
         }
 
         return oSetGraphicsRootDescriptorTableD3D12(dCommandList, RootParameterIndex, BaseDescriptor);
+    }
+
+    //=========================================================================================================================//
+
+    //SetComputeRootDescriptorTable
+    void STDMETHODCALLTYPE hookSetComputeRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList,UINT RootParameterIndex,D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor)
+    {
+        // 1. Sync the command list context
+        if (tls_cache.cmdListPtr != dCommandList) {
+            tls_cache.cmdListPtr = dCommandList;
+            // It's safer to reset all indices when the command list switches
+            tls_cache.lastCRDTindex = UINT_MAX;
+        }
+
+        // 2. Access the .ptr member for the null check
+        if (BaseDescriptor.ptr != 0) {
+            tls_cache.lastCRDTindex = RootParameterIndex;
+        }
+
+        return oSetComputeRootDescriptorTableD3D12(dCommandList, RootParameterIndex, BaseDescriptor);
     }
 
     //=========================================================================================================================//
@@ -599,6 +620,18 @@ namespace d3d12hook {
 
         if (!dCommandList || !pRootSignature) 
             return oSetGraphicsRootSignatureD3D12(dCommandList, pRootSignature);
+
+        // 1. Always sync the command list pointer
+        tls_cache.cmdListPtr = dCommandList;
+
+        // 2. INVALIDATE the cached indices
+        // Because the new signature might have different bindings at these indices
+        tls_cache.lastRDTindex = UINT_MAX;
+        tls_cache.lastRCBVindex = UINT_MAX;
+        tls_cache.lastCRDTindex = UINT_MAX;
+
+        // 3. Optional: Cache the root signature itself if you need to check types later
+        //tls_cache.currentRootSig = pRootSignature;
 
         if ((countcurrentindexid > 0 || countcurrentindexid2 > 0 || countcurrentindexid3 > 0) && (dCommandList && pRootSignature)) {
             uint32_t idToStore = 0;
@@ -637,11 +670,14 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookResetD3D12(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState) {
 
-        // Reset our cache for this specific command list context
-        if (tls_cache.cmdListPtr == _this) {
-            tls_cache.lastCbvIndex = UINT_MAX;
-            tls_cache.lastRDIndex = UINT_MAX;
-        }
+        // ALWAYS sync the pointer
+        tls_cache.cmdListPtr = _this;
+
+        // ALWAYS reset the indices
+        // A Reset() command list has no state. Stale cache = bugs.
+        tls_cache.lastRCBVindex = UINT_MAX;
+        tls_cache.lastRDTindex = UINT_MAX;
+        tls_cache.lastCRDTindex = UINT_MAX;
 
         //CmdState* state = GetCmdState(_this);
         //state->NumRTVs = 0;
@@ -839,9 +875,54 @@ namespace d3d12hook {
 
     //=========================================================================================================================//
 
-    void STDMETHODCALLTYPE hookDispatchD3D12(ID3D12GraphicsCommandList* pList, UINT threadCountX, UINT threadCountY, UINT threadCountZ)
+    void STDMETHODCALLTYPE hookClearUnorderedAccessViewUintD3D12(
+        ID3D12GraphicsCommandList* cl,
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle,
+        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
+        ID3D12Resource* resource,
+        const UINT values[4],
+        UINT numRects,
+        const D3D12_RECT* rects)
     {
-        oDispatchD3D12(pList, threadCountX, threadCountY, threadCountZ);
+        /*
+        UINT forcedValues[4] = {
+            values[0],
+            values[1],
+            values[2],
+            values[3]
+        };
+
+        auto it = g_UAVMap.find(cpuHandle.ptr);
+        if (it != g_UAVMap.end())
+        {
+            const UAVInfo& info = it->second;
+
+            if (IsLikelyVisibilityBuffer(info))
+            {
+                // Force "visible"
+                forcedValues[0] = 1;
+                forcedValues[1] = 1;
+                forcedValues[2] = 1;
+                forcedValues[3] = 1;
+            }
+        }
+
+        // Forward the call (NEVER skip it)
+        oClearUnorderedAccessViewUintD3D12(cl,gpuHandle, cpuHandle,resource,forcedValues,numRects,rects);
+        */
+
+        oClearUnorderedAccessViewUintD3D12(cl, gpuHandle, cpuHandle, resource, values, numRects, rects);
+    }
+
+    //=========================================================================================================================//
+
+    //Claim: The Solution for CPU Culling :
+    //You need to hook ID3D12GraphicsCommandList::SetGraphicsRootDescriptorTable and look for the constant buffers that pass culling parameters to the GPU, 
+    //or find the engine's internal flags (CVars) in memory and flip them to 0.
+
+    void STDMETHODCALLTYPE hookDispatchD3D12(ID3D12GraphicsCommandList* cl, UINT x, UINT y, UINT z)
+    {
+        oDispatchD3D12(cl, x, y, z);
     }
 
     //=========================================================================================================================//
