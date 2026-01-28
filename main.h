@@ -433,30 +433,34 @@ namespace hooks {
         mh = MH_CreateHook(pDrawIndexedInstancedTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDrawIndexedInstancedD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDrawIndexedInstancedD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook DrawIndexedInstanced failed: %s\n", MH_StatusToString(mh));
 
-        pDrawInstancedTarget = reinterpret_cast<LPVOID>(slVTable[kDrawInstancedIndex]);
-        mh = MH_CreateHook(pDrawInstancedTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDrawInstancedD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDrawInstancedD3D12));
-        if (mh != MH_OK) Log("[hooks] MH_CreateHook DrawInstanced failed: %s\n", MH_StatusToString(mh));
+        //pDrawInstancedTarget = reinterpret_cast<LPVOID>(slVTable[kDrawInstancedIndex]);
+        //mh = MH_CreateHook(pDrawInstancedTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDrawInstancedD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDrawInstancedD3D12));
+        //if (mh != MH_OK) Log("[hooks] MH_CreateHook DrawInstanced failed: %s\n", MH_StatusToString(mh));
 
         //pDispatchTarget = reinterpret_cast<LPVOID>(slVTable[kDispatchIndex]);
         //mh = MH_CreateHook(pDispatchTarget, reinterpret_cast<LPVOID>(d3d12hook::hookDispatchD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oDispatchD3D12));
         //if (mh != MH_OK) Log("[hooks] MH_CreateHook Dispatch failed: %s\n", MH_StatusToString(mh));
 
-        pSetGraphicsRootConstantBufferViewTarget = reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootConstantBufferViewIndex]);
-        mh = MH_CreateHook(pSetGraphicsRootConstantBufferViewTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootConstantBufferViewD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootConstantBufferViewD3D12));
-        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootConstantBufferView failed: %s\n", MH_StatusToString(mh));
-
         //pSetDescriptorHeapsTarget = reinterpret_cast<LPVOID>(slVTable[kSetDescriptorHeapsIndex]);
         //mh = MH_CreateHook(pSetDescriptorHeapsTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetDescriptorHeapsD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetDescriptorHeapsD3D12));
         //if (mh != MH_OK) Log("[hooks] MH_CreateHook SetDescriptorHeaps failed: %s\n", MH_StatusToString(mh));
+        
+        pSetGraphicsRootConstantBufferViewTarget = reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootConstantBufferViewIndex]);
+        mh = MH_CreateHook(pSetGraphicsRootConstantBufferViewTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootConstantBufferViewD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootConstantBufferViewD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootConstantBufferView failed: %s\n", MH_StatusToString(mh));
 
         pSetGraphicsRootDescriptorTableTarget = reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootDescriptorTableIndex]);
         mh = MH_CreateHook(pSetGraphicsRootDescriptorTableTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootDescriptorTableD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootDescriptorTableD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootDescriptorTable failed: %s\n", MH_StatusToString(mh));
 
-        pSetComputeRootDescriptorTableTarget = reinterpret_cast<LPVOID>(slVTable[kSetComputeRootDescriptorTableIndex]);
-        mh = MH_CreateHook(pSetComputeRootDescriptorTableTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetComputeRootDescriptorTableD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetComputeRootDescriptorTableD3D12));
-        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetComputeRootDescriptorTable failed: %s\n", MH_StatusToString(mh));
+        //pSetComputeRootDescriptorTableTarget = reinterpret_cast<LPVOID>(slVTable[kSetComputeRootDescriptorTableIndex]);
+        //mh = MH_CreateHook(pSetComputeRootDescriptorTableTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetComputeRootDescriptorTableD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetComputeRootDescriptorTableD3D12));
+        //if (mh != MH_OK) Log("[hooks] MH_CreateHook SetComputeRootDescriptorTable failed: %s\n", MH_StatusToString(mh));
 
+        pSetGraphicsRootSignatureTarget = reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootSignatureIndex]);
+        mh = MH_CreateHook(pSetGraphicsRootSignatureTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootSignatureD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootSignatureD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootSignature failed: %s\n", MH_StatusToString(mh));
+        
         pOMSetRenderTargetsTarget = reinterpret_cast<LPVOID>(slVTable[kOMSetRenderTargetsIndex]);
         mh = MH_CreateHook(pOMSetRenderTargetsTarget, reinterpret_cast<LPVOID>(d3d12hook::hookOMSetRenderTargetsD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oOMSetRenderTargetsD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook OMSetRenderTargets failed: %s\n", MH_StatusToString(mh));
@@ -469,13 +473,9 @@ namespace hooks {
         mh = MH_CreateHook(pExecuteIndirectTarget, reinterpret_cast<LPVOID>(d3d12hook::hookExecuteIndirectD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oExecuteIndirectD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook ExecuteIndirect failed: %s\n", MH_StatusToString(mh));
 
-        pSetGraphicsRootSignatureTarget = reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootSignatureIndex]);
-        mh = MH_CreateHook(pSetGraphicsRootSignatureTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootSignatureD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootSignatureD3D12));
-        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootSignature failed: %s\n", MH_StatusToString(mh));
-
-        pClearUnorderedAccessViewUintTarget = reinterpret_cast<LPVOID>(slVTable[kClearUnorderedAccessViewUintIndex]);
-        mh = MH_CreateHook(pClearUnorderedAccessViewUintTarget, reinterpret_cast<LPVOID>(d3d12hook::hookClearUnorderedAccessViewUintD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oClearUnorderedAccessViewUintD3D12));
-        if (mh != MH_OK) Log("[hooks] MH_CreateHook ClearUnorderedAccessViewUint failed: %s\n", MH_StatusToString(mh));
+        //pClearUnorderedAccessViewUintTarget = reinterpret_cast<LPVOID>(slVTable[kClearUnorderedAccessViewUintIndex]);
+        //mh = MH_CreateHook(pClearUnorderedAccessViewUintTarget, reinterpret_cast<LPVOID>(d3d12hook::hookClearUnorderedAccessViewUintD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oClearUnorderedAccessViewUintD3D12));
+        //if (mh != MH_OK) Log("[hooks] MH_CreateHook ClearUnorderedAccessViewUint failed: %s\n", MH_StatusToString(mh));
 
         pResetTarget = reinterpret_cast<LPVOID>(slVTable[kResetIndex]);
         mh = MH_CreateHook(pResetTarget, reinterpret_cast<LPVOID>(d3d12hook::hookResetD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oResetD3D12));
@@ -497,9 +497,9 @@ namespace hooks {
         mh = MH_CreateHook(pIASetPrimitiveTopologyTarget, reinterpret_cast<LPVOID>(d3d12hook::hookIASetPrimitiveTopologyD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oIASetPrimitiveTopologyD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook IASetPrimitiveTopology failed: %s\n", MH_StatusToString(mh));
 
-        pSetPredicationTarget = reinterpret_cast<LPVOID>(slVTable[kSetPredicationIndex]);
-        mh = MH_CreateHook(pSetPredicationTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetPredicationD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetPredicationD3D12));
-        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetPredication failed: %s\n", MH_StatusToString(mh));
+        //pSetPredicationTarget = reinterpret_cast<LPVOID>(slVTable[kSetPredicationIndex]);
+        //mh = MH_CreateHook(pSetPredicationTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetPredicationD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetPredicationD3D12));
+        //if (mh != MH_OK) Log("[hooks] MH_CreateHook SetPredication failed: %s\n", MH_StatusToString(mh));
 
         //pBeginQueryTarget = reinterpret_cast<LPVOID>(slVTable[kBeginQueryIndex]);
         //mh = MH_CreateHook(pBeginQueryTarget, reinterpret_cast<LPVOID>(d3d12hook::hookBeginQueryD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oBeginQueryD3D12));
@@ -580,21 +580,21 @@ namespace hooks {
         DisableAndRemove(pRSSetViewportsTarget);
         DisableAndRemove(pIASetVertexBuffersTarget);
         DisableAndRemove(pDrawIndexedInstancedTarget);
-        DisableAndRemove(pDrawInstancedTarget);
+        //DisableAndRemove(pDrawInstancedTarget);
         DisableAndRemove(pSetGraphicsRootConstantBufferViewTarget);
         //DisableAndRemove(pSetDescriptorHeapsTarget);
         DisableAndRemove(pSetGraphicsRootDescriptorTableTarget);
-        DisableAndRemove(pSetComputeRootDescriptorTableTarget);
+        //DisableAndRemove(pSetComputeRootDescriptorTableTarget);
         DisableAndRemove(pOMSetRenderTargetsTarget);
         DisableAndRemove(pResolveQueryDataTarget);
         DisableAndRemove(pExecuteIndirectTarget);
         DisableAndRemove(pSetGraphicsRootSignatureTarget);
-        DisableAndRemove(pClearUnorderedAccessViewUintTarget);
+        //DisableAndRemove(pClearUnorderedAccessViewUintTarget);
         DisableAndRemove(pResetTarget);
         DisableAndRemove(pIASetIndexBufferTarget);
         DisableAndRemove(pSetPipelineStateTarget);
         DisableAndRemove(pIASetPrimitiveTopologyTarget);
-        DisableAndRemove(pSetPredicationTarget);
+        //DisableAndRemove(pSetPredicationTarget);
         //DisableAndRemove(pMapTarget);
         //DisableAndRemove(pCloseTarget);
         //DisableAndRemove(pBeginQueryTarget);
@@ -637,26 +637,6 @@ namespace globals {
 }
 
 //=========================================================================================================================//
-
-int getTwoDigitValue(int value) {
-    uint32_t h = (uint32_t)value;
-    h ^= h >> 16;
-    h *= 0x85ebca6b;
-    h ^= h >> 13;
-    h *= 0xc2b2ae35;
-    h ^= h >> 16;
-    return (h % 90) + 10;
-}
-
-uint32_t fastStrideHash(const uint32_t* data, size_t count) {
-    uint32_t hash = 2166136261u;
-    for (size_t i = 0; i < count; ++i) {
-        hash ^= data[i];
-        hash *= 16777619u;
-    }
-    return hash % 100; // Two-digit number
-}
-
 
 // Thread-local cache
 thread_local struct {
@@ -709,112 +689,25 @@ thread_local static UINT psoCount = 0;
 
 //=========================================================================================================================//
 
-//IASetVertexBuffers
-#include <cstdint>
-#include <algorithm>
-#include <d3d12.h>
-
-#include <algorithm> // for std::sort
-
-static inline uint32_t HashStrides(const UINT* s, UINT count)
-{
-    // Start with a offset basis that includes the count to differentiate 
-    // between [12, 24] and [12, 24, 0]
-    uint32_t h = 2166136261u ^ count;
-
-    for (UINT i = 0; i < count; ++i) {
-        h ^= s[i];
-        h *= 16777619u;
-    }
-
-    // Finalize the hash to mix the bits further (MurmurHash3 finalizer style)
+int getTwoDigitValue(int value) {
+    uint32_t h = (uint32_t)value;
     h ^= h >> 16;
-    h *= 0x85ebca6bu;
+    h *= 0x85ebca6b;
     h ^= h >> 13;
-    h *= 0xc2b2ae35u;
+    h *= 0xc2b2ae35;
     h ^= h >> 16;
-
-    return h;
+    return (h % 90) + 10;
 }
 
-// Fold into 0-99. Using high-bit multiplication is better than modulo (%)
-static inline uint32_t FoldToTwoDigits(uint32_t h)
-{
-    // Using 64-bit math for a more uniform distribution
-    return (uint32_t)(((uint64_t)h * 100) >> 32);
-}
-
-static inline UINT BuildCanonicalStrides(
-    const D3D12_VERTEX_BUFFER_VIEW* views,
-    UINT numViews,
-    UINT* outStrides,
-    UINT maxOut)
-{
-    UINT count = 0;
-    if (!views) return 0;
-
-    for (UINT i = 0; i < numViews && count < maxOut; ++i) {
-        UINT s = views[i].StrideInBytes;
-
-        // Some engines use strides like 4 or 8 for constant-like data
-        // Only ignore 0.
-        if (s == 0) continue;
-
-        outStrides[count++] = s;
+uint32_t fastStrideHash(const uint32_t* data, size_t count) {
+    uint32_t hash = 2166136261u;
+    for (size_t i = 0; i < count; ++i) {
+        hash ^= data[i];
+        hash *= 16777619u;
     }
-
-    // Use a standard sort for reliability
-    if (count > 1) {
-        std::sort(outStrides, outStrides + count);
-    }
-
-    return count;
+    return hash % 100; // Two-digit number
 }
 
-/*
-// ---------------- Hash Utilities ----------------
-static inline uint32_t HashStrides(const UINT* s, UINT count)
-{
-    // FNV-1a 32-bit hash
-    uint32_t h = 2166136261u;
-    for (UINT i = 0; i < count; ++i) {
-        h ^= s[i];
-        h *= 16777619u;
-    }
-    return h;
-}
-
-// Optional: Fold 32-bit hash into 0–99 for debug/visual purposes
-static inline uint32_t FoldToTwoDigits(uint32_t h)
-{
-    return h % 100; // simpler, better uniformity than multiplication >> 32
-}
-
-// Build canonical stride list (sorted, no zero/junk strides)
-static inline UINT BuildCanonicalStrides(
-    const D3D12_VERTEX_BUFFER_VIEW* views,
-    UINT numViews,
-    UINT* outStrides,
-    UINT maxOut)
-{
-    UINT count = 0;
-
-    for (UINT i = 0; i < numViews && count < maxOut; ++i) {
-        UINT s = views[i].StrideInBytes;
-
-        // Ignore junk / unused buffers
-        if (s == 0 || s > 2048)
-            continue;
-
-        outStrides[count++] = s;
-    }
-
-    // Sort to remove IA slot ordering
-    std::sort(outStrides, outStrides + count);
-
-    return count;
-}
-*/
 //=========================================================================================================================//
 
 //SetGraphicsRootSignature

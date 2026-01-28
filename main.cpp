@@ -365,7 +365,7 @@ namespace d3d12hook {
 
         if (currentStrides == countstride1 || currentStrides == countstride2 ||
             currentStrides == countstride3 || currentStrides == countstride4 ||
-            tls_cache.lastRDTindex == countrootdescriptor || tls_cache.lastRCBVindex == countconstantbuffer || tls_cache.lastCRDTindex == countcomputerootdescriptor ||
+            tls_cache.lastRDTindex == countrootdescriptor || tls_cache.lastRCBVindex == countconstantbuffer || //tls_cache.lastCRDTindex == countcomputerootdescriptor ||
             t_.currentNumRTVs == countfindrendertarget|| IndexCountPerInstance / 500 == countIndexCount)
         {
             isModelDraw = true;
@@ -484,7 +484,7 @@ namespace d3d12hook {
 
         if (currentStrides == countstride1 || currentStrides == countstride2 ||
             currentStrides == countstride3 || currentStrides == countstride4 ||
-            tls_cache.lastRDTindex == countrootdescriptor || tls_cache.lastRCBVindex == countconstantbuffer || tls_cache.lastCRDTindex == countcomputerootdescriptor ||
+            tls_cache.lastRDTindex == countrootdescriptor || tls_cache.lastRCBVindex == countconstantbuffer || //tls_cache.lastCRDTindex == countcomputerootdescriptor ||
             t_.currentNumRTVs == countfindrendertarget)
         {
             isModelDraw = true;
@@ -628,7 +628,7 @@ namespace d3d12hook {
         // Because the new signature might have different bindings at these indices
         tls_cache.lastRDTindex = UINT_MAX;
         tls_cache.lastRCBVindex = UINT_MAX;
-        tls_cache.lastCRDTindex = UINT_MAX;
+        //tls_cache.lastCRDTindex = UINT_MAX;
 
         // 3. Optional: Cache the root signature itself if you need to check types later
         //tls_cache.currentRootSig = pRootSignature;
@@ -677,7 +677,7 @@ namespace d3d12hook {
         // A Reset() command list has no state. Stale cache = bugs.
         tls_cache.lastRCBVindex = UINT_MAX;
         tls_cache.lastRDTindex = UINT_MAX;
-        tls_cache.lastCRDTindex = UINT_MAX;
+        //tls_cache.lastCRDTindex = UINT_MAX;
 
         //CmdState* state = GetCmdState(_this);
         //state->NumRTVs = 0;
@@ -885,32 +885,17 @@ namespace d3d12hook {
         const D3D12_RECT* rects)
     {
         /*
-        UINT forcedValues[4] = {
-            values[0],
-            values[1],
-            values[2],
-            values[3]
-        };
-
-        auto it = g_UAVMap.find(cpuHandle.ptr);
-        if (it != g_UAVMap.end())
+        // Log only when resource is interesting
+        auto desc = resource->GetDesc();
+        if (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
         {
-            const UAVInfo& info = it->second;
-
-            if (IsLikelyVisibilityBuffer(info))
-            {
-                // Force "visible"
-                forcedValues[0] = 1;
-                forcedValues[1] = 1;
-                forcedValues[2] = 1;
-                forcedValues[3] = 1;
-            }
+            // Track:
+            // - resource pointer
+            // - desc.Width
+            // - values[4]
+            // - frame index
         }
-
-        // Forward the call (NEVER skip it)
-        oClearUnorderedAccessViewUintD3D12(cl,gpuHandle, cpuHandle,resource,forcedValues,numRects,rects);
         */
-
         oClearUnorderedAccessViewUintD3D12(cl, gpuHandle, cpuHandle, resource, values, numRects, rects);
     }
 
