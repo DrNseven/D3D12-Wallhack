@@ -163,7 +163,7 @@ namespace d3d12hook {
                 D3D12_VIEWPORT hVp = t_.currentViewport;
 
                 hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
-                hVp.MaxDepth = reversedDepth ? 0.01f : 1.0f;
+                hVp.MaxDepth = reversedDepth ? 0.1f : 1.0f;
 
                 // submit modified viewport ONCE
                 oRSSetViewportsD3D12(_this, 1, &hVp);
@@ -527,6 +527,19 @@ namespace d3d12hook {
             }
         }
 
+        //if (MaxCommandCount > 0) {
+            // Try Strategy A: Force draw all slots
+            //oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, nullptr, 0);
+            //return;
+        //}
+
+        //if (pCountBuffer && MaxCommandCount > 0 && MaxCommandCount < 5000) // Safety cap
+        //{
+            // Passing NULL for pCountBuffer forces the GPU to draw 
+            // every single command slot up to MaxCommandCount.
+            //return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount,pArgumentBuffer, ArgumentBufferOffset,nullptr, 0);
+        //}
+
     skip:
         oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
     }
@@ -743,18 +756,17 @@ namespace d3d12hook {
     //occlusion culling try 3 (can cause black screen)
     HRESULT STDMETHODCALLTYPE hookMapD3D12(ID3D12Resource* self, UINT Subresource, const D3D12_RANGE* pReadRange, void** ppData)
     {
-     
         HRESULT hr = oMapD3D12(self, Subresource, pReadRange, ppData);
         /*
-        // 1. Basic Validation
+        // 1. Basic Safety
         if (FAILED(hr) || !ppData || !*ppData)
             return hr;
 
+        // 2. Resource/Heap Validation
         D3D12_RESOURCE_DESC desc = self->GetDesc();
         if (desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
             return hr;
 
-        // 2. Heap Validation (Excellent safety check)
         D3D12_HEAP_PROPERTIES heapProps;
         if (FAILED(self->GetHeapProperties(&heapProps, nullptr)))
             return hr;
@@ -762,29 +774,38 @@ namespace d3d12hook {
         if (heapProps.Type != D3D12_HEAP_TYPE_READBACK)
             return hr;
 
-        // 3. Heuristic: query buffers are usually small and 8-byte aligned
-        UINT64 totalSize = desc.Width;
-        if (totalSize < 8 || totalSize > 1024 * 1024 || (totalSize % 8) != 0)
-            return hr;
-
-        // 4. Determine the range to overwrite
+        // 3. Determine actual range to process
         SIZE_T begin = 0;
-        SIZE_T end = (SIZE_T)totalSize;
+        SIZE_T end = (SIZE_T)desc.Width;
 
         if (pReadRange != nullptr) {
-            // If End <= Begin, the spec says no CPU read is intended
+            // If End <= Begin, the application is not reading data. Skip to avoid sync issues.
             if (pReadRange->End <= pReadRange->Begin)
                 return hr;
 
             begin = pReadRange->Begin;
-            end = min((SIZE_T)totalSize, pReadRange->End);
+            end = min((SIZE_T)desc.Width, pReadRange->End);
         }
 
-        // 5. Overwrite with "Visible" values
-        // We use 0x01 repeated. This results in the UINT64 value: 
-        // 0x0101010101010101 (approx 72 quadrillion).
-        // This is high enough for sample counts and satisfies "!= 0" for binary.
-        memset((uint8_t*)(*ppData) + begin, 0x01, end - begin);
+        SIZE_T size = end - begin;
+
+        // 4. Final Heuristic Check
+        // - Must be at least 8 bytes
+        // - Must be 8-byte aligned (to prevent CPU crashes on dereference)
+        // - Max 64KB (Adjusted from 32KB, still very safe for occlusion but covers more queries)
+        if (size >= 8 && (size % 8 == 0) && (begin % 8 == 0) && size <= 65536)
+        {
+            uint64_t* dataPtr = (uint64_t*)((uint8_t*)(*ppData) + begin);
+            size_t count = size / 8;
+
+            for (size_t i = 0; i < count; ++i) {
+                // ONLY modify if 0. 
+                // This is the primary protection against black screens.
+                if (dataPtr[i] == 0) {
+                    dataPtr[i] = 1;
+                }
+            }
+        }
         */
         return hr;
     }

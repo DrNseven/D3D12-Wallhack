@@ -324,36 +324,7 @@ namespace hooks {
             Log("[hooks] QueryInterface IDXGISwapChain3 failed: 0x%08X\n", hr);
             return hr;
         }
-        /*
-        // 10. This is for MAP (optional)
-        D3D12_HEAP_PROPERTIES heapProps = {};
-        heapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // Required for Map access
-
-        D3D12_RESOURCE_DESC resDesc = {};
-        resDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-        resDesc.Width = 1024;
-        resDesc.Height = 1;
-        resDesc.DepthOrArraySize = 1;
-        resDesc.MipLevels = 1;
-        resDesc.Format = DXGI_FORMAT_UNKNOWN;
-        resDesc.SampleDesc.Count = 1;
-        resDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
-        ComPtr<ID3D12Resource> pDummyResource;
-        hr = pDevice->CreateCommittedResource(
-            &heapProps,
-            D3D12_HEAP_FLAG_NONE,
-            &resDesc,
-            D3D12_RESOURCE_STATE_GENERIC_READ,
-            nullptr,
-            IID_PPV_ARGS(&pDummyResource)
-        );
-
-        if (SUCCEEDED(hr)) {
-            auto resVTable = *reinterpret_cast<void***>(pDummyResource.Get());
-            pMapTarget = resVTable[kMapIndex];
-        }
-        */
+        
         return S_OK;
     }
 
@@ -505,6 +476,42 @@ namespace hooks {
         if (mh != MH_OK) Log("[hooks] MH_CreateHook EndQuery failed: %s\n", MH_StatusToString(mh));
 
 
+
+
+        // 10. This is for MAP (optional)
+        D3D12_HEAP_PROPERTIES heapProps = {};
+        heapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // Required for Map access
+
+        D3D12_RESOURCE_DESC resDesc = {};
+        resDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        resDesc.Width = 1024;
+        resDesc.Height = 1;
+        resDesc.DepthOrArraySize = 1;
+        resDesc.MipLevels = 1;
+        resDesc.Format = DXGI_FORMAT_UNKNOWN;
+        resDesc.SampleDesc.Count = 1;
+        resDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+        ComPtr<ID3D12Resource> pDummyResource;
+        hr = pDevice->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &resDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ,
+            nullptr,
+            IID_PPV_ARGS(&pDummyResource)
+        );
+
+        //if (SUCCEEDED(hr)) {
+            auto resVTable = *reinterpret_cast<void***>(pDummyResource.Get());
+            pMapTarget = resVTable[kMapIndex];
+        //}
+
+        pMapTarget = reinterpret_cast<LPVOID>(resVTable[kMapIndex]);
+        mh = MH_CreateHook(pMapTarget, reinterpret_cast<LPVOID>(d3d12hook::hookMapD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oMapD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook Map failed: %s\n", MH_StatusToString(mh));
+
+
         // --- Enable all hooks ---
         mh = MH_EnableHook(MH_ALL_HOOKS);
         if (mh != MH_OK)Log("[hooks] MH_EnableHook failed: %s\n", MH_StatusToString(mh));
@@ -552,7 +559,7 @@ namespace hooks {
         DisableAndRemove(pSetPipelineStateTarget);
         DisableAndRemove(pIASetPrimitiveTopologyTarget);
         DisableAndRemove(pSetPredicationTarget);
-        //DisableAndRemove(pMapTarget);
+        DisableAndRemove(pMapTarget);
         //DisableAndRemove(pCloseTarget);
         DisableAndRemove(pBeginQueryTarget);
         DisableAndRemove(pEndQueryTarget);
