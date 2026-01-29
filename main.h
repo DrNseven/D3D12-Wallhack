@@ -510,7 +510,6 @@ namespace hooks {
         //if (mh != MH_OK) Log("[hooks] MH_CreateHook EndQuery failed: %s\n", MH_StatusToString(mh));
 
 
-
         /*
         // 10. This is for MAP (optional)
         D3D12_HEAP_PROPERTIES heapProps = {};
@@ -671,9 +670,12 @@ thread_local struct {
     // optional safety
     //UINT64 frameId = 0;
     D3D12_PRIMITIVE_TOPOLOGY currentTopology;
+
+    //UINT64 ClearUAVWidth = 0;
 } t_;
 
 //=========================================================================================================================//
+
 //SetPipelineState
 struct PSOStats
 {
@@ -688,16 +690,6 @@ thread_local static PSOStats psoStats[128] = {};
 thread_local static UINT psoCount = 0;
 
 //=========================================================================================================================//
-
-int getTwoDigitValue(int value) {
-    uint32_t h = (uint32_t)value;
-    h ^= h >> 16;
-    h *= 0x85ebca6b;
-    h ^= h >> 13;
-    h *= 0xc2b2ae35;
-    h ^= h >> 16;
-    return (h % 90) + 10;
-}
 
 uint32_t fastStrideHash(const uint32_t* data, size_t count) {
     uint32_t hash = 2166136261u;

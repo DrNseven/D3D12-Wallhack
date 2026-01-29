@@ -152,7 +152,7 @@ namespace d3d12hook {
             t_.currentViewport = pViewports[0]; // cache viewport
             t_.numViewports = NumViewports;
         }
-        
+        /*
         //for fucked up games, where it draws in unknown function (doesn't really happen)
         if (countindexformat > 0 && t_.currentNumRTVs > 0) {
             UINT currentindexformat = t_.currentIndexFormat + t_.numViewports;
@@ -172,7 +172,7 @@ namespace d3d12hook {
                 return;
             }
         }
-
+        */
         oRSSetViewportsD3D12(_this, NumViewports, pViewports);
     }
 
@@ -245,7 +245,7 @@ namespace d3d12hook {
         {
             t_.currentNumRTVs = NumRenderTargetDescriptors;
 
-            // 1. Capture DSV State (The most important performance filter)
+            // 1. Capture DSV State (important performance filter)
             if (pDepthStencilDescriptor != nullptr && pDepthStencilDescriptor->ptr != 0) {
                 t_.currentDSVHandle = *pDepthStencilDescriptor;
                 t_.hasDSV = true;
@@ -317,43 +317,54 @@ namespace d3d12hook {
         if (!t_.currentPSO) //Guard against t_.currentPSO == nullptr
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
 
+        ID3D12PipelineState* currentPSO = t_.currentPSO;
         PSOStats* stats = nullptr;
-
-        // 1. Find or Create Entry
+        // 1. Find existing PSO (linear scan)
         for (UINT i = 0; i < psoCount; ++i)
         {
-            if (psoStats[i].pso == t_.currentPSO)
+            if (psoStats[i].pso == currentPSO)
             {
                 stats = &psoStats[i];
+
+                // --- MOVE-TO-FRONT HEURISTIC ---
+                if (i > 0)
+                {
+                    PSOStats tmp = psoStats[i];
+                    psoStats[i] = psoStats[0];
+                    psoStats[0] = tmp;
+
+                    stats = &psoStats[0];
+                }
                 break;
             }
         }
-
+        // 2. Create new entry if not found
         if (!stats)
         {
-            // If cache is full, we can't learn more on this thread.
-            // We allow the draw to proceed without the PSO-filter safety.
-            if (psoCount < 128)
+            if (psoCount < _countof(psoStats))
             {
                 stats = &psoStats[psoCount++];
-                stats->pso = t_.currentPSO;
+                stats->pso = currentPSO;
                 stats->maxIndexCount = 0;
             }
         }
-
-        // 2. Update the Heuristic
+        // 3. Update heuristic + filter
         if (stats)
         {
             if (IndexCountPerInstance > stats->maxIndexCount)
                 stats->maxIndexCount = IndexCountPerInstance;
 
-            // 3. The Filter
-            // If this PSO has never drawn anything > 300 indices, skip heavy logic.
-            // Note: If the CURRENT call is > 300, it just updated maxIndexCount,
-            // so it will NOT be skipped. This is perfect.
+            // Skip heavy logic for tiny meshes
             if (stats->maxIndexCount < 300)
             {
-                return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+                return oDrawIndexedInstancedD3D12(
+                    _this,
+                    IndexCountPerInstance,
+                    InstanceCount,
+                    StartIndexLocation,
+                    BaseVertexLocation,
+                    StartInstanceLocation
+                );
             }
         }
 
@@ -431,7 +442,6 @@ namespace d3d12hook {
     void STDMETHODCALLTYPE hookExecuteIndirectD3D12(ID3D12GraphicsCommandList* _this,ID3D12CommandSignature* pCommandSignature,UINT MaxCommandCount,ID3D12Resource* pArgumentBuffer,
         UINT64 ArgumentBufferOffset,ID3D12Resource* pCountBuffer,UINT64 CountBufferOffset)
     {
-        
         // 1. Mandatory Exits
         if (!_this || MaxCommandCount == 0)
             return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
@@ -458,7 +468,11 @@ namespace d3d12hook {
         if (t_.currentTopology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
             return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
 
-        // 5. PSO Logic (Simplified for ExecuteIndirect)
+        // 6.
+        if (!t_.currentPSO)
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // PSO Logic (Simplified for ExecuteIndirect)
         PSOStats* stats = nullptr;
         for (UINT i = 0; i < psoCount; ++i) {
             if (psoStats[i].pso == t_.currentPSO) {
@@ -596,7 +610,10 @@ namespace d3d12hook {
 
     //=========================================================================================================================//
 
-    //SetComputeRootDescriptorTable
+    //Claim: The Solution for CPU Culling :
+    //You need to hook ID3D12GraphicsCommandList::SetGraphicsRootDescriptorTable and look for the constant buffers that pass culling parameters to the GPU, 
+    //or find the engine's internal flags (CVars) in memory and flip them to 0.
+
     void STDMETHODCALLTYPE hookSetComputeRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList,UINT RootParameterIndex,D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor)
     {
         // 1. Sync the command list context
@@ -884,26 +901,10 @@ namespace d3d12hook {
         UINT numRects,
         const D3D12_RECT* rects)
     {
-        /*
-        // Log only when resource is interesting
-        auto desc = resource->GetDesc();
-        if (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS)
-        {
-            // Track:
-            // - resource pointer
-            // - desc.Width
-            // - values[4]
-            // - frame index
-        }
-        */
         oClearUnorderedAccessViewUintD3D12(cl, gpuHandle, cpuHandle, resource, values, numRects, rects);
     }
 
     //=========================================================================================================================//
-
-    //Claim: The Solution for CPU Culling :
-    //You need to hook ID3D12GraphicsCommandList::SetGraphicsRootDescriptorTable and look for the constant buffers that pass culling parameters to the GPU, 
-    //or find the engine's internal flags (CVars) in memory and flip them to 0.
 
     void STDMETHODCALLTYPE hookDispatchD3D12(ID3D12GraphicsCommandList* cl, UINT x, UINT y, UINT z)
     {
