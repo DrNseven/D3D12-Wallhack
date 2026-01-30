@@ -152,6 +152,7 @@ namespace d3d12hook {
             t_.currentViewport = pViewports[0]; // cache viewport
             t_.numViewports = NumViewports;
         }
+
         /*
         //for fucked up games, where it draws in unknown function (doesn't really happen)
         if (countindexformat > 0 && t_.currentNumRTVs > 0) {
@@ -159,7 +160,6 @@ namespace d3d12hook {
 
             if (currentindexformat == countindexformat &&
                 t_.currentViewport.Width > 128 &&
-                t_.currentViewport.Height > 128 &&
                 t_.currentViewport.Width < 16384)
             {
                 D3D12_VIEWPORT hVp = t_.currentViewport;
@@ -195,6 +195,7 @@ namespace d3d12hook {
         if (NumViews > 0 && pViews) {
             uint32_t strideData[16] = {};
             UINT validCount = (NumViews > 16) ? 16 : NumViews;
+            //t_.currentGPUVAddress = pViews->BufferLocation;
 
             for (UINT i = 0; i < validCount; ++i) {
                 // Filter out clearly invalid strides or huge raw buffers
@@ -374,8 +375,7 @@ namespace d3d12hook {
 
         bool isModelDraw = false;
 
-        if (currentStrides == countstride1 || currentStrides == countstride2 ||
-            currentStrides == countstride3 || currentStrides == countstride4 ||
+        if (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 ||
             tls_cache.lastRDTindex == countGraphicsRootDescriptor || tls_cache.lastRCBVindex == countGraphicsRootConstantBuffer || tls_cache.lastCRDTindex == countComputeRootDescriptor ||
             t_.currentNumRTVs == countfindrendertarget|| IndexCountPerInstance / 1000 == countIndexCount)
         {
@@ -495,12 +495,11 @@ namespace d3d12hook {
 
         
         // 2. IDENTIFICATION
-        const UINT currentStrides = t_.StrideHash + t_.StartSlot;
+        const UINT currentExIStride = t_.StrideHash + t_.StartSlot;
         //uint8_t shortCount = static_cast<uint8_t>((MaxCommandCount >> 12) % 100);
         bool isModelDraw = false;
 
-        if (currentStrides == countstride1 || currentStrides == countstride2 ||
-            currentStrides == countstride3 || currentStrides == countstride4 ||
+        if (currentExIStride == countExIStride1 || currentExIStride == countExIStride2 || currentExIStride == countExIStride3 ||
             tls_cache.lastRDTindex == countGraphicsRootDescriptor || tls_cache.lastRCBVindex == countGraphicsRootConstantBuffer || tls_cache.lastCRDTindex == countComputeRootDescriptor ||
             t_.currentNumRTVs == countfindrendertarget)
         {

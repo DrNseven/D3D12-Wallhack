@@ -646,9 +646,6 @@ thread_local struct {
     UINT vertexBufferSizes[16] = {};
 
     UINT cachedStrideSum = 0;
-
-    UINT CanonicalStrides[16] = {};
-    UINT CanonicalCount = 0;
     uint32_t StrideHash = 0;
 
     // states
