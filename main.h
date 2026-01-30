@@ -453,9 +453,9 @@ namespace hooks {
         mh = MH_CreateHook(pSetGraphicsRootDescriptorTableTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootDescriptorTableD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootDescriptorTableD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootDescriptorTable failed: %s\n", MH_StatusToString(mh));
 
-        //pSetComputeRootDescriptorTableTarget = reinterpret_cast<LPVOID>(slVTable[kSetComputeRootDescriptorTableIndex]);
-        //mh = MH_CreateHook(pSetComputeRootDescriptorTableTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetComputeRootDescriptorTableD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetComputeRootDescriptorTableD3D12));
-        //if (mh != MH_OK) Log("[hooks] MH_CreateHook SetComputeRootDescriptorTable failed: %s\n", MH_StatusToString(mh));
+        pSetComputeRootDescriptorTableTarget = reinterpret_cast<LPVOID>(slVTable[kSetComputeRootDescriptorTableIndex]);
+        mh = MH_CreateHook(pSetComputeRootDescriptorTableTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetComputeRootDescriptorTableD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetComputeRootDescriptorTableD3D12));
+        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetComputeRootDescriptorTable failed: %s\n", MH_StatusToString(mh));
 
         pSetGraphicsRootSignatureTarget = reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootSignatureIndex]);
         mh = MH_CreateHook(pSetGraphicsRootSignatureTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootSignatureD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootSignatureD3D12));
@@ -583,7 +583,7 @@ namespace hooks {
         DisableAndRemove(pSetGraphicsRootConstantBufferViewTarget);
         //DisableAndRemove(pSetDescriptorHeapsTarget);
         DisableAndRemove(pSetGraphicsRootDescriptorTableTarget);
-        //DisableAndRemove(pSetComputeRootDescriptorTableTarget);
+        DisableAndRemove(pSetComputeRootDescriptorTableTarget);
         DisableAndRemove(pOMSetRenderTargetsTarget);
         DisableAndRemove(pResolveQueryDataTarget);
         DisableAndRemove(pExecuteIndirectTarget);

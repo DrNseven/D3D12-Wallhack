@@ -376,8 +376,8 @@ namespace d3d12hook {
 
         if (currentStrides == countstride1 || currentStrides == countstride2 ||
             currentStrides == countstride3 || currentStrides == countstride4 ||
-            tls_cache.lastRDTindex == countrootdescriptor || tls_cache.lastRCBVindex == countconstantbuffer || //tls_cache.lastCRDTindex == countcomputerootdescriptor ||
-            t_.currentNumRTVs == countfindrendertarget|| IndexCountPerInstance / 500 == countIndexCount)
+            tls_cache.lastRDTindex == countGraphicsRootDescriptor || tls_cache.lastRCBVindex == countGraphicsRootConstantBuffer || tls_cache.lastCRDTindex == countComputeRootDescriptor ||
+            t_.currentNumRTVs == countfindrendertarget|| IndexCountPerInstance / 1000 == countIndexCount)
         {
             isModelDraw = true;
         }
@@ -393,7 +393,7 @@ namespace d3d12hook {
             {
                 // Only perform expensive Modulo if everything else failed
                 uint8_t indexid = static_cast<uint8_t>((t_.currentGPUIAddress >> 12) % 100);
-                if (indexid == countcurrentindexid || indexid == countcurrentindexid2 || indexid == countcurrentindexid3)
+                if (indexid == countcurrentIndexAddress || indexid == countcurrentIndexAddress2 || indexid == countcurrentIndexAddress3)
                 {
                     isModelDraw = true;
                 }
@@ -412,10 +412,13 @@ namespace d3d12hook {
             if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;
 
             // Root Descriptor/Constant Filters
-            if (filterRootDescriptor && (tls_cache.lastRDTindex != countfilterrootDescriptor && tls_cache.lastRDTindex != countfilterrootDescriptor2 && tls_cache.lastRDTindex != countfilterrootDescriptor3)) goto skip;
-            if (ignoreRootDescriptor && (tls_cache.lastRDTindex == countignorerootDescriptor || tls_cache.lastRDTindex == countignorerootDescriptor2 || tls_cache.lastRDTindex == countignorerootDescriptor3)) goto skip;
-            if (filterRootConstant && (tls_cache.lastRCBVindex != countfilterrootConstant && tls_cache.lastRCBVindex != countfilterrootConstant2 && tls_cache.lastRCBVindex != countfilterrootConstant3)) goto skip;
-            if (ignoreRootConstant && (tls_cache.lastRCBVindex == countignorerootConstant || tls_cache.lastRCBVindex == countignorerootConstant2 || tls_cache.lastRCBVindex == countignorerootConstant3)) goto skip;
+            if (filterGraphicsRootDescriptor && (tls_cache.lastRDTindex != countfilterGraphicsRootDescriptor && tls_cache.lastRDTindex != countfilterGraphicsRootDescriptor2 && tls_cache.lastRDTindex != countfilterGraphicsRootDescriptor3)) goto skip;
+            if (ignoreGraphicsRootDescriptor && (tls_cache.lastRDTindex == countignoreGraphicsRootDescriptor || tls_cache.lastRDTindex == countignoreGraphicsRootDescriptor2 || tls_cache.lastRDTindex == countignoreGraphicsRootDescriptor3)) goto skip;
+            if (filterGraphicsRootConstantBuffer && (tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer && tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer2 && tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer3)) goto skip;
+            if (ignoreGraphicsRootConstantBuffer && (tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
+
+            if (filterComputeRootDescriptor && (tls_cache.lastCRDTindex != countfilterComputeRootDescriptor)) goto skip;
+            if (ignoreComputeRootDescriptor && (tls_cache.lastCRDTindex == countignoreComputeRootDescriptor)) goto skip;
 
             // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
@@ -498,7 +501,7 @@ namespace d3d12hook {
 
         if (currentStrides == countstride1 || currentStrides == countstride2 ||
             currentStrides == countstride3 || currentStrides == countstride4 ||
-            tls_cache.lastRDTindex == countrootdescriptor || tls_cache.lastRCBVindex == countconstantbuffer || //tls_cache.lastCRDTindex == countcomputerootdescriptor ||
+            tls_cache.lastRDTindex == countGraphicsRootDescriptor || tls_cache.lastRCBVindex == countGraphicsRootConstantBuffer || tls_cache.lastCRDTindex == countComputeRootDescriptor ||
             t_.currentNumRTVs == countfindrendertarget)
         {
             isModelDraw = true;
@@ -515,7 +518,7 @@ namespace d3d12hook {
             {
                 // Only perform expensive Modulo if everything else failed
                 uint8_t indexid = static_cast<uint8_t>((t_.currentGPUIAddress >> 12) % 100);
-                if (indexid == countcurrentindexid || indexid == countcurrentindexid2 || indexid == countcurrentindexid3)
+                if (indexid == countcurrentIndexAddress || indexid == countcurrentIndexAddress2 || indexid == countcurrentIndexAddress3)
                 {
                     isModelDraw = true;
                 }
@@ -534,10 +537,12 @@ namespace d3d12hook {
             if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;
 
             // Root Descriptor/Constant Filters
-            if (filterRootDescriptor && (tls_cache.lastRDTindex != countfilterrootDescriptor && tls_cache.lastRDTindex != countfilterrootDescriptor2 && tls_cache.lastRDTindex != countfilterrootDescriptor3)) goto skip;
-            if (ignoreRootDescriptor && (tls_cache.lastRDTindex == countignorerootDescriptor || tls_cache.lastRDTindex == countignorerootDescriptor2 || tls_cache.lastRDTindex == countignorerootDescriptor3)) goto skip;
-            if (filterRootConstant && (tls_cache.lastRCBVindex != countfilterrootConstant && tls_cache.lastRCBVindex != countfilterrootConstant2 && tls_cache.lastRCBVindex != countfilterrootConstant3)) goto skip;
-            if (ignoreRootConstant && (tls_cache.lastRCBVindex == countignorerootConstant || tls_cache.lastRCBVindex == countignorerootConstant2 || tls_cache.lastRCBVindex == countignorerootConstant3)) goto skip;
+            if (filterGraphicsRootDescriptor && (tls_cache.lastRDTindex != countfilterGraphicsRootDescriptor && tls_cache.lastRDTindex != countfilterGraphicsRootDescriptor2 && tls_cache.lastRDTindex != countfilterGraphicsRootDescriptor3)) goto skip;
+            if (ignoreGraphicsRootDescriptor && (tls_cache.lastRDTindex == countignoreGraphicsRootDescriptor || tls_cache.lastRDTindex == countignoreGraphicsRootDescriptor2 || tls_cache.lastRDTindex == countignoreGraphicsRootDescriptor3)) goto skip;
+            if (filterGraphicsRootConstantBuffer && (tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer && tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer2 && tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer3)) goto skip;
+            if (ignoreGraphicsRootConstantBuffer && (tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
+            if (filterComputeRootDescriptor && (tls_cache.lastCRDTindex != countfilterComputeRootDescriptor)) goto skip;
+            if (ignoreComputeRootDescriptor && (tls_cache.lastCRDTindex == countignoreComputeRootDescriptor)) goto skip;
 
             // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
@@ -611,7 +616,7 @@ namespace d3d12hook {
     //=========================================================================================================================//
 
     //Claim: The Solution for CPU Culling :
-    //You need to hook ID3D12GraphicsCommandList::SetGraphicsRootDescriptorTable and look for the constant buffers that pass culling parameters to the GPU, 
+    //Hook ID3D12GraphicsCommandList::SetGraphicsRootDescriptorTable and look for the constant buffers that pass culling parameters to the GPU, 
     //or find the engine's internal flags (CVars) in memory and flip them to 0.
 
     void STDMETHODCALLTYPE hookSetComputeRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList,UINT RootParameterIndex,D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor)
@@ -645,12 +650,12 @@ namespace d3d12hook {
         // Because the new signature might have different bindings at these indices
         tls_cache.lastRDTindex = UINT_MAX;
         tls_cache.lastRCBVindex = UINT_MAX;
-        //tls_cache.lastCRDTindex = UINT_MAX;
+        tls_cache.lastCRDTindex = UINT_MAX;
 
         // 3. Optional: Cache the root signature itself if you need to check types later
         //tls_cache.currentRootSig = pRootSignature;
 
-        if ((countcurrentindexid > 0 || countcurrentindexid2 > 0 || countcurrentindexid3 > 0) && (dCommandList && pRootSignature)) {
+        if ((countcurrentIndexAddress > 0 || countcurrentIndexAddress2 > 0 || countcurrentIndexAddress3 > 0) && (dCommandList && pRootSignature)) {
             uint32_t idToStore = 0;
 
             // 1. Try to find the ID with a shared lock (multiple threads can do this at once)
@@ -694,7 +699,7 @@ namespace d3d12hook {
         // A Reset() command list has no state. Stale cache = bugs.
         tls_cache.lastRCBVindex = UINT_MAX;
         tls_cache.lastRDTindex = UINT_MAX;
-        //tls_cache.lastCRDTindex = UINT_MAX;
+        tls_cache.lastCRDTindex = UINT_MAX;
 
         //CmdState* state = GetCmdState(_this);
         //state->NumRTVs = 0;
