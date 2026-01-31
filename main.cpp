@@ -1,4 +1,4 @@
-﻿//d3d12 hook/wallhack with imgui overlay 2026
+﻿//d3d12 hook/wallhack with imgui overlay 2026 by N7
 
 #pragma once
 #include <windows.h>
@@ -654,7 +654,7 @@ namespace d3d12hook {
         // 3. Optional: Cache the root signature itself if you need to check types later
         //tls_cache.currentRootSig = pRootSignature;
 
-        if ((countcurrentIndexAddress > 0 || countcurrentIndexAddress2 > 0 || countcurrentIndexAddress3 > 0) && (dCommandList && pRootSignature)) {
+        if ((countcurrentRootSigID > 0 || countcurrentRootSigID2 > 0) && (dCommandList && pRootSignature)) {
             uint32_t idToStore = 0;
 
             // 1. Try to find the ID with a shared lock (multiple threads can do this at once)
@@ -810,7 +810,7 @@ namespace d3d12hook {
 
     //=========================================================================================================================//
 
-    //occlusion culling try 3 (can cause black screen)
+    //occlusion culling try 3 (may cause black screen)
     HRESULT STDMETHODCALLTYPE hookMapD3D12(ID3D12Resource* self, UINT Subresource, const D3D12_RANGE* pReadRange, void** ppData)
     {
         HRESULT hr = oMapD3D12(self, Subresource, pReadRange, ppData);

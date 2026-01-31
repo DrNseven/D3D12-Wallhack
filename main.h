@@ -725,8 +725,8 @@ struct CommandListState {
 thread_local CommandListState tls_cache;
 
 //=========================================================================================================================//
-// 
-//colors
+
+//colors (not implemented)
 #include <DirectXMath.h>
 using namespace DirectX;
 
@@ -1028,7 +1028,7 @@ if (GetAsyncKeyState(VK_OEM_PERIOD) & 1) //+
 if (GetAsyncKeyState('9') & 1) //reset, set to 0
     countnum = 0;
 
-if (t_.currentNumRTVs && tls_cache.lastRCBVindex == countnum)
+if (Requires Stride + correct rootindexvalue 0-10 or else crash)
     //if (t_.StrideHash == 1 && tls_cache.lastRCBVindex == 8 || t_.StrideHash == 75 && tls_cache.lastRCBVindex == 6 || t_.StrideHash == 99 && tls_cache.lastRCBVindex == 6)//models
 {
     // Ensure CBV alignment is 256 bytes.
