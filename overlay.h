@@ -342,7 +342,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 #pragma comment(lib, "dwmapi.lib")
 HWND CreateOverlayWindow()
 {
-    // Correct DPI awareness for Windows 11
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     WNDCLASSEX wc{ sizeof(WNDCLASSEX) };
@@ -351,35 +350,36 @@ HWND CreateOverlayWindow()
     wc.lpszClassName = L"OverlayClass";
     RegisterClassEx(&wc);
 
-    // Win11‑optimized extended styles
     DWORD exStyles =
-        WS_EX_TOPMOST |
-        WS_EX_TRANSPARENT |
-        WS_EX_LAYERED |
-        WS_EX_NOREDIRECTIONBITMAP;   // CRITICAL for Win11 overlays
+        WS_EX_LAYERED |      // Required for transparency
+        WS_EX_TOOLWINDOW |   // No taskbar icon
+        WS_EX_TOPMOST;       // Always on top
 
     HWND hwnd = CreateWindowEx(
         exStyles,
         wc.lpszClassName,
         L"Overlay",
-        WS_POPUP,
+        WS_POPUP | WS_VISIBLE,
         0, 0,
         GetSystemMetrics(SM_CXSCREEN),
         GetSystemMetrics(SM_CYSCREEN),
         nullptr, nullptr, wc.hInstance, nullptr
     );
 
-    // Chroma‑key transparency
-    SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
+    // IMPORTANT: Do NOT use LWA_ALPHA or LWA_COLORKEY for D3D12
+    // Just keep WS_EX_LAYERED and let D3D12 render transparency
 
-    // Optional: extend frame
-    MARGINS margins = { -1, -1, -1, -1 };
-    DwmExtendFrameIntoClientArea(hwnd, &margins);
+    // Remove problematic Win11 flag if present
+    LONG_PTR style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+    style &= ~WS_EX_NOREDIRECTIONBITMAP;
+    SetWindowLongPtr(hwnd, GWL_EXSTYLE, style);
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
+
     return hwnd;
 }
+
 
 // ============================================================
 // D3D12 INIT
@@ -574,6 +574,52 @@ void Render()
 
     if (GetAsyncKeyState(VK_INSERT) & 1)
     {
+        SaveConfig();
+        g_showMenu = !g_showMenu;
+        g_clickThrough = !g_showMenu;
+
+        // Always re-read the current style BEFORE modifying it
+        LONG_PTR exStyle = GetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE);
+
+        if (g_showMenu)
+        {
+            // REMOVE TRANSPARENT + NOACTIVATE
+            exStyle &= ~WS_EX_TRANSPARENT;
+            exStyle &= ~WS_EX_NOACTIVATE;
+
+            SetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE, exStyle);
+
+            // Force Windows 11 to re-evaluate the window
+            SetWindowPos(
+                g_overlayHwnd, HWND_TOPMOST,
+                0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_FRAMECHANGED
+            );
+
+            // Give overlay focus so ImGui receives input
+            SetForegroundWindow(g_overlayHwnd);
+            SetActiveWindow(g_overlayHwnd);
+            SetFocus(g_overlayHwnd);
+        }
+        else
+        {
+            // Re-read style again to avoid stale flags
+            exStyle = GetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE);
+
+            // ADD TRANSPARENT + NOACTIVATE
+            exStyle |= WS_EX_TRANSPARENT;
+            exStyle |= WS_EX_NOACTIVATE;
+
+            SetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE, exStyle);
+
+            // Return focus to the game
+            SetForegroundWindow(g_gameHwnd);
+        }
+    }
+
+    /*
+    if (GetAsyncKeyState(VK_INSERT) & 1)
+    {
         SaveConfig(); //Save settings
         g_showMenu = !g_showMenu;
         g_clickThrough = !g_showMenu;
@@ -584,6 +630,9 @@ void Render()
         {
             // REMOVE NOACTIVATE and TRANSPARENT
             SetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT & ~WS_EX_NOACTIVATE);
+
+            // CRITICAL: Force Windows to re-evaluate the window regions
+            SetWindowPos(g_overlayHwnd, HWND_TOPMOST, 0, 0, 0, 0,SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
 
             // Force the window to the front and give it keyboard focus
             SetForegroundWindow(g_overlayHwnd);
@@ -597,7 +646,7 @@ void Render()
             SetForegroundWindow(g_gameHwnd);
         }
     }
-
+    */
     UpdateInputState();
 
     MSG msg;
