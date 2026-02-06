@@ -1,4 +1,4 @@
-//overlay.h by N7
+﻿//overlay.h by N7
 
 //#include <windows.h>
 //#include <d3d12.h>
@@ -36,6 +36,7 @@ int countcurrentRootSigID2 = -1;
 int countcurrentIndexAddress = -1;
 int countcurrentIndexAddress2 = -1;
 int countcurrentIndexAddress3 = -1;
+int countcurrentPSOAddress = -1;
 int countfindrendertarget = -1;
 
 int countGraphicsRootConstantBuffer = -2;
@@ -66,8 +67,8 @@ int countignoreGraphicsRootDescriptor = -2;
 int countignoreGraphicsRootDescriptor2 = -2;
 int countignoreGraphicsRootDescriptor3 = -2;
 
-int countfilterComputeRootDescriptor = -2;
-int countignoreComputeRootDescriptor = -2;
+//int countfilterComputeRootDescriptor = -2;
+//int countignoreComputeRootDescriptor = -2;
 
 bool temporaryids = false;
 bool filternumViews = false;
@@ -103,7 +104,7 @@ void SaveConfig()
     fout << "ExIStride3 " << countExIStride3 << endl;
     fout << "countGraphicsRootConstantBuffer " << countGraphicsRootConstantBuffer << endl;
     fout << "countGraphicsRootDescriptor " << countGraphicsRootDescriptor << endl;
-    fout << "countComputeRootDescriptor " << countComputeRootDescriptor << endl;
+    //fout << "countComputeRootDescriptor " << countComputeRootDescriptor << endl;
     fout << "countIndexCount " << countIndexCount << endl;
     fout << "countfindrendertarget " << countfindrendertarget << endl;
     //fout << "countindexformat " << countindexformat << endl;
@@ -114,6 +115,7 @@ void SaveConfig()
     fout << "countcurrentIndexAddress " << countcurrentIndexAddress << endl;
     fout << "countcurrentIndexAddress2 " << countcurrentIndexAddress2 << endl;
     fout << "countcurrentIndexAddress3 " << countcurrentIndexAddress3 << endl;
+    fout << "countcurrentPSOAddress " << countcurrentPSOAddress << endl;
 
     fout << "filterrendertarget " << filterrendertarget << endl;
     fout << "countfilterrendertarget " << countfilterrendertarget << endl;
@@ -153,11 +155,11 @@ void SaveConfig()
     fout << "countignoreGraphicsRootDescriptor2 " << countignoreGraphicsRootDescriptor2 << endl;
     fout << "countignoreGraphicsRootDescriptor3 " << countignoreGraphicsRootDescriptor3 << endl;
    
-    fout << "filterComputeRootDescriptor " << filterComputeRootDescriptor << endl;
-    fout << "countfilterComputeRootDescriptor " << countfilterComputeRootDescriptor << endl;
+    //fout << "filterComputeRootDescriptor " << filterComputeRootDescriptor << endl;
+    //fout << "countfilterComputeRootDescriptor " << countfilterComputeRootDescriptor << endl;
 
-    fout << "ignoreComputeRootDescriptor " << ignoreComputeRootDescriptor << endl;
-    fout << "countignoreComputeRootDescriptor " << countignoreComputeRootDescriptor << endl;
+    //fout << "ignoreComputeRootDescriptor " << ignoreComputeRootDescriptor << endl;
+    //fout << "countignoreComputeRootDescriptor " << countignoreComputeRootDescriptor << endl;
     
     fout << "reversedDepth " << reversedDepth << endl;
     fout << "DisableOcclusionCulling " << DisableOcclusionCulling << endl;
@@ -178,7 +180,7 @@ void LoadConfig()
     fin >> Word >> countExIStride3;
     fin >> Word >> countGraphicsRootConstantBuffer;
     fin >> Word >> countGraphicsRootDescriptor;
-    fin >> Word >> countComputeRootDescriptor;
+    //fin >> Word >> countComputeRootDescriptor;
     fin >> Word >> countIndexCount;
     fin >> Word >> countfindrendertarget;
     //fin >> Word >> countindexformat;
@@ -189,6 +191,7 @@ void LoadConfig()
     fin >> Word >> countcurrentIndexAddress;
     fin >> Word >> countcurrentIndexAddress2;
     fin >> Word >> countcurrentIndexAddress3;
+    fin >> Word >> countcurrentPSOAddress;
 
     fin >> Word >> filterrendertarget;
     fin >> Word >> countfilterrendertarget;
@@ -228,11 +231,11 @@ void LoadConfig()
     fin >> Word >> countignoreGraphicsRootDescriptor2;
     fin >> Word >> countignoreGraphicsRootDescriptor3;
 
-    fin >> Word >> filterComputeRootDescriptor;
-    fin >> Word >> countfilterComputeRootDescriptor;
+    //fin >> Word >> filterComputeRootDescriptor;
+    //fin >> Word >> countfilterComputeRootDescriptor;
 
-    fin >> Word >> ignoreComputeRootDescriptor;
-    fin >> Word >> countignoreComputeRootDescriptor;
+    //fin >> Word >> ignoreComputeRootDescriptor;
+    //fin >> Word >> countignoreComputeRootDescriptor;
 
     fin >> Word >> reversedDepth;
     fin >> Word >> DisableOcclusionCulling;
@@ -335,18 +338,46 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProc(hwnd, msg, wp, lp);
 }
 
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
 HWND CreateOverlayWindow()
 {
-    WNDCLASSEX wc{ sizeof(wc) };
+    // Correct DPI awareness for Windows 11
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+    WNDCLASSEX wc{ sizeof(WNDCLASSEX) };
     wc.lpfnWndProc = WndProc;
     wc.hInstance = GetModuleHandle(nullptr);
-    wc.lpszClassName = L"DCompDX12Overlay";
+    wc.lpszClassName = L"OverlayClass";
     RegisterClassEx(&wc);
 
-    HWND hwnd = CreateWindowEx(WS_EX_TOPMOST | WS_EX_NOACTIVATE,wc.lpszClassName,L"",WS_POPUP,0, 0, 100, 100,nullptr, nullptr, wc.hInstance, nullptr);
-    //HWND hwnd = CreateWindowEx(WS_EX_TOPMOST |WS_EX_NOACTIVATE |WS_EX_TRANSPARENT |WS_EX_LAYERED,wc.lpszClassName,L"",WS_POPUP,0, 0, 100, 100,nullptr, nullptr, wc.hInstance, nullptr);//breaks mouse selection
+    // Win11‑optimized extended styles
+    DWORD exStyles =
+        WS_EX_TOPMOST |
+        WS_EX_TRANSPARENT |
+        WS_EX_LAYERED |
+        WS_EX_NOREDIRECTIONBITMAP;   // CRITICAL for Win11 overlays
+
+    HWND hwnd = CreateWindowEx(
+        exStyles,
+        wc.lpszClassName,
+        L"Overlay",
+        WS_POPUP,
+        0, 0,
+        GetSystemMetrics(SM_CXSCREEN),
+        GetSystemMetrics(SM_CYSCREEN),
+        nullptr, nullptr, wc.hInstance, nullptr
+    );
+
+    // Chroma‑key transparency
+    SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
+
+    // Optional: extend frame
+    MARGINS margins = { -1, -1, -1, -1 };
+    DwmExtendFrameIntoClientArea(hwnd, &margins);
 
     ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd);
     return hwnd;
 }
 
@@ -606,7 +637,7 @@ void Render()
         ImGui::SliderInt("GraphicsRootConstantBuffer", &countGraphicsRootConstantBuffer, minus_val2, max_val);
         ImGui::SliderInt("GraphicsRootDescriptor", &countGraphicsRootDescriptor, minus_val2, max_val);
         ImGui::SliderInt("ComputeRootDescriptor", &countComputeRootDescriptor, minus_val2, max_val);
-        ImGui::SliderInt("IndexCount/1000", &countIndexCount, minus_val, max_val);
+        ImGui::SliderInt("IndexCount*1000", &countIndexCount, minus_val, max_val);
         ImGui::SliderInt("RenderTarget", &countfindrendertarget, minus_val, max_val);
         //ImGui::SliderInt("IndexFormat+Vp", &countindexformat, minus_val, max_val);
 
@@ -619,6 +650,7 @@ void Render()
             ImGui::SliderInt("CurrentIndexAddress1", &countcurrentIndexAddress, minus_val, max_val);
             ImGui::SliderInt("CurrentIndexAddress2", &countcurrentIndexAddress2, minus_val, max_val);
             ImGui::SliderInt("CurrentIndexAddress3", &countcurrentIndexAddress3, minus_val, max_val);
+            ImGui::SliderInt("CurrentPSOAddress", &countcurrentPSOAddress, minus_val, max_val);
         }
 
         //Filter/Ignore
@@ -674,11 +706,11 @@ void Render()
             ImGui::SliderInt("GraphicsRootConstantBuffer3", &countfilterGraphicsRootConstantBuffer3, minus_val2, max_val);
         }
 
-        ImGui::Checkbox("Filter ComputeRootDescriptor", &filterComputeRootDescriptor);
-        if (filterComputeRootDescriptor)
-        {
-            ImGui::SliderInt("Compute RootDescriptor", &countfilterComputeRootDescriptor, minus_val2, max_val);
-        }
+        //ImGui::Checkbox("Filter ComputeRootDescriptor", &filterComputeRootDescriptor);
+        //if (filterComputeRootDescriptor)
+        //{
+            //ImGui::SliderInt("Compute RootDescriptor", &countfilterComputeRootDescriptor, minus_val2, max_val);
+        //}
 
 
         ImGui::Checkbox("Ignore GraphicsRootDescriptor", &ignoreGraphicsRootDescriptor);
@@ -697,11 +729,11 @@ void Render()
             ImGui::SliderInt("GraphicsRootConstantBuffer 3", &countignoreGraphicsRootConstantBuffer3, minus_val2, max_val);
         }
 
-        ImGui::Checkbox("Ignore ComputeRootDescriptor", &ignoreComputeRootDescriptor);
-        if (ignoreComputeRootDescriptor)
-        {
-            ImGui::SliderInt("Compute RootDescriptor", &countignoreComputeRootDescriptor, minus_val2, max_val);
-        }
+        //ImGui::Checkbox("Ignore ComputeRootDescriptor", &ignoreComputeRootDescriptor);
+        //if (ignoreComputeRootDescriptor)
+        //{
+            //ImGui::SliderInt("Compute RootDescriptor", &countignoreComputeRootDescriptor, minus_val2, max_val);
+        //}
 
         ImGui::Checkbox("Reverse Depth", &reversedDepth);
         ImGui::Checkbox("Try to Disable Occlusion", &DisableOcclusionCulling);

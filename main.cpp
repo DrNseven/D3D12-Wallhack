@@ -199,7 +199,7 @@ namespace d3d12hook {
 
             for (UINT i = 0; i < validCount; ++i) {
                 // Filter out clearly invalid strides or huge raw buffers
-                if (pViews[i].StrideInBytes > 0 && pViews[i].StrideInBytes <= 999) {
+                if (pViews[i].StrideInBytes > 0 && pViews[i].StrideInBytes <= 200) {
                     t_.Strides[i] = pViews[i].StrideInBytes;
                     //t_.vertexBufferSizes[i] = pViews[i].SizeInBytes;
 
@@ -358,17 +358,9 @@ namespace d3d12hook {
             // Skip heavy logic for tiny meshes
             if (stats->maxIndexCount < 300)
             {
-                return oDrawIndexedInstancedD3D12(
-                    _this,
-                    IndexCountPerInstance,
-                    InstanceCount,
-                    StartIndexLocation,
-                    BaseVertexLocation,
-                    StartInstanceLocation
-                );
+                oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
             }
         }
-
 
         // 2. IDENTIFICATION
         const UINT currentStrides = t_.StrideHash + t_.StartSlot;
@@ -397,6 +389,12 @@ namespace d3d12hook {
                 {
                     isModelDraw = true;
                 }
+
+                uint8_t psoid = static_cast<uint8_t>(((UINT)currentPSO >> 12) % 100);
+                if (psoid == countcurrentPSOAddress)
+                {
+                    isModelDraw = true;
+                }
             }
         }
 
@@ -417,8 +415,8 @@ namespace d3d12hook {
             if (filterGraphicsRootConstantBuffer && (tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer && tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer2 && tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer3)) goto skip;
             if (ignoreGraphicsRootConstantBuffer && (tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
 
-            if (filterComputeRootDescriptor && (tls_cache.lastCRDTindex != countfilterComputeRootDescriptor)) goto skip;
-            if (ignoreComputeRootDescriptor && (tls_cache.lastCRDTindex == countignoreComputeRootDescriptor)) goto skip;
+            //if (filterComputeRootDescriptor && (tls_cache.lastCRDTindex != countfilterComputeRootDescriptor)) goto skip;
+            //if (ignoreComputeRootDescriptor && (tls_cache.lastCRDTindex == countignoreComputeRootDescriptor)) goto skip;
 
             // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
@@ -540,8 +538,8 @@ namespace d3d12hook {
             if (ignoreGraphicsRootDescriptor && (tls_cache.lastRDTindex == countignoreGraphicsRootDescriptor || tls_cache.lastRDTindex == countignoreGraphicsRootDescriptor2 || tls_cache.lastRDTindex == countignoreGraphicsRootDescriptor3)) goto skip;
             if (filterGraphicsRootConstantBuffer && (tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer && tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer2 && tls_cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer3)) goto skip;
             if (ignoreGraphicsRootConstantBuffer && (tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || tls_cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
-            if (filterComputeRootDescriptor && (tls_cache.lastCRDTindex != countfilterComputeRootDescriptor)) goto skip;
-            if (ignoreComputeRootDescriptor && (tls_cache.lastCRDTindex == countignoreComputeRootDescriptor)) goto skip;
+            //if (filterComputeRootDescriptor && (tls_cache.lastCRDTindex != countfilterComputeRootDescriptor)) goto skip;
+            //if (ignoreComputeRootDescriptor && (tls_cache.lastCRDTindex == countignoreComputeRootDescriptor)) goto skip;
 
             // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
