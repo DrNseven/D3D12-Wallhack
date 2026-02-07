@@ -1,4 +1,4 @@
-﻿//d3d12 hook/wallhack with imgui overlay 2026 by N7
+﻿//d3d12 hook/wallhack with imgui overlay 2026 by N7 + win11 overlay fix from utterlytv
 
 #pragma once
 #include <windows.h>

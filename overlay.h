@@ -1,4 +1,4 @@
-﻿//overlay.h by N7
+//overlay.h by N7 + UtterlyTV(Win11 Fix) 02/07/2026
 
 //#include <windows.h>
 //#include <d3d12.h>
@@ -6,7 +6,8 @@
 #include <dcomp.h>
 #include <wrl.h>
 #include <atomic>
-
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
 //#include "imgui/imgui.h"
 //#include "imgui/imgui_impl_win32.h"
 //#include "imgui/imgui_impl_dx12.h"
@@ -111,7 +112,7 @@ void SaveConfig()
 
     fout << "temporaryids " << temporaryids << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
-    fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;  
+    fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
     fout << "countcurrentIndexAddress " << countcurrentIndexAddress << endl;
     fout << "countcurrentIndexAddress2 " << countcurrentIndexAddress2 << endl;
     fout << "countcurrentIndexAddress3 " << countcurrentIndexAddress3 << endl;
@@ -154,13 +155,13 @@ void SaveConfig()
     fout << "countignoreGraphicsRootDescriptor " << countignoreGraphicsRootDescriptor << endl;
     fout << "countignoreGraphicsRootDescriptor2 " << countignoreGraphicsRootDescriptor2 << endl;
     fout << "countignoreGraphicsRootDescriptor3 " << countignoreGraphicsRootDescriptor3 << endl;
-   
+
     //fout << "filterComputeRootDescriptor " << filterComputeRootDescriptor << endl;
     //fout << "countfilterComputeRootDescriptor " << countfilterComputeRootDescriptor << endl;
 
     //fout << "ignoreComputeRootDescriptor " << ignoreComputeRootDescriptor << endl;
     //fout << "countignoreComputeRootDescriptor " << countignoreComputeRootDescriptor << endl;
-    
+
     fout << "reversedDepth " << reversedDepth << endl;
     fout << "DisableOcclusionCulling " << DisableOcclusionCulling << endl;
     fout.close();
@@ -247,7 +248,7 @@ void LoadConfig()
 // ============================================================
 #define FRAME_COUNT 2
 static std::atomic<bool> g_running = true;
-//static HWND g_gameHwnd = nullptr; //moved to main.h because we get it there
+static HWND g_gameHwnd = nullptr;
 static HWND g_overlayHwnd = nullptr;
 static bool g_clickThrough = true;
 
@@ -304,6 +305,40 @@ RECT GetGameRect()
     return r;
 }
 
+HWND FindMainGameWindow()
+{
+    DWORD pid = GetCurrentProcessId();
+    HWND hwnd = nullptr;
+    HWND best = nullptr;
+    long long bestArea = 0;
+
+    while ((hwnd = FindWindowEx(nullptr, hwnd, nullptr, nullptr)) != nullptr)
+    {
+        if (GetParent(hwnd) == nullptr && IsWindowVisible(hwnd))
+        {
+            DWORD windowPid = 0;
+            GetWindowThreadProcessId(hwnd, &windowPid);
+            if (windowPid == pid)
+            {
+                RECT rect;
+                if (GetWindowRect(hwnd, &rect))
+                {
+                    long long width = rect.right - rect.left;
+                    long long height = rect.bottom - rect.top;
+                    long long area = width * height;
+
+                    if (area > bestArea && width >= 640 && height >= 480) // reasonable minimum game size
+                    {
+                        bestArea = area;
+                        best = hwnd;
+                    }
+                }
+            }
+        }
+    }
+    return best;
+}
+
 // ============================================================
 // WINDOW
 // ============================================================
@@ -338,8 +373,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProc(hwnd, msg, wp, lp);
 }
 
-//#include <dwmapi.h>
-//#pragma comment(lib, "dwmapi.lib")
 HWND CreateOverlayWindow()
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -350,36 +383,32 @@ HWND CreateOverlayWindow()
     wc.lpszClassName = L"OverlayClass";
     RegisterClassEx(&wc);
 
-    DWORD exStyles =
-        WS_EX_LAYERED |      // Required for transparency
-        WS_EX_TOOLWINDOW |   // No taskbar icon
-        WS_EX_TOPMOST;       // Always on top
+    // Updated extended styles as you requested
+    // Added WS_EX_TRANSPARENT (critical for click-through)
+    // Added WS_EX_TOOLWINDOW (hides from taskbar/Alt+Tab)
+    // Kept WS_EX_LAYERED (required for per-pixel alpha or any layered behavior)
+    // Removed WS_EX_NOREDIRECTIONBITMAP (often causes issues on Win11 with external overlays)
+    DWORD exStyles = WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_TOOLWINDOW;
 
     HWND hwnd = CreateWindowEx(
         exStyles,
         wc.lpszClassName,
         L"Overlay",
-        WS_POPUP | WS_VISIBLE,
+        WS_POPUP,
         0, 0,
         GetSystemMetrics(SM_CXSCREEN),
         GetSystemMetrics(SM_CYSCREEN),
         nullptr, nullptr, wc.hInstance, nullptr
     );
 
-    // IMPORTANT: Do NOT use LWA_ALPHA or LWA_COLORKEY for D3D12
-    // Just keep WS_EX_LAYERED and let D3D12 render transparency
-
-    // Remove problematic Win11 flag if present
-    LONG_PTR style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
-    style &= ~WS_EX_NOREDIRECTIONBITMAP;
-    SetWindowLongPtr(hwnd, GWL_EXSTYLE, style);
+    // Removed SetLayeredWindowAttributes completely (no LWA_COLORKEY or LWA_ALPHA)
+    // Removed DwmExtendFrameIntoClientArea (conflicts with pure layered window approach)
 
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
 
     return hwnd;
 }
-
 
 // ============================================================
 // D3D12 INIT
@@ -494,6 +523,12 @@ void InitRTVsAndImGui()
 // ============================================================
 void ResizeOverlayIfNeeded()
 {
+    if (!IsWindow(g_gameHwnd) || GetWindowLong(g_gameHwnd, GWL_STYLE) == 0)
+    {
+        g_gameHwnd = FindMainGameWindow();
+        if (!g_gameHwnd) return;
+    }
+
     RECT r = GetGameRect();
     UINT w = r.right - r.left;
     UINT h = r.bottom - r.top;
@@ -574,45 +609,26 @@ void Render()
 
     if (GetAsyncKeyState(VK_INSERT) & 1)
     {
-        SaveConfig();
+        SaveConfig(); //Save settings
         g_showMenu = !g_showMenu;
         g_clickThrough = !g_showMenu;
 
-        // Always re-read the current style BEFORE modifying it
         LONG_PTR exStyle = GetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE);
 
         if (g_showMenu)
         {
-            // REMOVE TRANSPARENT + NOACTIVATE
-            exStyle &= ~WS_EX_TRANSPARENT;
-            exStyle &= ~WS_EX_NOACTIVATE;
+            // REMOVE NOACTIVATE and TRANSPARENT
+            SetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT & ~WS_EX_NOACTIVATE);
 
-            SetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE, exStyle);
-
-            // Force Windows 11 to re-evaluate the window
-            SetWindowPos(
-                g_overlayHwnd, HWND_TOPMOST,
-                0, 0, 0, 0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_FRAMECHANGED
-            );
-
-            // Give overlay focus so ImGui receives input
+            // Force the window to the front and give it keyboard focus
             SetForegroundWindow(g_overlayHwnd);
             SetActiveWindow(g_overlayHwnd);
             SetFocus(g_overlayHwnd);
         }
         else
         {
-            // Re-read style again to avoid stale flags
-            exStyle = GetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE);
-
-            // ADD TRANSPARENT + NOACTIVATE
-            exStyle |= WS_EX_TRANSPARENT;
-            exStyle |= WS_EX_NOACTIVATE;
-
-            SetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE, exStyle);
-
-            // Return focus to the game
+            // ADD NOACTIVATE and TRANSPARENT
+            SetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
             SetForegroundWindow(g_gameHwnd);
         }
     }
@@ -891,18 +907,15 @@ void CleanupOverlay()
 
 DWORD WINAPI OverlayThread(LPVOID)
 {
-    // Wait until InitH() finds the window
-    //while (g_running && !(g_gameHwnd = GetForegroundWindow())) //old
-    while (g_running && !g_gameHwnd) {
-        Sleep(500);
+    // New - reliably find the game's main window
+    while (g_running)
+    {
+        g_gameHwnd = FindMainGameWindow();
+        if (g_gameHwnd && IsWindow(g_gameHwnd))
+            break;
+        Sleep(200);
     }
-
-    if (!g_running)
-        return 0;
-
-    // Now use g_gameHwnd instead of GetForegroundWindow()
-    Log("Overlay using game window: %p\n", g_gameHwnd);
-
+    if (!g_running) return 0;
 
     RECT r = GetGameRect();
     g_overlayHwnd = CreateOverlayWindow();
@@ -1164,3 +1177,4 @@ LRESULT CALLBACK NextHook(int code, WPARAM wParam, LPARAM lParam)
 {
     return CallNextHookEx(NULL, code, wParam, lParam);
 }
+
