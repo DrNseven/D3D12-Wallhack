@@ -247,7 +247,7 @@ void LoadConfig()
 // ============================================================
 #define FRAME_COUNT 2
 static std::atomic<bool> g_running = true;
-static HWND g_gameHwnd = nullptr;
+//static HWND g_gameHwnd = nullptr; //moved to main.h because we get it there
 static HWND g_overlayHwnd = nullptr;
 static bool g_clickThrough = true;
 
@@ -338,8 +338,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProc(hwnd, msg, wp, lp);
 }
 
-#include <dwmapi.h>
-#pragma comment(lib, "dwmapi.lib")
+//#include <dwmapi.h>
+//#pragma comment(lib, "dwmapi.lib")
 HWND CreateOverlayWindow()
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -617,36 +617,6 @@ void Render()
         }
     }
 
-    /*
-    if (GetAsyncKeyState(VK_INSERT) & 1)
-    {
-        SaveConfig(); //Save settings
-        g_showMenu = !g_showMenu;
-        g_clickThrough = !g_showMenu;
-
-        LONG_PTR exStyle = GetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE);
-
-        if (g_showMenu)
-        {
-            // REMOVE NOACTIVATE and TRANSPARENT
-            SetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE, exStyle & ~WS_EX_TRANSPARENT & ~WS_EX_NOACTIVATE);
-
-            // CRITICAL: Force Windows to re-evaluate the window regions
-            SetWindowPos(g_overlayHwnd, HWND_TOPMOST, 0, 0, 0, 0,SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
-
-            // Force the window to the front and give it keyboard focus
-            SetForegroundWindow(g_overlayHwnd);
-            SetActiveWindow(g_overlayHwnd);
-            SetFocus(g_overlayHwnd);
-        }
-        else
-        {
-            // ADD NOACTIVATE and TRANSPARENT
-            SetWindowLongPtr(g_overlayHwnd, GWL_EXSTYLE, exStyle | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE);
-            SetForegroundWindow(g_gameHwnd);
-        }
-    }
-    */
     UpdateInputState();
 
     MSG msg;
@@ -921,14 +891,18 @@ void CleanupOverlay()
 
 DWORD WINAPI OverlayThread(LPVOID)
 {
-    // Wait for game window
-    while (g_running && !(g_gameHwnd = GetForegroundWindow()))
-    //while (g_running && !(g_gameHwnd = FindWindowA("UnrealWindow", nullptr))) //<---------------------------------------------------------
-    {
+    // Wait until InitH() finds the window
+    //while (g_running && !(g_gameHwnd = GetForegroundWindow())) //old
+    while (g_running && !g_gameHwnd) {
         Sleep(500);
     }
 
-    if (!g_running) return 0;
+    if (!g_running)
+        return 0;
+
+    // Now use g_gameHwnd instead of GetForegroundWindow()
+    Log("Overlay using game window: %p\n", g_gameHwnd);
+
 
     RECT r = GetGameRect();
     g_overlayHwnd = CreateOverlayWindow();
