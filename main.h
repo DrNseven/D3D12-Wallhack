@@ -360,7 +360,7 @@ namespace hooks {
         Log("D3D12Core.dll loaded at %p", GetModuleHandleA("D3D12Core.dll"));
 
         //Sleep(4000);
-        Log("[hooks] Init starting\n");
+        //Log("[hooks] Init starting\n");
 
 
         struct CleanupGuard {
@@ -558,7 +558,7 @@ namespace hooks {
 
     void Remove()
     {
-        Log("[hooks] Preparing to remove hooks.");
+        //Log("[hooks] Preparing to remove hooks.");
         auto DisableAndRemove = [](LPVOID& target)
             {
                 if (target)
@@ -721,89 +721,83 @@ struct CommandListState {
     UINT lastRCBVindex = UINT_MAX;
     UINT lastRDTindex = UINT_MAX;
     UINT lastCRDTindex = UINT_MAX;
+    D3D12_GPU_VIRTUAL_ADDRESS cbvGPUAddress[32] = {};
+    ID3D12RootSignature* currentRootSig = nullptr;
 };
 
-// Extremely fast: no mutex, no map lookup 99% of the time
-thread_local CommandListState tls_cache;
+// Fast: no mutex, no map lookup 99% of the time
+thread_local CommandListState cache;
 
 //=========================================================================================================================//
 
 //colors (not implemented)
 #include <DirectXMath.h>
+#include <d3d12.h>
+#include <wrl/client.h> // For ComPtr
+
 using namespace DirectX;
+using namespace Microsoft::WRL;
 
-int countnum = -1;
+int countnum = 0;
 ComPtr<ID3D12Device> pDevice = nullptr;
-bool initialized = false;
-
-// Custom resources for coloring
+bool colorinitialized = false;
 ComPtr<ID3D12Resource> g_pCustomConstantBuffer = nullptr;
-UINT8* g_pMappedConstantBuffer = nullptr; // Pointer to mapped CPU-accessible memory
-UINT g_constantBufferSize = 0;
+UINT8* g_pMappedConstantBuffer = nullptr;
+// Increased to allow room for bruteforcing
+const UINT MAX_CB_SIZE = 1024 * 64;
 
-struct MyMaterialConstants
+struct alignas(256) MyMaterialConstants
 {
-    BYTE padding[4096];
+    DirectX::XMFLOAT4 color[16]; // Fills 256 bytes
 };
 
-// Creates our upload buffer resource (used for coloring)
-bool CreateCustomConstantBuffer()
+bool CreateColorConstantBuffer()
 {
-    if (!pDevice) Log("!pDevice");
     if (!pDevice) return false;
 
-    // Calculate struct size, ensure alignment
-    g_constantBufferSize = (sizeof(MyMaterialConstants) + 255) & ~255; // Align to 256 bytes
-
     D3D12_HEAP_PROPERTIES heapProps = {};
-    heapProps.Type = D3D12_HEAP_TYPE_UPLOAD; // CPU write, GPU read
-    heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-    heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+    heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
 
     D3D12_RESOURCE_DESC resourceDesc = {};
     resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-    resourceDesc.Alignment = 0;
-    resourceDesc.Width = g_constantBufferSize;
+    resourceDesc.Width = MAX_CB_SIZE; // Crucial: Large enough for countnum to grow
     resourceDesc.Height = 1;
     resourceDesc.DepthOrArraySize = 1;
     resourceDesc.MipLevels = 1;
-    resourceDesc.Format = DXGI_FORMAT_UNKNOWN;
     resourceDesc.SampleDesc.Count = 1;
-    resourceDesc.SampleDesc.Quality = 0;
     resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-    resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
+    // Use GENERIC_READ for UPLOAD heaps
     HRESULT hr = pDevice->CreateCommittedResource(
         &heapProps,
         D3D12_HEAP_FLAG_NONE,
         &resourceDesc,
-        D3D12_RESOURCE_STATE_GENERIC_READ, // Initial state for upload heap
+        D3D12_RESOURCE_STATE_GENERIC_READ,
         nullptr,
         IID_PPV_ARGS(&g_pCustomConstantBuffer));
 
-    if (FAILED(hr)) {
-        Log("Failed to create custom constant buffer!");
-        return false;
-    }
+    if (FAILED(hr)) return false;
 
-    g_pCustomConstantBuffer->SetName(L"CustomHookConstantBuffer");
-
-    // Map the buffer permanently. Upload heaps are CPU-accessible.
-    // We don't need to unmap unless we destroy the resource.
-    D3D12_RANGE readRange = { 0, 0 }; // We don't intend to read from CPU
+    D3D12_RANGE readRange = { 0, 0 };
     hr = g_pCustomConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&g_pMappedConstantBuffer));
 
-    if (FAILED(hr)) {
-        Log("Failed to map custom constant buffer!");
-        g_pCustomConstantBuffer.Reset(); // Release the buffer if map failed
-        return false;
-    }
-
-    return true;
+    return SUCCEEDED(hr);
 }
 
-//=========================================================================================================================//
-
+// Cleanup function (call on shutdown/unload)
+void CleanupColorBuffer()
+{
+    if (g_pCustomConstantBuffer)
+    {
+        if (g_pMappedConstantBuffer)
+        {
+            g_pCustomConstantBuffer->Unmap(0, nullptr);
+            g_pMappedConstantBuffer = nullptr;
+        }
+        g_pCustomConstantBuffer.Reset();
+    }
+    colorinitialized = false;
+}
 
 //=========================================================================================================================//
 
@@ -991,105 +985,7 @@ bool CreateCustomConstantBuffer()
 */
 
 
-/*
-// One time initialization
-    if (!countoverrideinitialized) {
-        HRESULT hr = _this->GetDevice(__uuidof(ID3D12Device), (void**)&pDevice);
-        if (FAILED(hr)) {
-            Log("GetDevice failed: 0x%08X", hr);
-            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
-        }
 
-        InitCountOverride(pDevice.Get());
-        countoverrideinitialized = true;
-    }
- 
-//colors
-// One time initialization
-if (!initialized && IndexCountPerInstance > 0 && InstanceCount > 0) {
-    HRESULT hr = _this->GetDevice(__uuidof(ID3D12Device), (void**)&pDevice);
-    if (FAILED(hr)) {
-        Log("GetDevice failed: 0x%08X", hr);
-        return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
-    }
-
-    if (CreateCustomConstantBuffer()) {
-        initialized = true;
-        //Log("Constant buffer initialized");
-    }
-    else {
-        Log("Failed to create constant buffer");
-    }
-}
-
-//hold down P key until a texture is erased, press END to log values of those textures
-if (GetAsyncKeyState(VK_OEM_COMMA) & 1) //-
-    countnum--;
-if (GetAsyncKeyState(VK_OEM_PERIOD) & 1) //+
-    countnum++;
-if (GetAsyncKeyState('9') & 1) //reset, set to 0
-    countnum = 0;
-
-if (Requires Stride + correct rootindexvalue 0-10 or else crash)
-    //if (t_.StrideHash == 1 && tls_cache.lastRCBVindex == 8 || t_.StrideHash == 75 && tls_cache.lastRCBVindex == 6 || t_.StrideHash == 99 && tls_cache.lastRCBVindex == 6)//models
-{
-    // Ensure CBV alignment is 256 bytes.
-    constexpr size_t CB_ALIGN = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
-    static_assert(CB_ALIGN == 256, "CBV alignment must be 256 bytes.");
-
-    // Scan state (persistent across frames)
-    static bool scanning = true;
-    static size_t scanBase = 0;   // 256-aligned base
-    static size_t inner16 = 0;   // 0..240 in 16-byte steps inside block
-    static size_t frameCount = 0;
-
-    // Advance scan only every 2 frames
-    if (scanning && (frameCount++ % 2) == 0)
-    {
-        inner16 += 16;
-
-        if (inner16 >= CB_ALIGN) // Changed condition: if inner16 reaches or exceeds CB_ALIGN
-        {
-            inner16 = 0;
-            scanBase += CB_ALIGN;
-
-            // Stop scanning if we reach the end of the buffer
-            // Make sure g_constantBufferSize is also 256-byte aligned if you're writing blocks
-            if (scanBase >= g_constantBufferSize)
-            {
-                scanning = false;
-                scanBase = 0; // Reset for next scan cycle if needed
-                inner16 = 0;
-            }
-        }
-    }
-
-    // Compute CBV write offset
-    const size_t writeOffset = scanBase + inner16;
-    //size_t writeOffset = scanBase + countnum; //2. brute force this if models are still black
-    //size_t writeOffset = inner16 + countnum;
-    //size_t writeOffset = scanBase + inner16 + countnum;
-
-    // Choose color based on IndexCountPerInstance
-    // Use standard 0.0-1.0 range for color components
-    DirectX::XMFLOAT4 newColor = { 1.0f, 1.0f, 0.0f, 1.0f }; // Default
-
-    // FIX: Write only to the calculated 'writeOffset'
-    if (g_pMappedConstantBuffer && (writeOffset + sizeof(DirectX::XMFLOAT4) <= g_constantBufferSize))
-    {
-        *reinterpret_cast<DirectX::XMFLOAT4*>(reinterpret_cast<BYTE*>(g_pMappedConstantBuffer) + writeOffset) = newColor;
-    }
-
-    if (g_pCustomConstantBuffer && scanBase < g_constantBufferSize) // Ensure scanBase is valid
-    {
-        // The CBV must be aligned. We bind the 256-byte aligned block.
-        const D3D12_GPU_VIRTUAL_ADDRESS bufferAddress = g_pCustomConstantBuffer->GetGPUVirtualAddress() + scanBase;
-
-        // Bind CBV to this block
-        _this->SetGraphicsRootConstantBufferView(tls_cache.lastRCBVindex, bufferAddress);
-    }
-}
-*/
 
 /*
 //buggy shit

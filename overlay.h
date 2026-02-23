@@ -28,6 +28,7 @@ int countstride1 = -1;
 int countstride2 = -1;
 int countstride3 = -1;
 int countstride4 = -1;
+int countstride5 = -1;
 int countExIStride1 = -1;
 int countExIStride2 = -1;
 int countExIStride3 = -1;
@@ -44,12 +45,14 @@ int countGraphicsRootConstantBuffer = -2;
 int countGraphicsRootDescriptor = -2;
 int countComputeRootDescriptor = -2;
 
-int countindexformat = -1;
+//int countindexformat = -1;
+int countfilterindexformat = -1;
 int countfilternumViews = -1;
 int countfilternumViewports = -1;
 int countignorenumViews = -1;
 int countignorenumViewports = -1;
 int countfilterrendertarget = -1;
+int countfilterrendertarget2 = -1;
 int countignorerendertarget = -1;
 
 int countfilterGraphicsRootConstantBuffer = -2;
@@ -72,6 +75,7 @@ int countignoreGraphicsRootDescriptor3 = -2;
 //int countignoreComputeRootDescriptor = -2;
 
 bool temporaryids = false;
+bool filterindexformat = false;
 bool filternumViews = false;
 bool filternumViewports = false;
 bool ignorenumViews = false;
@@ -89,6 +93,19 @@ bool ignoreComputeRootDescriptor = false;
 bool reversedDepth = false;
 bool DisableOcclusionCulling = true;
 
+bool enablecolor = false;
+int cri0 = 0;
+int cri1 = 0;
+int cri2 = 0;
+int cri3 = 0;
+int cri4 = 0;
+int cri5 = 0;
+int cri6 = 0;
+int cri7 = 0;
+int cri8 = 0;
+int cri9 = 0;
+int cri10 = 0;
+
 using namespace std;
 #include <string>
 #include <fstream>
@@ -100,15 +117,15 @@ void SaveConfig()
     fout << "countstride2 " << countstride2 << endl;
     fout << "countstride3 " << countstride3 << endl;
     fout << "countstride4 " << countstride4 << endl;
-    fout << "ExIStride1 " << countExIStride1 << endl;
-    fout << "ExIStride2 " << countExIStride2 << endl;
-    fout << "ExIStride3 " << countExIStride3 << endl;
+    fout << "countstride5 " << countstride5 << endl;
+    fout << "exinstride1 " << countExIStride1 << endl;
+    fout << "exinstride2 " << countExIStride2 << endl;
+    fout << "exinstride3 " << countExIStride3 << endl;
     fout << "countGraphicsRootConstantBuffer " << countGraphicsRootConstantBuffer << endl;
     fout << "countGraphicsRootDescriptor " << countGraphicsRootDescriptor << endl;
     //fout << "countComputeRootDescriptor " << countComputeRootDescriptor << endl;
     fout << "countIndexCount " << countIndexCount << endl;
     fout << "countfindrendertarget " << countfindrendertarget << endl;
-    //fout << "countindexformat " << countindexformat << endl;
 
     fout << "temporaryids " << temporaryids << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
@@ -118,8 +135,12 @@ void SaveConfig()
     fout << "countcurrentIndexAddress3 " << countcurrentIndexAddress3 << endl;
     fout << "countcurrentPSOAddress " << countcurrentPSOAddress << endl;
 
+    fout << "filterindexformat " << filterindexformat << endl;
+    fout << "countfilterindexformat " << countfilterindexformat << endl;
+
     fout << "filterrendertarget " << filterrendertarget << endl;
     fout << "countfilterrendertarget " << countfilterrendertarget << endl;
+    fout << "countfilterrendertarget2 " << countfilterrendertarget2 << endl;
 
     fout << "ignorerendertarget " << ignorerendertarget << endl;
     fout << "countignorerendertarget " << countignorerendertarget << endl;
@@ -127,14 +148,8 @@ void SaveConfig()
     fout << "filternumViews " << filternumViews << endl;
     fout << "countfilternumViews " << countfilternumViews << endl;
 
-    fout << "filternumViewports " << filternumViewports << endl;
-    fout << "countfilternumViewports " << countfilternumViewports << endl;
-
     fout << "ignorenumViews " << ignorenumViews << endl;
     fout << "countignorenumViews " << countignorenumViews << endl;
-
-    fout << "ignorenumViewports " << ignorenumViewports << endl;
-    fout << "countignorenumViewports " << countignorenumViewports << endl;
 
     fout << "filterGraphicsRootConstantBuffer " << filterGraphicsRootConstantBuffer << endl;
     fout << "countfilterGraphicsRootConstantBuffer " << countfilterGraphicsRootConstantBuffer << endl;
@@ -164,6 +179,18 @@ void SaveConfig()
 
     fout << "reversedDepth " << reversedDepth << endl;
     fout << "DisableOcclusionCulling " << DisableOcclusionCulling << endl;
+    fout << "enablecolor " << enablecolor << endl;
+    fout << "cri0 " << cri0 << endl;
+    fout << "cri1 " << cri1 << endl;
+    fout << "cri2 " << cri2 << endl;
+    fout << "cri3 " << cri3 << endl;
+    fout << "cri4 " << cri4 << endl;
+    fout << "cri5 " << cri5 << endl;
+    fout << "cri6 " << cri6 << endl;
+    fout << "cri7 " << cri7 << endl;
+    fout << "cri8 " << cri8 << endl;
+    fout << "cri9 " << cri9 << endl;
+    fout << "cri10 " << cri10 << endl;
     fout.close();
 }
 
@@ -176,6 +203,7 @@ void LoadConfig()
     fin >> Word >> countstride2;
     fin >> Word >> countstride3;
     fin >> Word >> countstride4;
+    fin >> Word >> countstride5;
     fin >> Word >> countExIStride1;
     fin >> Word >> countExIStride2;
     fin >> Word >> countExIStride3;
@@ -184,7 +212,6 @@ void LoadConfig()
     //fin >> Word >> countComputeRootDescriptor;
     fin >> Word >> countIndexCount;
     fin >> Word >> countfindrendertarget;
-    //fin >> Word >> countindexformat;
 
     fin >> Word >> temporaryids;
     fin >> Word >> countcurrentRootSigID;
@@ -194,8 +221,12 @@ void LoadConfig()
     fin >> Word >> countcurrentIndexAddress3;
     fin >> Word >> countcurrentPSOAddress;
 
+    fin >> Word >> filterindexformat;
+    fin >> Word >> countfilterindexformat;
+
     fin >> Word >> filterrendertarget;
     fin >> Word >> countfilterrendertarget;
+    fin >> Word >> countfilterrendertarget2;
 
     fin >> Word >> ignorerendertarget;
     fin >> Word >> countignorerendertarget;
@@ -203,14 +234,8 @@ void LoadConfig()
     fin >> Word >> filternumViews;
     fin >> Word >> countfilternumViews;
 
-    fin >> Word >> filternumViewports;
-    fin >> Word >> countfilternumViewports;
-
     fin >> Word >> ignorenumViews;
     fin >> Word >> countignorenumViews;
-
-    fin >> Word >> ignorenumViewports;
-    fin >> Word >> countignorenumViewports;
 
     fin >> Word >> filterGraphicsRootConstantBuffer;
     fin >> Word >> countfilterGraphicsRootConstantBuffer;
@@ -240,6 +265,18 @@ void LoadConfig()
 
     fin >> Word >> reversedDepth;
     fin >> Word >> DisableOcclusionCulling;
+    fin >> Word >> enablecolor;
+    fin >> Word >> cri0;
+    fin >> Word >> cri1;
+    fin >> Word >> cri2;
+    fin >> Word >> cri3;
+    fin >> Word >> cri4;
+    fin >> Word >> cri5;
+    fin >> Word >> cri6;
+    fin >> Word >> cri7;
+    fin >> Word >> cri8;
+    fin >> Word >> cri9;
+    fin >> Word >> cri10;
     fin.close();
 }
 
@@ -661,17 +698,19 @@ void Render()
         const UINT minus_val2 = -2;
         const UINT min_val = 0;
         const UINT max_val = 100;
+        const UINT max_valisone = 1;
         ImGui::Text("Find Permanent Values");
         ImGui::SliderInt("Stridehash1", &countstride1, minus_val, max_val);
         ImGui::SliderInt("Stridehash2", &countstride2, minus_val, max_val);
         ImGui::SliderInt("Stridehash3", &countstride3, minus_val, max_val);
         ImGui::SliderInt("Stridehash4", &countstride4, minus_val, max_val);
-        ImGui::SliderInt("ExIStride1", &countExIStride1, minus_val, max_val);
-        ImGui::SliderInt("ExIStride2", &countExIStride2, minus_val, max_val);
-        ImGui::SliderInt("ExIStride3", &countExIStride3, minus_val, max_val);
+        ImGui::SliderInt("Stridehash5", &countstride5, minus_val, max_val);
+        ImGui::SliderInt("ExInStride1", &countExIStride1, minus_val, max_val);
+        ImGui::SliderInt("ExInStride2", &countExIStride2, minus_val, max_val);
+        ImGui::SliderInt("ExInStride3", &countExIStride3, minus_val, max_val);
         ImGui::SliderInt("GraphicsRootConstantBuffer", &countGraphicsRootConstantBuffer, minus_val2, max_val);
         ImGui::SliderInt("GraphicsRootDescriptor", &countGraphicsRootDescriptor, minus_val2, max_val);
-        ImGui::SliderInt("ComputeRootDescriptor", &countComputeRootDescriptor, minus_val2, max_val);
+        //ImGui::SliderInt("ComputeRootDescriptor", &countComputeRootDescriptor, minus_val2, max_val);
         ImGui::SliderInt("IndexCount*1000", &countIndexCount, minus_val, max_val);
         ImGui::SliderInt("RenderTarget", &countfindrendertarget, minus_val, max_val);
         //ImGui::SliderInt("IndexFormat+Vp", &countindexformat, minus_val, max_val);
@@ -689,10 +728,17 @@ void Render()
         }
 
         //Filter/Ignore
+        ImGui::Checkbox("Filter IndexFormat", &filterindexformat);
+        if (filterindexformat)
+        {
+            ImGui::SliderInt("IndexFormat", &countfilterindexformat, minus_val, max_val);
+        }
+
         ImGui::Checkbox("Filter RenderTarget", &filterrendertarget);
         if (filterrendertarget)
         {
             ImGui::SliderInt("Render Target", &countfilterrendertarget, minus_val, max_val);
+            ImGui::SliderInt("Render Target2", &countfilterrendertarget2, minus_val, max_val);
         }
 
         ImGui::Checkbox("Ignore RenderTarget", &ignorerendertarget);
@@ -711,18 +757,6 @@ void Render()
         if (ignorenumViews)
         {
             ImGui::SliderInt("NumViews ", &countignorenumViews, minus_val, max_val);
-        }
-
-        ImGui::Checkbox("Filter NumViewports", &filternumViewports);
-        if (filternumViewports)
-        {
-            ImGui::SliderInt("NumViewports", &countfilternumViewports, minus_val, max_val);
-        }
-
-        ImGui::Checkbox("Ignore NumViewports", &ignorenumViewports);
-        if (ignorenumViewports)
-        {
-            ImGui::SliderInt("NumViewports ", &countignorenumViewports, minus_val, max_val);
         }
 
         ImGui::Checkbox("Filter GraphicsRootDescriptor", &filterGraphicsRootDescriptor);
@@ -772,7 +806,21 @@ void Render()
 
         ImGui::Checkbox("Reverse Depth", &reversedDepth);
         ImGui::Checkbox("Try to Disable Occlusion", &DisableOcclusionCulling);
-        //ImGui::Checkbox("Color", &colors);
+        ImGui::Checkbox("Enable Color UE5+", &enablecolor);
+        if (enablecolor)
+        {
+            ImGui::SliderInt("Color RootIndex 0", &cri0, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 1", &cri1, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 2", &cri2, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 3", &cri3, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 4", &cri4, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 5", &cri5, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 6", &cri6, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 7", &cri7, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 8", &cri8, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 9", &cri9, min_val, max_valisone);
+            ImGui::SliderInt("Color RootIndex 10", &cri10, min_val, max_valisone);
+        }
 
         ImGui::End();
     }
@@ -843,7 +891,7 @@ void Render()
 
 void CleanupOverlay()
 {
-    Log("[Cleanup] Starting Graceful Shutdown...\n");
+    //Log("[Cleanup] Starting Graceful Shutdown...\n");
 
     // 1. Wait for GPU to finish all pending frames
     // If we don't do this, we release memory the GPU is still using!
@@ -970,7 +1018,7 @@ static bool TryInitBackend(globals::Backend backend)
     case globals::Backend::DX12:
         if (GetModuleHandleA("d3d12.dll") || GetModuleHandleA("dxgi.dll"))
         {
-            Log("[DllMain] Attempting DX12 initialization.\n");
+            //Log("[DllMain] Attempting DX12 initialization.\n");
             hooks::InitH();
             if (WaitForInitialization(d3d12hook::IsInitialized))
             {
@@ -1059,7 +1107,7 @@ static std::atomic<bool> g_BackendWatcherRunning = false;
 
 static DWORD WINAPI BackendWatcherThread(LPVOID)
 {
-    Log("[BackendWatcher] Started\n");
+    //Log("[BackendWatcher] Started\n");
 
     g_BackendWatcherRunning = true;
 
@@ -1090,14 +1138,14 @@ static DWORD WINAPI BackendWatcherThread(LPVOID)
         Sleep(100); // Low overhead, no busy loop
     }
 
-    Log("[BackendWatcher] Exiting\n");
+    //Log("[BackendWatcher] Exiting\n");
     g_BackendWatcherRunning = false;
     return 0;
 }
 
 static DWORD WINAPI onAttach(LPVOID)
 {
-    Log("[DllMain] onAttach starting\n");
+    //Log("[DllMain] onAttach starting\n");
 
     if (MH_Initialize() != MH_OK)
     {
@@ -1113,7 +1161,7 @@ static DWORD WINAPI onAttach(LPVOID)
     // START OVERLAY
     CreateThread(nullptr, 0, OverlayThread, nullptr, 0, nullptr);
 
-    Log("[DllMain] onAttach finished\n");
+    //Log("[DllMain] onAttach finished\n");
     return 0;
 }
 
@@ -1137,7 +1185,7 @@ BOOL WINAPI DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved
     case DLL_PROCESS_ATTACH:
         DisableThreadLibraryCalls(hModule);
         globals::mainModule = hModule;
-        Log("[DllMain] DLL_PROCESS_ATTACH: hModule=%p\n", hModule);
+        //Log("[DllMain] DLL_PROCESS_ATTACH: hModule=%p\n", hModule);
         // hook setup
         {
             HANDLE thread = CreateThread(nullptr, 0,onAttach,nullptr,0,nullptr);
@@ -1150,7 +1198,7 @@ BOOL WINAPI DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved
         g_running = false; // Signal all threads to stop
         g_BackendInitialized = true; // Break the watcher loop
 
-        Log("[DllMain] DLL_PROCESS_DETACH. Cleaning up.\n");
+        //Log("[DllMain] DLL_PROCESS_DETACH. Cleaning up.\n");
 
         Sleep(100); // Give threads a moment to finish (don't use WaitForSingleObject in DllMain, it causes deadlocks)
         
