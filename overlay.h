@@ -167,6 +167,7 @@ void SaveConfig()
     fout << "DisableOcclusionCulling " << DisableOcclusionCulling << endl;
 
     fout << "enablecolor " << enablecolor << endl;
+    fout << "coloroffset " << coloroffset << endl;
 
     fout << "cri0 " << cri0 << endl;
     fout << "cri1 " << cri1 << endl;
@@ -256,6 +257,7 @@ void LoadConfig()
         else if (key == "DisableOcclusionCulling")  fin >> DisableOcclusionCulling;
 
         else if (key == "enablecolor")              fin >> enablecolor;
+        else if (key == "coloroffset")              fin >> coloroffset;
 
         else if (key == "cri0")  fin >> cri0;
         else if (key == "cri1")  fin >> cri1;
@@ -804,6 +806,7 @@ void Render()
         ImGui::Checkbox("Reverse Depth", &reversedDepth);
         ImGui::Checkbox("Try to Disable Occlusion", &DisableOcclusionCulling);
         ImGui::Checkbox("Enable Color UE5+", &enablecolor);
+        ImGui::SliderInt("Coloroffset", &coloroffset, min_val, max_val);
         if (enablecolor)
         {
             ImGui::SliderInt("Color RootIndex 0", &cri0, min_val, max_valisone);

@@ -738,7 +738,7 @@ thread_local CommandListState cache;
 using namespace DirectX;
 using namespace Microsoft::WRL;
 
-int countnum = 0;
+int coloroffset = 0;
 ComPtr<ID3D12Device> pDevice = nullptr;
 bool colorinitialized = false;
 ComPtr<ID3D12Resource> g_pCustomConstantBuffer = nullptr;

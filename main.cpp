@@ -453,7 +453,7 @@ namespace d3d12hook {
                     }
                     if (CreateColorConstantBuffer()) {
                         colorinitialized = true;
-                        Log("Constant buffer initialized for colors");
+                        //Log("Constant buffer initialized for colors");
                     }
                     else {
                         Log("Failed to create constant buffer for colors");
@@ -467,26 +467,19 @@ namespace d3d12hook {
                 {
                     if (colorinitialized && g_pMappedConstantBuffer)
                     {
-                        //if (GetAsyncKeyState(VK_OEM_COMMA) & 1)   // -
-                        //countnum--;
-                        //if (GetAsyncKeyState(VK_OEM_PERIOD) & 1)  // +
-                        //countnum++;
-                        //if (GetAsyncKeyState('9') & 1)            // reset
-                        //countnum = 0;
-                         
                         // Clamp countnum, it is for bruteforcing offset
-                        //if (countnum < 0) countnum = 0;
-                        //if (countnum > (MAX_CB_SIZE - 256)) countnum = MAX_CB_SIZE - 256;
+                        if (coloroffset < 0) coloroffset = 0;
+                        if (coloroffset > (MAX_CB_SIZE - 256)) coloroffset = MAX_CB_SIZE - 256;
 
                         DirectX::XMFLOAT4 myColor = { 25.0f, 0.0f, 25.0f, 1.0f }; //1.0 and 0.0 can appear black, depends on the game 
 
                         // Get pointer to the current offset
-                        auto* constants = reinterpret_cast<MyMaterialConstants*>(g_pMappedConstantBuffer);// +countnum);
+                        auto* constants = reinterpret_cast<MyMaterialConstants*>(g_pMappedConstantBuffer + coloroffset);
 
                         // Fill the 256-byte block
                         for (int i = 0; i < 16; i++) constants->color[i] = myColor;
 
-                        D3D12_GPU_VIRTUAL_ADDRESS cbAddr = g_pCustomConstantBuffer->GetGPUVirtualAddress();// +countnum;
+                        D3D12_GPU_VIRTUAL_ADDRESS cbAddr = g_pCustomConstantBuffer->GetGPUVirtualAddress() + coloroffset;
 
                         //This crash check would require D3D12SerializeRootSignature / CreateRootSignature but then also need to hook and inject early
                         //auto& params = RootParamTypes[cache.currentRootSig]; 
@@ -640,7 +633,7 @@ namespace d3d12hook {
                     }
                     if (CreateColorConstantBuffer()) {
                         colorinitialized = true;
-                        Log("Constant buffer initialized for colors");
+                        //Log("Constant buffer initialized for colors");
                     }
                     else {
                         Log("Failed to create constant buffer for colors");
@@ -654,26 +647,19 @@ namespace d3d12hook {
                 {
                     if (colorinitialized && g_pMappedConstantBuffer)
                     {
-                        //if (GetAsyncKeyState(VK_OEM_COMMA) & 1)   // -
-                        //countnum--;
-                        //if (GetAsyncKeyState(VK_OEM_PERIOD) & 1)  // +
-                        //countnum++;
-                        //if (GetAsyncKeyState('9') & 1)            // reset
-                        //countnum = 0;
-
                         // Clamp countnum, it is for bruteforcing offset
-                        //if (countnum < 0) countnum = 0;
-                        //if (countnum > (MAX_CB_SIZE - 256)) countnum = MAX_CB_SIZE - 256;
+                        if (coloroffset < 0) coloroffset = 0;
+                        if (coloroffset > (MAX_CB_SIZE - 256)) coloroffset = MAX_CB_SIZE - 256;
 
                         DirectX::XMFLOAT4 myColor = { 25.0f, 0.0f, 25.0f, 1.0f }; //1.0 and 0.0 can appear black, depends on the game 
 
                         // Get pointer to the current offset
-                        auto* constants = reinterpret_cast<MyMaterialConstants*>(g_pMappedConstantBuffer);// +countnum);
+                        auto* constants = reinterpret_cast<MyMaterialConstants*>(g_pMappedConstantBuffer + coloroffset);
 
                         // Fill the 256-byte block
                         for (int i = 0; i < 16; i++) constants->color[i] = myColor;
 
-                        D3D12_GPU_VIRTUAL_ADDRESS cbAddr = g_pCustomConstantBuffer->GetGPUVirtualAddress();// +countnum;
+                        D3D12_GPU_VIRTUAL_ADDRESS cbAddr = g_pCustomConstantBuffer->GetGPUVirtualAddress() + coloroffset;
 
                         //This crash check would require D3D12SerializeRootSignature / CreateRootSignature but then also need to hook and inject early
                         //auto& params = RootParamTypes[cache.currentRootSig]; 
