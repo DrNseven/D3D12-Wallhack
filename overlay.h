@@ -32,67 +32,53 @@ int countstride5 = -1;
 int countExIStride1 = -1;
 int countExIStride2 = -1;
 int countExIStride3 = -1;
+int countExIStride4 = -1;
+int countGraphicsRootConstantBuffer = -2;
+int countGraphicsRootDescriptor = -2;
 int countIndexCount = -1;
+int countfindrendertarget = -1;
+
+bool enabletemporaryids = false;
 int countcurrentRootSigID = -1;
 int countcurrentRootSigID2 = -1;
 int countcurrentIndexAddress = -1;
 int countcurrentIndexAddress2 = -1;
 int countcurrentIndexAddress3 = -1;
 int countcurrentPSOAddress = -1;
-int countfindrendertarget = -1;
 
-int countGraphicsRootConstantBuffer = -2;
-int countGraphicsRootDescriptor = -2;
-int countComputeRootDescriptor = -2;
-
-//int countindexformat = -1;
-int countfilterindexformat = -1;
-int countfilternumViews = -1;
-int countfilternumViewports = -1;
-int countignorenumViews = -1;
-int countignorenumViewports = -1;
+bool enablefilters = false;
+bool filterrendertarget = false;
 int countfilterrendertarget = -1;
 int countfilterrendertarget2 = -1;
-int countignorerendertarget = -1;
-
+bool filterGraphicsRootConstantBuffer = false;
 int countfilterGraphicsRootConstantBuffer = -2;
 int countfilterGraphicsRootConstantBuffer2 = -2;
 int countfilterGraphicsRootConstantBuffer3 = -2;
-
-int countignoreGraphicsRootConstantBuffer = -2;
-int countignoreGraphicsRootConstantBuffer2 = -2;
-int countignoreGraphicsRootConstantBuffer3 = -2;
-
+bool filterGraphicsRootDescriptor = false;
 int countfilterGraphicsRootDescriptor = -2;
 int countfilterGraphicsRootDescriptor2 = -2;
 int countfilterGraphicsRootDescriptor3 = -2;
+bool filterindexformat = false;
+int countfilterindexformat = -1;
+bool filternumViews = false;
+int countfilternumViews = -1;
 
+bool enableignores = false;
+bool ignorerendertarget = false;
+int countignorerendertarget = -1;
+bool ignoreGraphicsRootConstantBuffer = false;
+int countignoreGraphicsRootConstantBuffer = -2;
+int countignoreGraphicsRootConstantBuffer2 = -2;
+int countignoreGraphicsRootConstantBuffer3 = -2;
+bool ignoreGraphicsRootDescriptor = false;
 int countignoreGraphicsRootDescriptor = -2;
 int countignoreGraphicsRootDescriptor2 = -2;
 int countignoreGraphicsRootDescriptor3 = -2;
-
-//int countfilterComputeRootDescriptor = -2;
-//int countignoreComputeRootDescriptor = -2;
-
-bool temporaryids = false;
-bool filterindexformat = false;
-bool filternumViews = false;
-bool filternumViewports = false;
 bool ignorenumViews = false;
-bool ignorenumViewports = false;
-bool filterrendertarget = false;
-bool ignorerendertarget = false;
-
-bool filterGraphicsRootConstantBuffer = false;
-bool ignoreGraphicsRootConstantBuffer = false;
-bool filterGraphicsRootDescriptor = false;
-bool ignoreGraphicsRootDescriptor = false;
-bool filterComputeRootDescriptor = false;
-bool ignoreComputeRootDescriptor = false;
+int countignorenumViews = -1;
 
 bool reversedDepth = false;
 bool DisableOcclusionCulling = true;
-
 bool enablecolor = false;
 int cri0 = 0;
 int cri1 = 0;
@@ -106,28 +92,32 @@ int cri8 = 0;
 int cri9 = 0;
 int cri10 = 0;
 
+bool ExecuteIndirectisCalled = 0;
+
 using namespace std;
 #include <string>
 #include <fstream>
 void SaveConfig()
 {
-    ofstream fout;
-    fout.open("d3d12wh.ini", ios::trunc);
+    ofstream fout("d3d12wh.ini", ios::trunc);
+
     fout << "countstride1 " << countstride1 << endl;
     fout << "countstride2 " << countstride2 << endl;
     fout << "countstride3 " << countstride3 << endl;
     fout << "countstride4 " << countstride4 << endl;
     fout << "countstride5 " << countstride5 << endl;
+
     fout << "exinstride1 " << countExIStride1 << endl;
     fout << "exinstride2 " << countExIStride2 << endl;
     fout << "exinstride3 " << countExIStride3 << endl;
+    fout << "exinstride4 " << countExIStride4 << endl;
+
     fout << "countGraphicsRootConstantBuffer " << countGraphicsRootConstantBuffer << endl;
     fout << "countGraphicsRootDescriptor " << countGraphicsRootDescriptor << endl;
-    //fout << "countComputeRootDescriptor " << countComputeRootDescriptor << endl;
     fout << "countIndexCount " << countIndexCount << endl;
     fout << "countfindrendertarget " << countfindrendertarget << endl;
 
-    fout << "temporaryids " << temporaryids << endl;
+    fout << "enabletemporaryids " << enabletemporaryids << endl;
     fout << "countcurrentRootSigID " << countcurrentRootSigID << endl;
     fout << "countcurrentRootSigID2 " << countcurrentRootSigID2 << endl;
     fout << "countcurrentIndexAddress " << countcurrentIndexAddress << endl;
@@ -135,51 +125,49 @@ void SaveConfig()
     fout << "countcurrentIndexAddress3 " << countcurrentIndexAddress3 << endl;
     fout << "countcurrentPSOAddress " << countcurrentPSOAddress << endl;
 
-    fout << "filterindexformat " << filterindexformat << endl;
-    fout << "countfilterindexformat " << countfilterindexformat << endl;
-
+    fout << "enablefilters " << enablefilters << endl;
     fout << "filterrendertarget " << filterrendertarget << endl;
     fout << "countfilterrendertarget " << countfilterrendertarget << endl;
     fout << "countfilterrendertarget2 " << countfilterrendertarget2 << endl;
-
-    fout << "ignorerendertarget " << ignorerendertarget << endl;
-    fout << "countignorerendertarget " << countignorerendertarget << endl;
-
-    fout << "filternumViews " << filternumViews << endl;
-    fout << "countfilternumViews " << countfilternumViews << endl;
-
-    fout << "ignorenumViews " << ignorenumViews << endl;
-    fout << "countignorenumViews " << countignorenumViews << endl;
 
     fout << "filterGraphicsRootConstantBuffer " << filterGraphicsRootConstantBuffer << endl;
     fout << "countfilterGraphicsRootConstantBuffer " << countfilterGraphicsRootConstantBuffer << endl;
     fout << "countfilterGraphicsRootConstantBuffer2 " << countfilterGraphicsRootConstantBuffer2 << endl;
     fout << "countfilterGraphicsRootConstantBuffer3 " << countfilterGraphicsRootConstantBuffer3 << endl;
 
-    fout << "ignoreGraphicsRootConstantBuffer " << ignoreGraphicsRootConstantBuffer << endl;
-    fout << "countignoreGraphicsRootConstantBuffer " << countignoreGraphicsRootConstantBuffer << endl;
-    fout << "countignoreGraphicsRootConstantBuffer2 " << countignoreGraphicsRootConstantBuffer2 << endl;
-    fout << "countignoreGraphicsRootConstantBuffer3 " << countignoreGraphicsRootConstantBuffer3 << endl;
-
     fout << "filterGraphicsRootDescriptor " << filterGraphicsRootDescriptor << endl;
     fout << "countfilterGraphicsRootDescriptor " << countfilterGraphicsRootDescriptor << endl;
     fout << "countfilterGraphicsRootDescriptor2 " << countfilterGraphicsRootDescriptor2 << endl;
     fout << "countfilterGraphicsRootDescriptor3 " << countfilterGraphicsRootDescriptor3 << endl;
+
+    fout << "filterindexformat " << filterindexformat << endl;
+    fout << "countfilterindexformat " << countfilterindexformat << endl;
+
+    fout << "filternumViews " << filternumViews << endl;
+    fout << "countfilternumViews " << countfilternumViews << endl;
+
+    fout << "enableignores " << enableignores << endl;
+    fout << "ignorerendertarget " << ignorerendertarget << endl;
+    fout << "countignorerendertarget " << countignorerendertarget << endl;
+
+    fout << "ignoreGraphicsRootConstantBuffer " << ignoreGraphicsRootConstantBuffer << endl;
+    fout << "countignoreGraphicsRootConstantBuffer " << countignoreGraphicsRootConstantBuffer << endl;
+    fout << "countignoreGraphicsRootConstantBuffer2 " << countignoreGraphicsRootConstantBuffer2 << endl;
+    fout << "countignoreGraphicsRootConstantBuffer3 " << countignoreGraphicsRootConstantBuffer3 << endl;
 
     fout << "ignoreGraphicsRootDescriptor " << ignoreGraphicsRootDescriptor << endl;
     fout << "countignoreGraphicsRootDescriptor " << countignoreGraphicsRootDescriptor << endl;
     fout << "countignoreGraphicsRootDescriptor2 " << countignoreGraphicsRootDescriptor2 << endl;
     fout << "countignoreGraphicsRootDescriptor3 " << countignoreGraphicsRootDescriptor3 << endl;
 
-    //fout << "filterComputeRootDescriptor " << filterComputeRootDescriptor << endl;
-    //fout << "countfilterComputeRootDescriptor " << countfilterComputeRootDescriptor << endl;
-
-    //fout << "ignoreComputeRootDescriptor " << ignoreComputeRootDescriptor << endl;
-    //fout << "countignoreComputeRootDescriptor " << countignoreComputeRootDescriptor << endl;
+    fout << "ignorenumViews " << ignorenumViews << endl;
+    fout << "countignorenumViews " << countignorenumViews << endl;
 
     fout << "reversedDepth " << reversedDepth << endl;
     fout << "DisableOcclusionCulling " << DisableOcclusionCulling << endl;
+
     fout << "enablecolor " << enablecolor << endl;
+
     fout << "cri0 " << cri0 << endl;
     fout << "cri1 " << cri1 << endl;
     fout << "cri2 " << cri2 << endl;
@@ -191,92 +179,104 @@ void SaveConfig()
     fout << "cri8 " << cri8 << endl;
     fout << "cri9 " << cri9 << endl;
     fout << "cri10 " << cri10 << endl;
+
     fout.close();
 }
 
 void LoadConfig()
 {
-    ifstream fin;
-    string Word = "";
-    fin.open("d3d12wh.ini", ifstream::in);
-    fin >> Word >> countstride1;
-    fin >> Word >> countstride2;
-    fin >> Word >> countstride3;
-    fin >> Word >> countstride4;
-    fin >> Word >> countstride5;
-    fin >> Word >> countExIStride1;
-    fin >> Word >> countExIStride2;
-    fin >> Word >> countExIStride3;
-    fin >> Word >> countGraphicsRootConstantBuffer;
-    fin >> Word >> countGraphicsRootDescriptor;
-    //fin >> Word >> countComputeRootDescriptor;
-    fin >> Word >> countIndexCount;
-    fin >> Word >> countfindrendertarget;
+    ifstream fin("d3d12wh.ini", ios::in);
 
-    fin >> Word >> temporaryids;
-    fin >> Word >> countcurrentRootSigID;
-    fin >> Word >> countcurrentRootSigID2;
-    fin >> Word >> countcurrentIndexAddress;
-    fin >> Word >> countcurrentIndexAddress2;
-    fin >> Word >> countcurrentIndexAddress3;
-    fin >> Word >> countcurrentPSOAddress;
+    string key;
+    while (fin >> key)
+    {
+        if (key == "countstride1")                  fin >> countstride1;
+        else if (key == "countstride2")             fin >> countstride2;
+        else if (key == "countstride3")             fin >> countstride3;
+        else if (key == "countstride4")             fin >> countstride4;
+        else if (key == "countstride5")             fin >> countstride5;
 
-    fin >> Word >> filterindexformat;
-    fin >> Word >> countfilterindexformat;
+        else if (key == "exinstride1")              fin >> countExIStride1;
+        else if (key == "exinstride2")              fin >> countExIStride2;
+        else if (key == "exinstride3")              fin >> countExIStride3;
+        else if (key == "exinstride4")              fin >> countExIStride4;
 
-    fin >> Word >> filterrendertarget;
-    fin >> Word >> countfilterrendertarget;
-    fin >> Word >> countfilterrendertarget2;
+        else if (key == "countGraphicsRootConstantBuffer")  fin >> countGraphicsRootConstantBuffer;
+        else if (key == "countGraphicsRootDescriptor")      fin >> countGraphicsRootDescriptor;
+        else if (key == "countIndexCount")                  fin >> countIndexCount;
+        else if (key == "countfindrendertarget")            fin >> countfindrendertarget;
 
-    fin >> Word >> ignorerendertarget;
-    fin >> Word >> countignorerendertarget;
+        else if (key == "enabletemporaryids")       fin >> enabletemporaryids;
+        else if (key == "countcurrentRootSigID")    fin >> countcurrentRootSigID;
+        else if (key == "countcurrentRootSigID2")   fin >> countcurrentRootSigID2;
+        else if (key == "countcurrentIndexAddress") fin >> countcurrentIndexAddress;
+        else if (key == "countcurrentIndexAddress2")fin >> countcurrentIndexAddress2;
+        else if (key == "countcurrentIndexAddress3")fin >> countcurrentIndexAddress3;
+        else if (key == "countcurrentPSOAddress")   fin >> countcurrentPSOAddress;
 
-    fin >> Word >> filternumViews;
-    fin >> Word >> countfilternumViews;
+        else if (key == "enablefilters")            fin >> enablefilters;
+        else if (key == "filterrendertarget")       fin >> filterrendertarget;
+        else if (key == "countfilterrendertarget")  fin >> countfilterrendertarget;
+        else if (key == "countfilterrendertarget2") fin >> countfilterrendertarget2;
 
-    fin >> Word >> ignorenumViews;
-    fin >> Word >> countignorenumViews;
+        else if (key == "filterGraphicsRootConstantBuffer")     fin >> filterGraphicsRootConstantBuffer;
+        else if (key == "countfilterGraphicsRootConstantBuffer") fin >> countfilterGraphicsRootConstantBuffer;
+        else if (key == "countfilterGraphicsRootConstantBuffer2")fin >> countfilterGraphicsRootConstantBuffer2;
+        else if (key == "countfilterGraphicsRootConstantBuffer3")fin >> countfilterGraphicsRootConstantBuffer3;
 
-    fin >> Word >> filterGraphicsRootConstantBuffer;
-    fin >> Word >> countfilterGraphicsRootConstantBuffer;
-    fin >> Word >> countfilterGraphicsRootConstantBuffer2;
-    fin >> Word >> countfilterGraphicsRootConstantBuffer3;
+        else if (key == "filterGraphicsRootDescriptor")     fin >> filterGraphicsRootDescriptor;
+        else if (key == "countfilterGraphicsRootDescriptor") fin >> countfilterGraphicsRootDescriptor;
+        else if (key == "countfilterGraphicsRootDescriptor2")fin >> countfilterGraphicsRootDescriptor2;
+        else if (key == "countfilterGraphicsRootDescriptor3")fin >> countfilterGraphicsRootDescriptor3;
 
-    fin >> Word >> ignoreGraphicsRootConstantBuffer;
-    fin >> Word >> countignoreGraphicsRootConstantBuffer;
-    fin >> Word >> countignoreGraphicsRootConstantBuffer2;
-    fin >> Word >> countignoreGraphicsRootConstantBuffer3;
+        else if (key == "filterindexformat")        fin >> filterindexformat;
+        else if (key == "countfilterindexformat")   fin >> countfilterindexformat;
 
-    fin >> Word >> filterGraphicsRootDescriptor;
-    fin >> Word >> countfilterGraphicsRootDescriptor;
-    fin >> Word >> countfilterGraphicsRootDescriptor2;
-    fin >> Word >> countfilterGraphicsRootDescriptor3;
+        else if (key == "filternumViews")           fin >> filternumViews;
+        else if (key == "countfilternumViews")      fin >> countfilternumViews;
 
-    fin >> Word >> ignoreGraphicsRootDescriptor;
-    fin >> Word >> countignoreGraphicsRootDescriptor;
-    fin >> Word >> countignoreGraphicsRootDescriptor2;
-    fin >> Word >> countignoreGraphicsRootDescriptor3;
+        else if (key == "enableignores")            fin >> enableignores;
+        else if (key == "ignorerendertarget")       fin >> ignorerendertarget;
+        else if (key == "countignorerendertarget")  fin >> countignorerendertarget;
 
-    //fin >> Word >> filterComputeRootDescriptor;
-    //fin >> Word >> countfilterComputeRootDescriptor;
+        else if (key == "ignoreGraphicsRootConstantBuffer")     fin >> ignoreGraphicsRootConstantBuffer;
+        else if (key == "countignoreGraphicsRootConstantBuffer") fin >> countignoreGraphicsRootConstantBuffer;
+        else if (key == "countignoreGraphicsRootConstantBuffer2")fin >> countignoreGraphicsRootConstantBuffer2;
+        else if (key == "countignoreGraphicsRootConstantBuffer3")fin >> countignoreGraphicsRootConstantBuffer3;
 
-    //fin >> Word >> ignoreComputeRootDescriptor;
-    //fin >> Word >> countignoreComputeRootDescriptor;
+        else if (key == "ignoreGraphicsRootDescriptor")     fin >> ignoreGraphicsRootDescriptor;
+        else if (key == "countignoreGraphicsRootDescriptor") fin >> countignoreGraphicsRootDescriptor;
+        else if (key == "countignoreGraphicsRootDescriptor2")fin >> countignoreGraphicsRootDescriptor2;
+        else if (key == "countignoreGraphicsRootDescriptor3")fin >> countignoreGraphicsRootDescriptor3;
 
-    fin >> Word >> reversedDepth;
-    fin >> Word >> DisableOcclusionCulling;
-    fin >> Word >> enablecolor;
-    fin >> Word >> cri0;
-    fin >> Word >> cri1;
-    fin >> Word >> cri2;
-    fin >> Word >> cri3;
-    fin >> Word >> cri4;
-    fin >> Word >> cri5;
-    fin >> Word >> cri6;
-    fin >> Word >> cri7;
-    fin >> Word >> cri8;
-    fin >> Word >> cri9;
-    fin >> Word >> cri10;
+        else if (key == "ignorenumViews")           fin >> ignorenumViews;
+        else if (key == "countignorenumViews")      fin >> countignorenumViews;
+
+        else if (key == "reversedDepth")            fin >> reversedDepth;
+        else if (key == "DisableOcclusionCulling")  fin >> DisableOcclusionCulling;
+
+        else if (key == "enablecolor")              fin >> enablecolor;
+
+        else if (key == "cri0")  fin >> cri0;
+        else if (key == "cri1")  fin >> cri1;
+        else if (key == "cri2")  fin >> cri2;
+        else if (key == "cri3")  fin >> cri3;
+        else if (key == "cri4")  fin >> cri4;
+        else if (key == "cri5")  fin >> cri5;
+        else if (key == "cri6")  fin >> cri6;
+        else if (key == "cri7")  fin >> cri7;
+        else if (key == "cri8")  fin >> cri8;
+        else if (key == "cri9")  fin >> cri9;
+        else if (key == "cri10") fin >> cri10;
+
+        // Ignore unknown keys (just consume the value)
+        else
+        {
+            string dummy;
+            fin >> dummy;
+        }
+    }
+
     fin.close();
 }
 
@@ -705,19 +705,19 @@ void Render()
         ImGui::SliderInt("Stridehash3", &countstride3, minus_val, max_val);
         ImGui::SliderInt("Stridehash4", &countstride4, minus_val, max_val);
         ImGui::SliderInt("Stridehash5", &countstride5, minus_val, max_val);
+        if(ExecuteIndirectisCalled == 1) ImGui::Text("ExInStrides Available");
         ImGui::SliderInt("ExInStride1", &countExIStride1, minus_val, max_val);
         ImGui::SliderInt("ExInStride2", &countExIStride2, minus_val, max_val);
         ImGui::SliderInt("ExInStride3", &countExIStride3, minus_val, max_val);
+        ImGui::SliderInt("ExInStride4", &countExIStride4, minus_val, max_val);
         ImGui::SliderInt("GraphicsRootConstantBuffer", &countGraphicsRootConstantBuffer, minus_val2, max_val);
         ImGui::SliderInt("GraphicsRootDescriptor", &countGraphicsRootDescriptor, minus_val2, max_val);
-        //ImGui::SliderInt("ComputeRootDescriptor", &countComputeRootDescriptor, minus_val2, max_val);
         ImGui::SliderInt("IndexCount*1000", &countIndexCount, minus_val, max_val);
         ImGui::SliderInt("RenderTarget", &countfindrendertarget, minus_val, max_val);
-        //ImGui::SliderInt("IndexFormat+Vp", &countindexformat, minus_val, max_val);
 
-        //temporary IDs below (changes after game restart)
-        ImGui::Checkbox("Find Temporary Values", &temporaryids);
-        if (temporaryids)
+        //Temporary IDs below (changes after game restart)
+        ImGui::Checkbox("Find Temporary Values", &enabletemporaryids);
+        if (enabletemporaryids)
         {
             ImGui::SliderInt("CurrentRootSigID1", &countcurrentRootSigID, minus_val, max_val);
             ImGui::SliderInt("CurrentRootSigID2", &countcurrentRootSigID2, minus_val, max_val);
@@ -727,82 +727,79 @@ void Render()
             ImGui::SliderInt("CurrentPSOAddress", &countcurrentPSOAddress, minus_val, max_val);
         }
 
-        //Filter/Ignore
-        ImGui::Checkbox("Filter IndexFormat", &filterindexformat);
-        if (filterindexformat)
+        //Filters
+        ImGui::Checkbox("Enable Filters", &enablefilters);
+        if (enablefilters)
         {
-            ImGui::SliderInt("IndexFormat", &countfilterindexformat, minus_val, max_val);
-        }
+            ImGui::Checkbox("Filter RenderTarget", &filterrendertarget);
+            if (filterrendertarget)
+            {
+                ImGui::SliderInt("Render Target", &countfilterrendertarget, minus_val, max_val);
+                ImGui::SliderInt("Render Target2", &countfilterrendertarget2, minus_val, max_val);
+            }
 
-        ImGui::Checkbox("Filter RenderTarget", &filterrendertarget);
-        if (filterrendertarget)
+            ImGui::Checkbox("Filter GraphicsRootDescriptor", &filterGraphicsRootDescriptor);
+            if (filterGraphicsRootDescriptor)
+            {
+                ImGui::SliderInt("GraphicsRootDescriptor1", &countfilterGraphicsRootDescriptor, minus_val2, max_val);
+                ImGui::SliderInt("GraphicsRootDescriptor2", &countfilterGraphicsRootDescriptor2, minus_val2, max_val);
+                ImGui::SliderInt("GraphicsRootDescriptor3", &countfilterGraphicsRootDescriptor3, minus_val2, max_val);
+            }
+
+            ImGui::Checkbox("Filter GraphicsRootConstantBuffer", &filterGraphicsRootConstantBuffer);
+            if (filterGraphicsRootConstantBuffer)
+            {
+                ImGui::SliderInt("GraphicsRootConstantBuffer1", &countfilterGraphicsRootConstantBuffer, minus_val2, max_val);
+                ImGui::SliderInt("GraphicsRootConstantBuffer2", &countfilterGraphicsRootConstantBuffer2, minus_val2, max_val);
+                ImGui::SliderInt("GraphicsRootConstantBuffer3", &countfilterGraphicsRootConstantBuffer3, minus_val2, max_val);
+            }
+
+            ImGui::Checkbox("Filter IndexFormat", &filterindexformat);
+            if (filterindexformat)
+            {
+                ImGui::SliderInt("IndexFormat", &countfilterindexformat, minus_val, max_val);
+            }
+
+            ImGui::Checkbox("Filter NumViews", &filternumViews);
+            if (filternumViews)
+            {
+                ImGui::SliderInt("NumViews", &countfilternumViews, minus_val, max_val);
+            }
+        }//end of filters
+
+
+        //Ignores
+        ImGui::Checkbox("Enable Ignores", &enableignores);
+        if (enableignores)
         {
-            ImGui::SliderInt("Render Target", &countfilterrendertarget, minus_val, max_val);
-            ImGui::SliderInt("Render Target2", &countfilterrendertarget2, minus_val, max_val);
-        }
+            ImGui::Checkbox("Ignore RenderTarget", &ignorerendertarget);
+            if (ignorerendertarget)
+            {
+                ImGui::SliderInt("RenderTarget ", &countignorerendertarget, minus_val, max_val);
+            }
 
-        ImGui::Checkbox("Ignore RenderTarget", &ignorerendertarget);
-        if (ignorerendertarget)
-        {
-            ImGui::SliderInt("RenderTarget ", &countignorerendertarget, minus_val, max_val);
-        }
+            ImGui::Checkbox("Ignore GraphicsRootDescriptor", &ignoreGraphicsRootDescriptor);
+            if (ignoreGraphicsRootDescriptor)
+            {
+                ImGui::SliderInt("GraphicsRootDescriptor 1", &countignoreGraphicsRootDescriptor, minus_val2, max_val);
+                ImGui::SliderInt("GraphicsRootDescriptor 2", &countignoreGraphicsRootDescriptor2, minus_val2, max_val);
+                ImGui::SliderInt("GraphicsRootDescriptor 3", &countignoreGraphicsRootDescriptor3, minus_val2, max_val);
+            }
 
-        ImGui::Checkbox("Filter NumViews", &filternumViews);
-        if (filternumViews)
-        {
-            ImGui::SliderInt("NumViews", &countfilternumViews, minus_val, max_val);
-        }
+            ImGui::Checkbox("Ignore GraphicsRootConstantBuffer", &ignoreGraphicsRootConstantBuffer);
+            if (ignoreGraphicsRootConstantBuffer)
+            {
+                ImGui::SliderInt("GraphicsRootConstantBuffer 1", &countignoreGraphicsRootConstantBuffer, minus_val2, max_val);
+                ImGui::SliderInt("GraphicsRootConstantBuffer 2", &countignoreGraphicsRootConstantBuffer2, minus_val2, max_val);
+                ImGui::SliderInt("GraphicsRootConstantBuffer 3", &countignoreGraphicsRootConstantBuffer3, minus_val2, max_val);
+            }
 
-        ImGui::Checkbox("Ignore NumViews", &ignorenumViews);
-        if (ignorenumViews)
-        {
-            ImGui::SliderInt("NumViews ", &countignorenumViews, minus_val, max_val);
-        }
-
-        ImGui::Checkbox("Filter GraphicsRootDescriptor", &filterGraphicsRootDescriptor);
-        if (filterGraphicsRootDescriptor)
-        {
-            ImGui::SliderInt("GraphicsRootDescriptor1", &countfilterGraphicsRootDescriptor, minus_val2, max_val);
-            ImGui::SliderInt("GraphicsRootDescriptor2", &countfilterGraphicsRootDescriptor2, minus_val2, max_val);
-            ImGui::SliderInt("GraphicsRootDescriptor3", &countfilterGraphicsRootDescriptor3, minus_val2, max_val);
-        }
-
-        ImGui::Checkbox("Filter GraphicsRootConstantBuffer", &filterGraphicsRootConstantBuffer);
-        if (filterGraphicsRootConstantBuffer)
-        {
-            ImGui::SliderInt("GraphicsRootConstantBuffer1", &countfilterGraphicsRootConstantBuffer, minus_val2, max_val);
-            ImGui::SliderInt("GraphicsRootConstantBuffer2", &countfilterGraphicsRootConstantBuffer2, minus_val2, max_val);
-            ImGui::SliderInt("GraphicsRootConstantBuffer3", &countfilterGraphicsRootConstantBuffer3, minus_val2, max_val);
-        }
-
-        //ImGui::Checkbox("Filter ComputeRootDescriptor", &filterComputeRootDescriptor);
-        //if (filterComputeRootDescriptor)
-        //{
-            //ImGui::SliderInt("Compute RootDescriptor", &countfilterComputeRootDescriptor, minus_val2, max_val);
-        //}
-
-
-        ImGui::Checkbox("Ignore GraphicsRootDescriptor", &ignoreGraphicsRootDescriptor);
-        if (ignoreGraphicsRootDescriptor)
-        {
-            ImGui::SliderInt("GraphicsRootDescriptor 1", &countignoreGraphicsRootDescriptor, minus_val2, max_val);
-            ImGui::SliderInt("GraphicsRootDescriptor 2", &countignoreGraphicsRootDescriptor2, minus_val2, max_val);
-            ImGui::SliderInt("GraphicsRootDescriptor 3", &countignoreGraphicsRootDescriptor3, minus_val2, max_val);
-        }
-
-        ImGui::Checkbox("Ignore GraphicsRootConstantBuffer", &ignoreGraphicsRootConstantBuffer);
-        if (ignoreGraphicsRootConstantBuffer)
-        {
-            ImGui::SliderInt("GraphicsRootConstantBuffer 1", &countignoreGraphicsRootConstantBuffer, minus_val2, max_val);
-            ImGui::SliderInt("GraphicsRootConstantBuffer 2", &countignoreGraphicsRootConstantBuffer2, minus_val2, max_val);
-            ImGui::SliderInt("GraphicsRootConstantBuffer 3", &countignoreGraphicsRootConstantBuffer3, minus_val2, max_val);
-        }
-
-        //ImGui::Checkbox("Ignore ComputeRootDescriptor", &ignoreComputeRootDescriptor);
-        //if (ignoreComputeRootDescriptor)
-        //{
-            //ImGui::SliderInt("Compute RootDescriptor", &countignoreComputeRootDescriptor, minus_val2, max_val);
-        //}
+            ImGui::Checkbox("Ignore NumViews", &ignorenumViews);
+            if (ignorenumViews)
+            {
+                ImGui::SliderInt("NumViews ", &countignorenumViews, minus_val, max_val);
+            }
+        } //end of ignores
 
         ImGui::Checkbox("Reverse Depth", &reversedDepth);
         ImGui::Checkbox("Try to Disable Occlusion", &DisableOcclusionCulling);

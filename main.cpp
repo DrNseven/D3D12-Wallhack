@@ -1,4 +1,4 @@
-﻿//d3d12 hook/wallhack with imgui overlay 2026 by N7 + win11 overlay fix from utterlytv
+﻿//d3d12 hook/wallhack with imgui overlay 2026 by N7
 
 #pragma once
 #include <windows.h>
@@ -108,7 +108,32 @@ namespace d3d12hook {
     //=========================================================================================================================//
 
     void STDMETHODCALLTYPE hookExecuteCommandListsD3D12(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists) {
+        /*
+        if (!_this) return oExecuteCommandListsD3D12(_this, NumCommandLists, ppCommandLists);
 
+        // 1. Only attempt capture if we don't have a queue yet
+        if (!gCommandQueue) {
+            D3D12_COMMAND_QUEUE_DESC desc = _this->GetDesc();
+
+            // 2. Must be a DIRECT queue (Graphics)
+            if (desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT) {
+
+                // 3. Optional: Verify it matches our device
+                ID3D12Device* queueDevice = nullptr;
+                if (SUCCEEDED(_this->GetDevice(__uuidof(ID3D12Device), (void**)&queueDevice))) {
+
+                    // If we already have a device from Present, make sure they match
+                    if (gDevice == nullptr || queueDevice == gDevice) {
+                        _this->AddRef();
+                        gCommandQueue = _this;
+                        Log("[d3d12hook] Captured Direct CommandQueue: %p\n", _this);
+                    }
+
+                    queueDevice->Release();
+                }
+            }
+        }
+        */
         return oExecuteCommandListsD3D12(_this, NumCommandLists, ppCommandLists);
     }
 
@@ -280,30 +305,27 @@ namespace d3d12hook {
     void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation)
     {
         // --- LEVEL 1: REGISTER-ONLY CHECKS (ZERO COST) ---
-        // These use values already in CPU registers (passed as arguments).
-        // We check InstanceCount and IndexCount first because they require NO memory lookups.
+        // Check InstanceCount and IndexCount first because they require NO memory lookups
         if (!_this || InstanceCount == 0 || InstanceCount > 5 || IndexCountPerInstance < 100)
         {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
         // --- LEVEL 2: COMMAND LIST TYPE ---
-        // GetType() is a virtual call. Fast, but slightly more expensive than a register check.
+        // GetType() is a virtual call. Fast, but slightly more expensive than a register check
         if (_this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
         {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
         // --- LEVEL 3: CACHED STATE CHECKS (LOW COST) ---
-        // These look up your thread_local 't_' struct. 
-        // Filter 3 & 4 combined: If no RTV or no Depth, it's UI/Post-FX/Shadows.
+        // These look up the thread_local 't_' struct. If no RTV or no Depth, it's UI/Post-FX/Shadows
         if (t_.currentNumRTVs == 999 || !t_.hasDSV) //sadly t_.currentNumRTVs == 0 can be models, usually big performance boost if we filter 0 out
         {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
 
         // --- LEVEL 4: VIEWPORT CHECKS (MEDIUM COST) ---
-        // Floating point comparisons and slightly deeper memory offset.
         // Filters out reflection probes, tiny icons, and sub-renders.
         if (t_.currentViewport.Width < 500.0f)
         {
@@ -368,7 +390,7 @@ namespace d3d12hook {
         bool isModelDraw = false;
 
         if (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 || currentStrides == countstride5 ||
-            cache.lastRDTindex == countGraphicsRootDescriptor || cache.lastRCBVindex == countGraphicsRootConstantBuffer || cache.lastCRDTindex == countComputeRootDescriptor ||
+            cache.lastRDTindex == countGraphicsRootDescriptor || cache.lastRCBVindex == countGraphicsRootConstantBuffer ||
             t_.currentNumRTVs == countfindrendertarget|| IndexCountPerInstance / 1000 == countIndexCount)
         {
             isModelDraw = true;
@@ -402,18 +424,22 @@ namespace d3d12hook {
         {
             // 3. FILTER LOGIC
             // If any filter fails, we immediately jump to the original draw
+            if(enablefilters)
+            {
             if (filterindexformat && t_.currentIndexFormat != countfilterindexformat) goto skip;
             if (filternumViews && t_.numViews + t_.numViewports != countfilternumViews) goto skip;
-            if (ignorenumViews && t_.numViews + t_.numViewports == countignorenumViews) goto skip;;
             if (filterrendertarget && (t_.currentNumRTVs != countfilterrendertarget && t_.currentNumRTVs != countfilterrendertarget2)) goto skip;
-            if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;
-
-            // Root Descriptor/Constant Filters
             if (filterGraphicsRootDescriptor && (cache.lastRDTindex != countfilterGraphicsRootDescriptor && cache.lastRDTindex != countfilterGraphicsRootDescriptor2 && cache.lastRDTindex != countfilterGraphicsRootDescriptor3)) goto skip;
-            if (ignoreGraphicsRootDescriptor && (cache.lastRDTindex == countignoreGraphicsRootDescriptor || cache.lastRDTindex == countignoreGraphicsRootDescriptor2 || cache.lastRDTindex == countignoreGraphicsRootDescriptor3)) goto skip;
             if (filterGraphicsRootConstantBuffer && (cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer2 && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer3)) goto skip;
-            if (ignoreGraphicsRootConstantBuffer && (cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
+            }
 
+            if(enableignores)
+            {
+            if (ignorenumViews && t_.numViews + t_.numViewports == countignorenumViews) goto skip;
+            if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;        
+            if (ignoreGraphicsRootDescriptor && (cache.lastRDTindex == countignoreGraphicsRootDescriptor || cache.lastRDTindex == countignoreGraphicsRootDescriptor2 || cache.lastRDTindex == countignoreGraphicsRootDescriptor3)) goto skip;         
+            if (ignoreGraphicsRootConstantBuffer && (cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
+            }
 
             // Enable color (UE5)
             if (enablecolor)
@@ -433,20 +459,21 @@ namespace d3d12hook {
                         Log("Failed to create constant buffer for colors");
                     }
                 }
-
-                //if (GetAsyncKeyState(VK_OEM_COMMA) & 1)   // -
-                    //countnum--;
-                //if (GetAsyncKeyState(VK_OEM_PERIOD) & 1)  // +
-                    //countnum++;
-                //if (GetAsyncKeyState('9') & 1)            // reset
-                    //countnum = 0;
-
+        
+                //COLOR
                 if(cache.lastRCBVindex==0 && cri0==1|| cache.lastRCBVindex == 1 && cri1 == 1|| cache.lastRCBVindex == 2 && cri2 == 1 || cache.lastRCBVindex == 3 && cri3 == 1||
                     cache.lastRCBVindex == 4 && cri4 == 1 || cache.lastRCBVindex == 5 && cri5 == 1 || cache.lastRCBVindex == 6 && cri6 == 1 || cache.lastRCBVindex == 7 && cri7 == 1||
                     cache.lastRCBVindex == 8 && cri8 == 1 || cache.lastRCBVindex == 9 && cri9 == 1 || cache.lastRCBVindex == 10 && cri10 == 1)
                 {
                     if (colorinitialized && g_pMappedConstantBuffer)
                     {
+                        //if (GetAsyncKeyState(VK_OEM_COMMA) & 1)   // -
+                        //countnum--;
+                        //if (GetAsyncKeyState(VK_OEM_PERIOD) & 1)  // +
+                        //countnum++;
+                        //if (GetAsyncKeyState('9') & 1)            // reset
+                        //countnum = 0;
+                         
                         // Clamp countnum, it is for bruteforcing offset
                         //if (countnum < 0) countnum = 0;
                         //if (countnum > (MAX_CB_SIZE - 256)) countnum = MAX_CB_SIZE - 256;
@@ -461,7 +488,7 @@ namespace d3d12hook {
 
                         D3D12_GPU_VIRTUAL_ADDRESS cbAddr = g_pCustomConstantBuffer->GetGPUVirtualAddress();// +countnum;
 
-                        //this crash check would require D3D12SerializeRootSignature / CreateRootSignature and then also need to hook and inject early
+                        //This crash check would require D3D12SerializeRootSignature / CreateRootSignature but then also need to hook and inject early
                         //auto& params = RootParamTypes[cache.currentRootSig]; 
                         //if (params[cache.lastRCBVindex] == D3D12_ROOT_PARAMETER_TYPE_CBV)
                         //{
@@ -473,13 +500,12 @@ namespace d3d12hook {
                     }
                 }
             }
+              
 
-                
-            // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
+            //WALLHACK
+            //4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
-
-            // Apply wallhack
-            if (originalVp.Width >= 128 && originalVp.Width < 16384)
+            if (originalVp.Width >= 128 && originalVp.Width < 16384) 
             {
                 D3D12_VIEWPORT hVp = originalVp;
                 hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
@@ -521,8 +547,8 @@ namespace d3d12hook {
         // 4. Batch Size Filter
         // Environment meshes (grass, etc) are usually drawn in large batches.
         // Players/Characters are usually drawn in small batches or single calls.
-        //if (MaxCommandCount > 50) //?
-            //return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+        if (MaxCommandCount > 50) //?
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
 
         // 5.
         if (t_.currentTopology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
@@ -549,15 +575,15 @@ namespace d3d12hook {
 
         // 7. Signature Pointer Filter (Optional but recommended)
         // if (pCommandSignature == knownComputeSignature) return ...;
-
+        ExecuteIndirectisCalled = 1;
         
         // 2. IDENTIFICATION
         const UINT currentExIStride = t_.StrideHash + t_.StartSlot;
         //uint8_t shortCount = static_cast<uint8_t>((MaxCommandCount >> 12) % 100);
         bool isModelDraw = false;
 
-        if (currentExIStride == countExIStride1 || currentExIStride == countExIStride2 || currentExIStride == countExIStride3 ||
-            cache.lastRDTindex == countGraphicsRootDescriptor || cache.lastRCBVindex == countGraphicsRootConstantBuffer || cache.lastCRDTindex == countComputeRootDescriptor ||
+        if (currentExIStride == countExIStride1 || currentExIStride == countExIStride2 || currentExIStride == countExIStride3 || currentExIStride == countExIStride4 ||
+            cache.lastRDTindex == countGraphicsRootDescriptor || cache.lastRCBVindex == countGraphicsRootConstantBuffer ||
             t_.currentNumRTVs == countfindrendertarget)
         {
             isModelDraw = true;
@@ -585,21 +611,87 @@ namespace d3d12hook {
         {
             // 3. FILTER LOGIC
             // If any filter fails, we immediately jump to the original draw
-            if (filterindexformat && t_.currentIndexFormat != countfilterindexformat) goto skip;
-            if (filternumViews && t_.numViews + t_.numViewports != countfilternumViews) goto skip;
-            if (ignorenumViews && t_.numViews + t_.numViewports == countignorenumViews) goto skip;;
-            if (filterrendertarget && (t_.currentNumRTVs != countfilterrendertarget && t_.currentNumRTVs != countfilterrendertarget2)) goto skip;
-            if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;
+            if (enablefilters)
+            {
+                if (filterindexformat && t_.currentIndexFormat != countfilterindexformat) goto skip;
+                if (filternumViews && t_.numViews + t_.numViewports != countfilternumViews) goto skip;
+                if (filterrendertarget && (t_.currentNumRTVs != countfilterrendertarget && t_.currentNumRTVs != countfilterrendertarget2)) goto skip;
+                if (filterGraphicsRootDescriptor && (cache.lastRDTindex != countfilterGraphicsRootDescriptor && cache.lastRDTindex != countfilterGraphicsRootDescriptor2 && cache.lastRDTindex != countfilterGraphicsRootDescriptor3)) goto skip;
+                if (filterGraphicsRootConstantBuffer && (cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer2 && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer3)) goto skip;
+            }
 
-            // Root Descriptor/Constant Filters
-            if (filterGraphicsRootDescriptor && (cache.lastRDTindex != countfilterGraphicsRootDescriptor && cache.lastRDTindex != countfilterGraphicsRootDescriptor2 && cache.lastRDTindex != countfilterGraphicsRootDescriptor3)) goto skip;
-            if (ignoreGraphicsRootDescriptor && (cache.lastRDTindex == countignoreGraphicsRootDescriptor || cache.lastRDTindex == countignoreGraphicsRootDescriptor2 || cache.lastRDTindex == countignoreGraphicsRootDescriptor3)) goto skip;
-            if (filterGraphicsRootConstantBuffer && (cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer2 && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer3)) goto skip;
-            if (ignoreGraphicsRootConstantBuffer && (cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
+            if (enableignores)
+            {
+                if (ignorenumViews && t_.numViews + t_.numViewports == countignorenumViews) goto skip;
+                if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;
+                if (ignoreGraphicsRootDescriptor && (cache.lastRDTindex == countignoreGraphicsRootDescriptor || cache.lastRDTindex == countignoreGraphicsRootDescriptor2 || cache.lastRDTindex == countignoreGraphicsRootDescriptor3)) goto skip;
+                if (ignoreGraphicsRootConstantBuffer && (cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
+            }
 
-            // 4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
+            // Enable color (UE5)
+            if (enablecolor)
+            {
+                // One time initialization
+                if (!colorinitialized) {
+                    HRESULT hr = _this->GetDevice(__uuidof(ID3D12Device), (void**)&pDevice);
+                    if (FAILED(hr)) {
+                        Log("GetDevice failed: 0x%08X", hr);
+                        return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+                    }
+                    if (CreateColorConstantBuffer()) {
+                        colorinitialized = true;
+                        Log("Constant buffer initialized for colors");
+                    }
+                    else {
+                        Log("Failed to create constant buffer for colors");
+                    }
+                }
+
+                //COLOR
+                if (cache.lastRCBVindex == 0 && cri0 == 1 || cache.lastRCBVindex == 1 && cri1 == 1 || cache.lastRCBVindex == 2 && cri2 == 1 || cache.lastRCBVindex == 3 && cri3 == 1 ||
+                    cache.lastRCBVindex == 4 && cri4 == 1 || cache.lastRCBVindex == 5 && cri5 == 1 || cache.lastRCBVindex == 6 && cri6 == 1 || cache.lastRCBVindex == 7 && cri7 == 1 ||
+                    cache.lastRCBVindex == 8 && cri8 == 1 || cache.lastRCBVindex == 9 && cri9 == 1 || cache.lastRCBVindex == 10 && cri10 == 1)
+                {
+                    if (colorinitialized && g_pMappedConstantBuffer)
+                    {
+                        //if (GetAsyncKeyState(VK_OEM_COMMA) & 1)   // -
+                        //countnum--;
+                        //if (GetAsyncKeyState(VK_OEM_PERIOD) & 1)  // +
+                        //countnum++;
+                        //if (GetAsyncKeyState('9') & 1)            // reset
+                        //countnum = 0;
+
+                        // Clamp countnum, it is for bruteforcing offset
+                        //if (countnum < 0) countnum = 0;
+                        //if (countnum > (MAX_CB_SIZE - 256)) countnum = MAX_CB_SIZE - 256;
+
+                        DirectX::XMFLOAT4 myColor = { 25.0f, 0.0f, 25.0f, 1.0f }; //1.0 and 0.0 can appear black, depends on the game 
+
+                        // Get pointer to the current offset
+                        auto* constants = reinterpret_cast<MyMaterialConstants*>(g_pMappedConstantBuffer);// +countnum);
+
+                        // Fill the 256-byte block
+                        for (int i = 0; i < 16; i++) constants->color[i] = myColor;
+
+                        D3D12_GPU_VIRTUAL_ADDRESS cbAddr = g_pCustomConstantBuffer->GetGPUVirtualAddress();// +countnum;
+
+                        //This crash check would require D3D12SerializeRootSignature / CreateRootSignature but then also need to hook and inject early
+                        //auto& params = RootParamTypes[cache.currentRootSig]; 
+                        //if (params[cache.lastRCBVindex] == D3D12_ROOT_PARAMETER_TYPE_CBV)
+                        //{
+                            // safe to call SetGraphicsRootConstantBufferView
+                        //}
+
+                        //wrong cache.lastRCBVindex can crash the game
+                        _this->SetGraphicsRootConstantBufferView(cache.lastRCBVindex, cbAddr);
+                    }
+                }
+            }
+
+
+            //WALLHACK
+            //4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
             const D3D12_VIEWPORT originalVp = t_.currentViewport;
-
             if (originalVp.Width >= 128 && originalVp.Width < 16384)
             {
                 D3D12_VIEWPORT hVp = originalVp;
