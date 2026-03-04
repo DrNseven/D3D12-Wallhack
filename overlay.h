@@ -65,6 +65,7 @@ bool filternumViews = false;
 int countfilternumViews = -1;
 bool filterIndexCountPerInstance = false;//
 int countfilterIndexCountPerInstance = -1;
+int countfilterIndexCountPerInstance2 = -1;
 
 bool enableignores = false;
 bool ignorerendertarget = false;
@@ -153,6 +154,7 @@ void SaveConfig()
 
     fout << "filterIndexCountPerInstance " << filterIndexCountPerInstance << endl;
     fout << "countfilterIndexCountPerInstance " << countfilterIndexCountPerInstance << endl;
+    fout << "countfilterIndexCountPerInstance2 " << countfilterIndexCountPerInstance2 << endl;
 
     fout << "enableignores " << enableignores << endl;
     fout << "ignorerendertarget " << ignorerendertarget << endl;
@@ -249,6 +251,7 @@ void LoadConfig()
 
         else if (key == "filterIndexCountPerInstance")           fin >> filterIndexCountPerInstance;
         else if (key == "countfilterIndexCountPerInstance")      fin >> countfilterIndexCountPerInstance;
+        else if (key == "countfilterIndexCountPerInstance2")      fin >> countfilterIndexCountPerInstance2;
 
         else if (key == "enableignores")            fin >> enableignores;
         else if (key == "ignorerendertarget")       fin >> ignorerendertarget;
@@ -788,7 +791,8 @@ void Render()
             ImGui::Checkbox("Filter IndexCount", &filterIndexCountPerInstance);
             if (filterIndexCountPerInstance)
             {
-                ImGui::SliderInt("IndexCount*1000", &countfilterIndexCountPerInstance, minus_val, max_val);
+                ImGui::SliderInt("IndexCount1*1000", &countfilterIndexCountPerInstance, minus_val, max_val);
+                ImGui::SliderInt("IndexCount2*1000", &countfilterIndexCountPerInstance2, minus_val, max_val);
             }
         }//end of filters
 
@@ -1051,7 +1055,7 @@ static bool TryInitBackend(globals::Backend backend)
             hooks::InitH();
             if (WaitForInitialization(d3d12hook::IsInitialized))
             {
-                Log("[DllMain] DX12 initialization succeeded.\n");
+                Log("[DllMain] DX12 initialization succeeded.");
                 globals::activeBackend = globals::Backend::DX12;
                 return true;
             }
@@ -1234,6 +1238,8 @@ BOOL WINAPI DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved
         // Unhook everything first to prevent hooks from calling into a dying DLL
         MH_DisableHook(MH_ALL_HOOKS);
         MH_Uninitialize();
+
+        CleanupColorBuffer();
 
         // Release DX resources
         ReleaseActiveBackend();

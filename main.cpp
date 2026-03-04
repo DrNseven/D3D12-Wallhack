@@ -250,7 +250,7 @@ namespace d3d12hook {
     void STDMETHODCALLTYPE hookIASetIndexBufferD3D12(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView)
     {
         if (pView != nullptr) {
-            t_.currentiSize = pView->SizeInBytes;
+            //t_.currentiSize = pView->SizeInBytes;
             t_.currentIndexFormat = pView->Format;//almost always 57, 42
             t_.currentGPUIAddress = pView->BufferLocation;
         }
@@ -307,7 +307,7 @@ namespace d3d12hook {
     {
         // --- LEVEL 1: REGISTER-ONLY CHECKS (ZERO COST) ---
         // Check InstanceCount and IndexCount first because they require NO memory lookups
-        if (!_this || InstanceCount == 0 || InstanceCount > 5 || IndexCountPerInstance < 300)
+        if (!_this || InstanceCount == 0 || InstanceCount > 5 || IndexCountPerInstance < 120)
         {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
@@ -397,7 +397,8 @@ namespace d3d12hook {
         {
             isModelDraw = true;
         }
-        else
+
+        if(enabletemporaryids)
         {
             // Only check RootSig if strides didn't match
             uint32_t rootSigID = (tlsCurrentCmdList == _this) ? tlsCurrentRootSigID : 0;
@@ -433,7 +434,7 @@ namespace d3d12hook {
             if (filterrendertarget && (t_.currentNumRTVs != countfilterrendertarget && t_.currentNumRTVs != countfilterrendertarget2)) goto skip;
             if (filterGRootDescriptor && (cache.lastRDTindex != countfilterGRootDescriptor && cache.lastRDTindex != countfilterGRootDescriptor2 && cache.lastRDTindex != countfilterGRootDescriptor3)) goto skip;
             if (filterGRootConstantBuffer && (cache.lastRCBVindex != countfilterGRootConstantBuffer && cache.lastRCBVindex != countfilterGRootConstantBuffer2 && cache.lastRCBVindex != countfilterGRootConstantBuffer3)) goto skip;
-            if (filterIndexCountPerInstance && IndexCountPerInstance / 1000 != countfilterIndexCountPerInstance) goto skip;
+            if (filterIndexCountPerInstance && (IndexCountPerInstance / 1000 != countfilterIndexCountPerInstance && IndexCountPerInstance / 1000 != countfilterIndexCountPerInstance2)) goto skip;
             }
 
             if(enableignores)
@@ -587,7 +588,8 @@ namespace d3d12hook {
         {
             isModelDraw = true;
         }
-        else
+
+        if (enabletemporaryids)
         {
             // Only check RootSig if strides didn't match
             uint32_t rootSigID = (tlsCurrentCmdList == _this) ? tlsCurrentRootSigID : 0;
@@ -1054,7 +1056,7 @@ namespace d3d12hook {
     //=========================================================================================================================//
 
     void release() {
-        Log("[d3d12hook] Releasing resources and hooks.\n");
+        Log("[d3d12hook] Releasing resources and hooks.");
         gShutdown = true;
         if (globals::mainWindow) {
         }

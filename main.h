@@ -354,7 +354,6 @@ namespace hooks {
         //Sleep(4000);
         //Log("[hooks] Init starting\n");
 
-
         struct CleanupGuard {
             ~CleanupGuard() { CleanupDummyObjects(); }
         } cleanup;
@@ -363,7 +362,6 @@ namespace hooks {
             Log("[hooks] Failed to create dummy device/swapchain.\n");
             return;
         }
-
 
         MH_STATUS mh;
 
@@ -593,8 +591,7 @@ namespace hooks {
         //DisableAndRemove(pBeginQueryTarget);
         //DisableAndRemove(pEndQueryTarget);
 
-        Log("[hooks] All hooks removed.");
-        
+        Log("[hooks] All hooks removed.\n");        
     }
 }
 
@@ -636,7 +633,6 @@ thread_local struct {
     UINT StartSlot = 0;
     UINT Strides[16] = {};
     UINT numViews = 0;
-    UINT currentGPUVAddress=0;
     UINT vertexBufferSizes[16] = {};
 
     UINT cachedStrideSum = 0;
@@ -645,16 +641,14 @@ thread_local struct {
     // states
     D3D12_VIEWPORT currentViewport = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     UINT numViewports = 0;
-    D3D12_GPU_DESCRIPTOR_HANDLE LastDescriptorBase;
     UINT currentNumRTVs = 0;
     UINT currentiSize = 0;
     DXGI_FORMAT currentIndexFormat = DXGI_FORMAT_UNKNOWN;
     UINT currentGPUIAddress;
-    UINT currentGPURAddress;
 
-    D3D12_CPU_DESCRIPTOR_HANDLE currentRTVHandles[8] = {};
+    //D3D12_CPU_DESCRIPTOR_HANDLE currentRTVHandles[8] = {};
     D3D12_CPU_DESCRIPTOR_HANDLE currentDSVHandle = {};
-    BOOL currentRTsSingleHandle = FALSE;
+    //BOOL currentRTsSingleHandle = FALSE;
     bool hasDSV = false;
 
     ID3D12PipelineState* currentPSO = nullptr;
@@ -662,6 +656,21 @@ thread_local struct {
     //UINT64 frameId = 0;
     D3D12_PRIMITIVE_TOPOLOGY currentTopology;
 } t_;
+
+//=========================================================================================================================//
+
+//SetGraphicsRootConstantBufferView
+struct CommandListState {
+    ID3D12GraphicsCommandList* cmdListPtr = nullptr;
+    UINT lastRCBVindex = UINT_MAX;
+    UINT lastRDTindex = UINT_MAX;
+    UINT lastCRDTindex = UINT_MAX;
+    D3D12_GPU_VIRTUAL_ADDRESS cbvGPUAddress[32] = {};
+    ID3D12RootSignature* currentRootSig = nullptr;
+};
+
+// Fast: no mutex, no map lookup 99% of the time
+thread_local CommandListState cache;
 
 //=========================================================================================================================//
 
@@ -702,21 +711,6 @@ std::unordered_map<ID3D12RootSignature*, uint32_t> rootSigToID;
 // Thread-local storage: Each thread tracks its own active command list and ID
 thread_local ID3D12GraphicsCommandList* tlsCurrentCmdList = nullptr;
 thread_local uint32_t tlsCurrentRootSigID = 0;
-
-//=========================================================================================================================//
-
-//SetGraphicsRootConstantBufferView
-struct CommandListState {
-    ID3D12GraphicsCommandList* cmdListPtr = nullptr;
-    UINT lastRCBVindex = UINT_MAX;
-    UINT lastRDTindex = UINT_MAX;
-    UINT lastCRDTindex = UINT_MAX;
-    D3D12_GPU_VIRTUAL_ADDRESS cbvGPUAddress[32] = {};
-    ID3D12RootSignature* currentRootSig = nullptr;
-};
-
-// Fast: no mutex, no map lookup 99% of the time
-thread_local CommandListState cache;
 
 //=========================================================================================================================//
 
