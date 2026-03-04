@@ -54,7 +54,7 @@ namespace d3d12hook {
     ResolveQueryDataFn      oResolveQueryDataD3D12 = nullptr;
     ExecuteIndirectFn       oExecuteIndirectD3D12 = nullptr;
     SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12 = nullptr;
-    ClearUnorderedAccessViewUintFn oClearUnorderedAccessViewUintD3D12 = nullptr;
+    CopyBufferRegionFn oCopyBufferRegionD3D12 = nullptr;
     ResetFn oResetD3D12 = nullptr;
     CloseFn oCloseD3D12 = nullptr;
     IASetIndexBufferFn      oIASetIndexBufferD3D12 = nullptr;
@@ -224,7 +224,8 @@ namespace d3d12hook {
 
             for (UINT i = 0; i < validCount; ++i) {
                 // Filter out clearly invalid strides or huge raw buffers
-                if (pViews[i].StrideInBytes > 0 && pViews[i].StrideInBytes <= 200) {
+                if (pViews[i].BufferLocation != 0 &&              
+                    pViews[i].StrideInBytes > 0 && pViews[i].StrideInBytes <= 200) {
                     t_.Strides[i] = pViews[i].StrideInBytes;
                     //t_.vertexBufferSizes[i] = pViews[i].SizeInBytes;
 
@@ -306,7 +307,7 @@ namespace d3d12hook {
     {
         // --- LEVEL 1: REGISTER-ONLY CHECKS (ZERO COST) ---
         // Check InstanceCount and IndexCount first because they require NO memory lookups
-        if (!_this || InstanceCount == 0 || InstanceCount > 5 || IndexCountPerInstance < 100)
+        if (!_this || InstanceCount == 0 || InstanceCount > 5 || IndexCountPerInstance < 300)
         {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
@@ -384,13 +385,14 @@ namespace d3d12hook {
             }
         }
 
+
         // 2. IDENTIFICATION
         const UINT currentStrides = t_.StrideHash + t_.StartSlot;
 
         bool isModelDraw = false;
 
-        if (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 || currentStrides == countstride5 ||
-            cache.lastRDTindex == countGraphicsRootDescriptor || cache.lastRCBVindex == countGraphicsRootConstantBuffer ||
+        if (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 || currentStrides == countstride5 || //(currentStrides == 1 && h.contains(countstride5 % 100)) ||
+            cache.lastRDTindex == countGRootDescriptor || cache.lastRCBVindex == countGRootConstantBuffer ||
             t_.currentNumRTVs == countfindrendertarget|| IndexCountPerInstance / 1000 == countIndexCount)
         {
             isModelDraw = true;
@@ -429,16 +431,18 @@ namespace d3d12hook {
             if (filterindexformat && t_.currentIndexFormat != countfilterindexformat) goto skip;
             if (filternumViews && t_.numViews + t_.numViewports != countfilternumViews) goto skip;
             if (filterrendertarget && (t_.currentNumRTVs != countfilterrendertarget && t_.currentNumRTVs != countfilterrendertarget2)) goto skip;
-            if (filterGraphicsRootDescriptor && (cache.lastRDTindex != countfilterGraphicsRootDescriptor && cache.lastRDTindex != countfilterGraphicsRootDescriptor2 && cache.lastRDTindex != countfilterGraphicsRootDescriptor3)) goto skip;
-            if (filterGraphicsRootConstantBuffer && (cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer2 && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer3)) goto skip;
+            if (filterGRootDescriptor && (cache.lastRDTindex != countfilterGRootDescriptor && cache.lastRDTindex != countfilterGRootDescriptor2 && cache.lastRDTindex != countfilterGRootDescriptor3)) goto skip;
+            if (filterGRootConstantBuffer && (cache.lastRCBVindex != countfilterGRootConstantBuffer && cache.lastRCBVindex != countfilterGRootConstantBuffer2 && cache.lastRCBVindex != countfilterGRootConstantBuffer3)) goto skip;
+            if (filterIndexCountPerInstance && IndexCountPerInstance / 1000 != countfilterIndexCountPerInstance) goto skip;
             }
 
             if(enableignores)
             {
             if (ignorenumViews && t_.numViews + t_.numViewports == countignorenumViews) goto skip;
             if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;        
-            if (ignoreGraphicsRootDescriptor && (cache.lastRDTindex == countignoreGraphicsRootDescriptor || cache.lastRDTindex == countignoreGraphicsRootDescriptor2 || cache.lastRDTindex == countignoreGraphicsRootDescriptor3)) goto skip;         
-            if (ignoreGraphicsRootConstantBuffer && (cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
+            if (ignoreGRootDescriptor && (cache.lastRDTindex == countignoreGRootDescriptor || cache.lastRDTindex == countignoreGRootDescriptor2 || cache.lastRDTindex == countignoreGRootDescriptor3)) goto skip;         
+            if (ignoreGRootConstantBuffer && (cache.lastRCBVindex == countignoreGRootConstantBuffer || cache.lastRCBVindex == countignoreGRootConstantBuffer2 || cache.lastRCBVindex == countignoreGRootConstantBuffer3)) goto skip;
+            if (ignoreIndexCountPerInstance && IndexCountPerInstance/1000 <= countignoreIndexCountPerInstance) goto skip;
             }
 
             // Enable color (UE5)
@@ -471,7 +475,7 @@ namespace d3d12hook {
                         if (coloroffset < 0) coloroffset = 0;
                         if (coloroffset > (MAX_CB_SIZE - 256)) coloroffset = MAX_CB_SIZE - 256;
 
-                        DirectX::XMFLOAT4 myColor = { 25.0f, 0.0f, 25.0f, 1.0f }; //1.0 and 0.0 can appear black, depends on the game 
+                        DirectX::XMFLOAT4 myColor = { 15.0f, 0.0f, 15.0f, 1.0f }; //1.0 and 0.0 can appear black, depends on the game 
 
                         // Get pointer to the current offset
                         auto* constants = reinterpret_cast<MyMaterialConstants*>(g_pMappedConstantBuffer + coloroffset);
@@ -570,13 +574,15 @@ namespace d3d12hook {
         // if (pCommandSignature == knownComputeSignature) return ...;
         ExecuteIndirectisCalled = 1;
         
+
         // 2. IDENTIFICATION
         const UINT currentExIStride = t_.StrideHash + t_.StartSlot;
         //uint8_t shortCount = static_cast<uint8_t>((MaxCommandCount >> 12) % 100);
+
         bool isModelDraw = false;
 
         if (currentExIStride == countExIStride1 || currentExIStride == countExIStride2 || currentExIStride == countExIStride3 || currentExIStride == countExIStride4 ||
-            cache.lastRDTindex == countGraphicsRootDescriptor || cache.lastRCBVindex == countGraphicsRootConstantBuffer ||
+            cache.lastRDTindex == countGRootDescriptor || cache.lastRCBVindex == countGRootConstantBuffer ||
             t_.currentNumRTVs == countfindrendertarget)
         {
             isModelDraw = true;
@@ -609,16 +615,16 @@ namespace d3d12hook {
                 if (filterindexformat && t_.currentIndexFormat != countfilterindexformat) goto skip;
                 if (filternumViews && t_.numViews + t_.numViewports != countfilternumViews) goto skip;
                 if (filterrendertarget && (t_.currentNumRTVs != countfilterrendertarget && t_.currentNumRTVs != countfilterrendertarget2)) goto skip;
-                if (filterGraphicsRootDescriptor && (cache.lastRDTindex != countfilterGraphicsRootDescriptor && cache.lastRDTindex != countfilterGraphicsRootDescriptor2 && cache.lastRDTindex != countfilterGraphicsRootDescriptor3)) goto skip;
-                if (filterGraphicsRootConstantBuffer && (cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer2 && cache.lastRCBVindex != countfilterGraphicsRootConstantBuffer3)) goto skip;
+                if (filterGRootDescriptor && (cache.lastRDTindex != countfilterGRootDescriptor && cache.lastRDTindex != countfilterGRootDescriptor2 && cache.lastRDTindex != countfilterGRootDescriptor3)) goto skip;
+                if (filterGRootConstantBuffer && (cache.lastRCBVindex != countfilterGRootConstantBuffer && cache.lastRCBVindex != countfilterGRootConstantBuffer2 && cache.lastRCBVindex != countfilterGRootConstantBuffer3)) goto skip;
             }
 
             if (enableignores)
             {
                 if (ignorenumViews && t_.numViews + t_.numViewports == countignorenumViews) goto skip;
                 if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;
-                if (ignoreGraphicsRootDescriptor && (cache.lastRDTindex == countignoreGraphicsRootDescriptor || cache.lastRDTindex == countignoreGraphicsRootDescriptor2 || cache.lastRDTindex == countignoreGraphicsRootDescriptor3)) goto skip;
-                if (ignoreGraphicsRootConstantBuffer && (cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer2 || cache.lastRCBVindex == countignoreGraphicsRootConstantBuffer3)) goto skip;
+                if (ignoreGRootDescriptor && (cache.lastRDTindex == countignoreGRootDescriptor || cache.lastRDTindex == countignoreGRootDescriptor2 || cache.lastRDTindex == countignoreGRootDescriptor3)) goto skip;
+                if (ignoreGRootConstantBuffer && (cache.lastRCBVindex == countignoreGRootConstantBuffer || cache.lastRCBVindex == countignoreGRootConstantBuffer2 || cache.lastRCBVindex == countignoreGRootConstantBuffer3)) goto skip;
             }
 
             // Enable color (UE5)
@@ -651,7 +657,7 @@ namespace d3d12hook {
                         if (coloroffset < 0) coloroffset = 0;
                         if (coloroffset > (MAX_CB_SIZE - 256)) coloroffset = MAX_CB_SIZE - 256;
 
-                        DirectX::XMFLOAT4 myColor = { 25.0f, 0.0f, 25.0f, 1.0f }; //1.0 and 0.0 can appear black, depends on the game 
+                        DirectX::XMFLOAT4 myColor = { 15.0f, 0.0f, 15.0f, 1.0f }; //1.0 and 0.0 can appear black, depends on the game 
 
                         // Get pointer to the current offset
                         auto* constants = reinterpret_cast<MyMaterialConstants*>(g_pMappedConstantBuffer + coloroffset);
@@ -753,6 +759,7 @@ namespace d3d12hook {
 
     void STDMETHODCALLTYPE hookSetComputeRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList,UINT RootParameterIndex,D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor)
     {
+        /*
         // 1. Sync the command list context
         if (cache.cmdListPtr != dCommandList) {
             cache.cmdListPtr = dCommandList;
@@ -764,7 +771,7 @@ namespace d3d12hook {
         if (BaseDescriptor.ptr != 0) {
             cache.lastCRDTindex = RootParameterIndex;
         }
-
+        */
         return oSetComputeRootDescriptorTableD3D12(dCommandList, RootParameterIndex, BaseDescriptor);
     }
 
@@ -782,7 +789,7 @@ namespace d3d12hook {
         // Because the new signature might have different bindings at these indices
         cache.lastRDTindex = UINT_MAX;
         cache.lastRCBVindex = UINT_MAX;
-        cache.lastCRDTindex = UINT_MAX;
+        //cache.lastCRDTindex = UINT_MAX;
 
         // Cache the root signature if you need to check types later
         cache.currentRootSig = pRootSignature;
@@ -831,7 +838,7 @@ namespace d3d12hook {
         // A Reset() command list has no state. Stale cache = bugs.
         cache.lastRCBVindex = UINT_MAX;
         cache.lastRDTindex = UINT_MAX;
-        cache.lastCRDTindex = UINT_MAX;
+        //cache.lastCRDTindex = UINT_MAX;
 
         //CmdState* state = GetCmdState(_this);
         //state->NumRTVs = 0;
@@ -1029,16 +1036,12 @@ namespace d3d12hook {
 
     //=========================================================================================================================//
 
-    void STDMETHODCALLTYPE hookClearUnorderedAccessViewUintD3D12(
+    void STDMETHODCALLTYPE hookCopyBufferRegionD3D12(
         ID3D12GraphicsCommandList* cl,
-        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle,
-        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
-        ID3D12Resource* resource,
-        const UINT values[4],
-        UINT numRects,
-        const D3D12_RECT* rects)
+        ID3D12Resource* pDstBuffer, UINT64 DstOffset,
+        ID3D12Resource* pSrcBuffer, UINT64 SrcOffset, UINT64 NumBytes)
     {
-        oClearUnorderedAccessViewUintD3D12(cl, gpuHandle, cpuHandle, resource, values, numRects, rects);
+        oCopyBufferRegionD3D12(cl, pDstBuffer, DstOffset, pSrcBuffer, SrcOffset, NumBytes);
     }
 
     //=========================================================================================================================//

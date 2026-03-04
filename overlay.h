@@ -23,6 +23,7 @@ using Microsoft::WRL::ComPtr;
 // ============================================================
 
 //menu
+int countnum = -1;
 bool menuisOpen = false;
 int countstride1 = -1;
 int countstride2 = -1;
@@ -33,8 +34,8 @@ int countExIStride1 = -1;
 int countExIStride2 = -1;
 int countExIStride3 = -1;
 int countExIStride4 = -1;
-int countGraphicsRootConstantBuffer = -2;
-int countGraphicsRootDescriptor = -2;
+int countGRootConstantBuffer = -2;
+int countGRootDescriptor = -2;
 int countIndexCount = -1;
 int countfindrendertarget = -1;
 
@@ -50,32 +51,36 @@ bool enablefilters = false;
 bool filterrendertarget = false;
 int countfilterrendertarget = -1;
 int countfilterrendertarget2 = -1;
-bool filterGraphicsRootConstantBuffer = false;
-int countfilterGraphicsRootConstantBuffer = -2;
-int countfilterGraphicsRootConstantBuffer2 = -2;
-int countfilterGraphicsRootConstantBuffer3 = -2;
-bool filterGraphicsRootDescriptor = false;
-int countfilterGraphicsRootDescriptor = -2;
-int countfilterGraphicsRootDescriptor2 = -2;
-int countfilterGraphicsRootDescriptor3 = -2;
+bool filterGRootConstantBuffer = false;
+int countfilterGRootConstantBuffer = -2;
+int countfilterGRootConstantBuffer2 = -2;
+int countfilterGRootConstantBuffer3 = -2;
+bool filterGRootDescriptor = false;
+int countfilterGRootDescriptor = -2;
+int countfilterGRootDescriptor2 = -2;
+int countfilterGRootDescriptor3 = -2;
 bool filterindexformat = false;
 int countfilterindexformat = -1;
 bool filternumViews = false;
 int countfilternumViews = -1;
+bool filterIndexCountPerInstance = false;//
+int countfilterIndexCountPerInstance = -1;
 
 bool enableignores = false;
 bool ignorerendertarget = false;
 int countignorerendertarget = -1;
-bool ignoreGraphicsRootConstantBuffer = false;
-int countignoreGraphicsRootConstantBuffer = -2;
-int countignoreGraphicsRootConstantBuffer2 = -2;
-int countignoreGraphicsRootConstantBuffer3 = -2;
-bool ignoreGraphicsRootDescriptor = false;
-int countignoreGraphicsRootDescriptor = -2;
-int countignoreGraphicsRootDescriptor2 = -2;
-int countignoreGraphicsRootDescriptor3 = -2;
+bool ignoreGRootConstantBuffer = false;
+int countignoreGRootConstantBuffer = -2;
+int countignoreGRootConstantBuffer2 = -2;
+int countignoreGRootConstantBuffer3 = -2;
+bool ignoreGRootDescriptor = false;
+int countignoreGRootDescriptor = -2;
+int countignoreGRootDescriptor2 = -2;
+int countignoreGRootDescriptor3 = -2;
 bool ignorenumViews = false;
 int countignorenumViews = -1;
+bool ignoreIndexCountPerInstance = false;//
+int countignoreIndexCountPerInstance = -1;
 
 bool reversedDepth = false;
 bool DisableOcclusionCulling = true;
@@ -112,8 +117,8 @@ void SaveConfig()
     fout << "exinstride3 " << countExIStride3 << endl;
     fout << "exinstride4 " << countExIStride4 << endl;
 
-    fout << "countGraphicsRootConstantBuffer " << countGraphicsRootConstantBuffer << endl;
-    fout << "countGraphicsRootDescriptor " << countGraphicsRootDescriptor << endl;
+    fout << "countGRootConstantBuffer " << countGRootConstantBuffer << endl;
+    fout << "countGRootDescriptor " << countGRootDescriptor << endl;
     fout << "countIndexCount " << countIndexCount << endl;
     fout << "countfindrendertarget " << countfindrendertarget << endl;
 
@@ -130,15 +135,15 @@ void SaveConfig()
     fout << "countfilterrendertarget " << countfilterrendertarget << endl;
     fout << "countfilterrendertarget2 " << countfilterrendertarget2 << endl;
 
-    fout << "filterGraphicsRootConstantBuffer " << filterGraphicsRootConstantBuffer << endl;
-    fout << "countfilterGraphicsRootConstantBuffer " << countfilterGraphicsRootConstantBuffer << endl;
-    fout << "countfilterGraphicsRootConstantBuffer2 " << countfilterGraphicsRootConstantBuffer2 << endl;
-    fout << "countfilterGraphicsRootConstantBuffer3 " << countfilterGraphicsRootConstantBuffer3 << endl;
+    fout << "filterGRootConstantBuffer " << filterGRootConstantBuffer << endl;
+    fout << "countfilterGRootConstantBuffer " << countfilterGRootConstantBuffer << endl;
+    fout << "countfilterGRootConstantBuffer2 " << countfilterGRootConstantBuffer2 << endl;
+    fout << "countfilterGRootConstantBuffer3 " << countfilterGRootConstantBuffer3 << endl;
 
-    fout << "filterGraphicsRootDescriptor " << filterGraphicsRootDescriptor << endl;
-    fout << "countfilterGraphicsRootDescriptor " << countfilterGraphicsRootDescriptor << endl;
-    fout << "countfilterGraphicsRootDescriptor2 " << countfilterGraphicsRootDescriptor2 << endl;
-    fout << "countfilterGraphicsRootDescriptor3 " << countfilterGraphicsRootDescriptor3 << endl;
+    fout << "filterGRootDescriptor " << filterGRootDescriptor << endl;
+    fout << "countfilterGRootDescriptor " << countfilterGRootDescriptor << endl;
+    fout << "countfilterGRootDescriptor2 " << countfilterGRootDescriptor2 << endl;
+    fout << "countfilterGRootDescriptor3 " << countfilterGRootDescriptor3 << endl;
 
     fout << "filterindexformat " << filterindexformat << endl;
     fout << "countfilterindexformat " << countfilterindexformat << endl;
@@ -146,22 +151,28 @@ void SaveConfig()
     fout << "filternumViews " << filternumViews << endl;
     fout << "countfilternumViews " << countfilternumViews << endl;
 
+    fout << "filterIndexCountPerInstance " << filterIndexCountPerInstance << endl;
+    fout << "countfilterIndexCountPerInstance " << countfilterIndexCountPerInstance << endl;
+
     fout << "enableignores " << enableignores << endl;
     fout << "ignorerendertarget " << ignorerendertarget << endl;
     fout << "countignorerendertarget " << countignorerendertarget << endl;
 
-    fout << "ignoreGraphicsRootConstantBuffer " << ignoreGraphicsRootConstantBuffer << endl;
-    fout << "countignoreGraphicsRootConstantBuffer " << countignoreGraphicsRootConstantBuffer << endl;
-    fout << "countignoreGraphicsRootConstantBuffer2 " << countignoreGraphicsRootConstantBuffer2 << endl;
-    fout << "countignoreGraphicsRootConstantBuffer3 " << countignoreGraphicsRootConstantBuffer3 << endl;
+    fout << "ignoreGRootConstantBuffer " << ignoreGRootConstantBuffer << endl;
+    fout << "countignoreGRootConstantBuffer " << countignoreGRootConstantBuffer << endl;
+    fout << "countignoreGRootConstantBuffer2 " << countignoreGRootConstantBuffer2 << endl;
+    fout << "countignoreGRootConstantBuffer3 " << countignoreGRootConstantBuffer3 << endl;
 
-    fout << "ignoreGraphicsRootDescriptor " << ignoreGraphicsRootDescriptor << endl;
-    fout << "countignoreGraphicsRootDescriptor " << countignoreGraphicsRootDescriptor << endl;
-    fout << "countignoreGraphicsRootDescriptor2 " << countignoreGraphicsRootDescriptor2 << endl;
-    fout << "countignoreGraphicsRootDescriptor3 " << countignoreGraphicsRootDescriptor3 << endl;
+    fout << "ignoreGRootDescriptor " << ignoreGRootDescriptor << endl;
+    fout << "countignoreGRootDescriptor " << countignoreGRootDescriptor << endl;
+    fout << "countignoreGRootDescriptor2 " << countignoreGRootDescriptor2 << endl;
+    fout << "countignoreGRootDescriptor3 " << countignoreGRootDescriptor3 << endl;
 
     fout << "ignorenumViews " << ignorenumViews << endl;
     fout << "countignorenumViews " << countignorenumViews << endl;
+
+    fout << "ignoreIndexCountPerInstance " << ignoreIndexCountPerInstance << endl;
+    fout << "countignoreIndexCountPerInstance " << countignoreIndexCountPerInstance << endl;
 
     fout << "reversedDepth " << reversedDepth << endl;
     fout << "DisableOcclusionCulling " << DisableOcclusionCulling << endl;
@@ -202,8 +213,8 @@ void LoadConfig()
         else if (key == "exinstride3")              fin >> countExIStride3;
         else if (key == "exinstride4")              fin >> countExIStride4;
 
-        else if (key == "countGraphicsRootConstantBuffer")  fin >> countGraphicsRootConstantBuffer;
-        else if (key == "countGraphicsRootDescriptor")      fin >> countGraphicsRootDescriptor;
+        else if (key == "countGRootConstantBuffer")  fin >> countGRootConstantBuffer;
+        else if (key == "countGRootDescriptor")      fin >> countGRootDescriptor;
         else if (key == "countIndexCount")                  fin >> countIndexCount;
         else if (key == "countfindrendertarget")            fin >> countfindrendertarget;
 
@@ -220,15 +231,15 @@ void LoadConfig()
         else if (key == "countfilterrendertarget")  fin >> countfilterrendertarget;
         else if (key == "countfilterrendertarget2") fin >> countfilterrendertarget2;
 
-        else if (key == "filterGraphicsRootConstantBuffer")     fin >> filterGraphicsRootConstantBuffer;
-        else if (key == "countfilterGraphicsRootConstantBuffer") fin >> countfilterGraphicsRootConstantBuffer;
-        else if (key == "countfilterGraphicsRootConstantBuffer2")fin >> countfilterGraphicsRootConstantBuffer2;
-        else if (key == "countfilterGraphicsRootConstantBuffer3")fin >> countfilterGraphicsRootConstantBuffer3;
+        else if (key == "filterGRootConstantBuffer")     fin >> filterGRootConstantBuffer;
+        else if (key == "countfilterGRootConstantBuffer") fin >> countfilterGRootConstantBuffer;
+        else if (key == "countfilterGRootConstantBuffer2")fin >> countfilterGRootConstantBuffer2;
+        else if (key == "countfilterGRootConstantBuffer3")fin >> countfilterGRootConstantBuffer3;
 
-        else if (key == "filterGraphicsRootDescriptor")     fin >> filterGraphicsRootDescriptor;
-        else if (key == "countfilterGraphicsRootDescriptor") fin >> countfilterGraphicsRootDescriptor;
-        else if (key == "countfilterGraphicsRootDescriptor2")fin >> countfilterGraphicsRootDescriptor2;
-        else if (key == "countfilterGraphicsRootDescriptor3")fin >> countfilterGraphicsRootDescriptor3;
+        else if (key == "filterGRootDescriptor")     fin >> filterGRootDescriptor;
+        else if (key == "countfilterGRootDescriptor") fin >> countfilterGRootDescriptor;
+        else if (key == "countfilterGRootDescriptor2")fin >> countfilterGRootDescriptor2;
+        else if (key == "countfilterGRootDescriptor3")fin >> countfilterGRootDescriptor3;
 
         else if (key == "filterindexformat")        fin >> filterindexformat;
         else if (key == "countfilterindexformat")   fin >> countfilterindexformat;
@@ -236,22 +247,28 @@ void LoadConfig()
         else if (key == "filternumViews")           fin >> filternumViews;
         else if (key == "countfilternumViews")      fin >> countfilternumViews;
 
+        else if (key == "filterIndexCountPerInstance")           fin >> filterIndexCountPerInstance;
+        else if (key == "countfilterIndexCountPerInstance")      fin >> countfilterIndexCountPerInstance;
+
         else if (key == "enableignores")            fin >> enableignores;
         else if (key == "ignorerendertarget")       fin >> ignorerendertarget;
         else if (key == "countignorerendertarget")  fin >> countignorerendertarget;
 
-        else if (key == "ignoreGraphicsRootConstantBuffer")     fin >> ignoreGraphicsRootConstantBuffer;
-        else if (key == "countignoreGraphicsRootConstantBuffer") fin >> countignoreGraphicsRootConstantBuffer;
-        else if (key == "countignoreGraphicsRootConstantBuffer2")fin >> countignoreGraphicsRootConstantBuffer2;
-        else if (key == "countignoreGraphicsRootConstantBuffer3")fin >> countignoreGraphicsRootConstantBuffer3;
+        else if (key == "ignoreGRootConstantBuffer")     fin >> ignoreGRootConstantBuffer;
+        else if (key == "countignoreGRootConstantBuffer") fin >> countignoreGRootConstantBuffer;
+        else if (key == "countignoreGRootConstantBuffer2")fin >> countignoreGRootConstantBuffer2;
+        else if (key == "countignoreGRootConstantBuffer3")fin >> countignoreGRootConstantBuffer3;
 
-        else if (key == "ignoreGraphicsRootDescriptor")     fin >> ignoreGraphicsRootDescriptor;
-        else if (key == "countignoreGraphicsRootDescriptor") fin >> countignoreGraphicsRootDescriptor;
-        else if (key == "countignoreGraphicsRootDescriptor2")fin >> countignoreGraphicsRootDescriptor2;
-        else if (key == "countignoreGraphicsRootDescriptor3")fin >> countignoreGraphicsRootDescriptor3;
+        else if (key == "ignoreGRootDescriptor")     fin >> ignoreGRootDescriptor;
+        else if (key == "countignoreGRootDescriptor") fin >> countignoreGRootDescriptor;
+        else if (key == "countignoreGRootDescriptor2")fin >> countignoreGRootDescriptor2;
+        else if (key == "countignoreGRootDescriptor3")fin >> countignoreGRootDescriptor3;
 
         else if (key == "ignorenumViews")           fin >> ignorenumViews;
         else if (key == "countignorenumViews")      fin >> countignorenumViews;
+
+        else if (key == "ignoreIndexCountPerInstance")           fin >> ignoreIndexCountPerInstance;
+        else if (key == "countignoreIndexCountPerInstance")      fin >> countignoreIndexCountPerInstance;
 
         else if (key == "reversedDepth")            fin >> reversedDepth;
         else if (key == "DisableOcclusionCulling")  fin >> DisableOcclusionCulling;
@@ -646,7 +663,7 @@ void Render()
 {
     ResizeOverlayIfNeeded();
 
-    if (GetAsyncKeyState(VK_INSERT) & 1)
+    if (GetAsyncKeyState(VK_INSERT) & 1) //menu key
     {
         SaveConfig(); //Save settings
         g_showMenu = !g_showMenu;
@@ -712,9 +729,9 @@ void Render()
         ImGui::SliderInt("ExInStride2", &countExIStride2, minus_val, max_val);
         ImGui::SliderInt("ExInStride3", &countExIStride3, minus_val, max_val);
         ImGui::SliderInt("ExInStride4", &countExIStride4, minus_val, max_val);
-        ImGui::SliderInt("GraphicsRootConstantBuffer", &countGraphicsRootConstantBuffer, minus_val2, max_val);
-        ImGui::SliderInt("GraphicsRootDescriptor", &countGraphicsRootDescriptor, minus_val2, max_val);
-        ImGui::SliderInt("IndexCount*1000", &countIndexCount, minus_val, max_val);
+        ImGui::SliderInt("GRootConstantBuffer", &countGRootConstantBuffer, minus_val2, max_val);
+        ImGui::SliderInt("GRootDescriptor", &countGRootDescriptor, minus_val2, max_val);
+        ImGui::SliderInt("IndexCount * 1000", &countIndexCount, minus_val, max_val);
         ImGui::SliderInt("RenderTarget", &countfindrendertarget, minus_val, max_val);
 
         //Temporary IDs below (changes after game restart)
@@ -740,20 +757,20 @@ void Render()
                 ImGui::SliderInt("Render Target2", &countfilterrendertarget2, minus_val, max_val);
             }
 
-            ImGui::Checkbox("Filter GraphicsRootDescriptor", &filterGraphicsRootDescriptor);
-            if (filterGraphicsRootDescriptor)
+            ImGui::Checkbox("Filter GRootDescriptor", &filterGRootDescriptor);
+            if (filterGRootDescriptor)
             {
-                ImGui::SliderInt("GraphicsRootDescriptor1", &countfilterGraphicsRootDescriptor, minus_val2, max_val);
-                ImGui::SliderInt("GraphicsRootDescriptor2", &countfilterGraphicsRootDescriptor2, minus_val2, max_val);
-                ImGui::SliderInt("GraphicsRootDescriptor3", &countfilterGraphicsRootDescriptor3, minus_val2, max_val);
+                ImGui::SliderInt("GRootDescriptor1", &countfilterGRootDescriptor, minus_val2, max_val);
+                ImGui::SliderInt("GRootDescriptor2", &countfilterGRootDescriptor2, minus_val2, max_val);
+                ImGui::SliderInt("GRootDescriptor3", &countfilterGRootDescriptor3, minus_val2, max_val);
             }
 
-            ImGui::Checkbox("Filter GraphicsRootConstantBuffer", &filterGraphicsRootConstantBuffer);
-            if (filterGraphicsRootConstantBuffer)
+            ImGui::Checkbox("Filter GRootConstantBuffer", &filterGRootConstantBuffer);
+            if (filterGRootConstantBuffer)
             {
-                ImGui::SliderInt("GraphicsRootConstantBuffer1", &countfilterGraphicsRootConstantBuffer, minus_val2, max_val);
-                ImGui::SliderInt("GraphicsRootConstantBuffer2", &countfilterGraphicsRootConstantBuffer2, minus_val2, max_val);
-                ImGui::SliderInt("GraphicsRootConstantBuffer3", &countfilterGraphicsRootConstantBuffer3, minus_val2, max_val);
+                ImGui::SliderInt("GRootConstantBuffer1", &countfilterGRootConstantBuffer, minus_val2, max_val);
+                ImGui::SliderInt("GRootConstantBuffer2", &countfilterGRootConstantBuffer2, minus_val2, max_val);
+                ImGui::SliderInt("GRootConstantBuffer3", &countfilterGRootConstantBuffer3, minus_val2, max_val);
             }
 
             ImGui::Checkbox("Filter IndexFormat", &filterindexformat);
@@ -766,6 +783,12 @@ void Render()
             if (filternumViews)
             {
                 ImGui::SliderInt("NumViews", &countfilternumViews, minus_val, max_val);
+            }
+
+            ImGui::Checkbox("Filter IndexCount", &filterIndexCountPerInstance);
+            if (filterIndexCountPerInstance)
+            {
+                ImGui::SliderInt("IndexCount*1000", &countfilterIndexCountPerInstance, minus_val, max_val);
             }
         }//end of filters
 
@@ -780,26 +803,32 @@ void Render()
                 ImGui::SliderInt("RenderTarget ", &countignorerendertarget, minus_val, max_val);
             }
 
-            ImGui::Checkbox("Ignore GraphicsRootDescriptor", &ignoreGraphicsRootDescriptor);
-            if (ignoreGraphicsRootDescriptor)
+            ImGui::Checkbox("Ignore GRootDescriptor", &ignoreGRootDescriptor);
+            if (ignoreGRootDescriptor)
             {
-                ImGui::SliderInt("GraphicsRootDescriptor 1", &countignoreGraphicsRootDescriptor, minus_val2, max_val);
-                ImGui::SliderInt("GraphicsRootDescriptor 2", &countignoreGraphicsRootDescriptor2, minus_val2, max_val);
-                ImGui::SliderInt("GraphicsRootDescriptor 3", &countignoreGraphicsRootDescriptor3, minus_val2, max_val);
+                ImGui::SliderInt("GRootDescriptor 1", &countignoreGRootDescriptor, minus_val2, max_val);
+                ImGui::SliderInt("GRootDescriptor 2", &countignoreGRootDescriptor2, minus_val2, max_val);
+                ImGui::SliderInt("GRootDescriptor 3", &countignoreGRootDescriptor3, minus_val2, max_val);
             }
 
-            ImGui::Checkbox("Ignore GraphicsRootConstantBuffer", &ignoreGraphicsRootConstantBuffer);
-            if (ignoreGraphicsRootConstantBuffer)
+            ImGui::Checkbox("Ignore GRootConstantBuffer", &ignoreGRootConstantBuffer);
+            if (ignoreGRootConstantBuffer)
             {
-                ImGui::SliderInt("GraphicsRootConstantBuffer 1", &countignoreGraphicsRootConstantBuffer, minus_val2, max_val);
-                ImGui::SliderInt("GraphicsRootConstantBuffer 2", &countignoreGraphicsRootConstantBuffer2, minus_val2, max_val);
-                ImGui::SliderInt("GraphicsRootConstantBuffer 3", &countignoreGraphicsRootConstantBuffer3, minus_val2, max_val);
+                ImGui::SliderInt("GRootConstantBuffer 1", &countignoreGRootConstantBuffer, minus_val2, max_val);
+                ImGui::SliderInt("GRootConstantBuffer 2", &countignoreGRootConstantBuffer2, minus_val2, max_val);
+                ImGui::SliderInt("GRootConstantBuffer 3", &countignoreGRootConstantBuffer3, minus_val2, max_val);
             }
 
             ImGui::Checkbox("Ignore NumViews", &ignorenumViews);
             if (ignorenumViews)
             {
                 ImGui::SliderInt("NumViews ", &countignorenumViews, minus_val, max_val);
+            }
+
+            ImGui::Checkbox("Ignore IndexCount below", &ignoreIndexCountPerInstance);
+            if (ignoreIndexCountPerInstance)
+            {
+                ImGui::SliderInt("IndexCount*1000 ", &countignoreIndexCountPerInstance, minus_val, max_val);
             }
         } //end of ignores
 

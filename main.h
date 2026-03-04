@@ -73,15 +73,11 @@ namespace d3d12hook {
     typedef void(STDMETHODCALLTYPE* SetGraphicsRootSignatureFn)(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature);
     extern SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12;
 
-    typedef void(STDMETHODCALLTYPE* ClearUnorderedAccessViewUintFn)(
+    typedef void(STDMETHODCALLTYPE* CopyBufferRegionFn)(
         ID3D12GraphicsCommandList* cl,
-        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle,
-        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
-        ID3D12Resource* resource,
-        const UINT values[4],
-        UINT numRects,
-        const D3D12_RECT* rects);
-    extern ClearUnorderedAccessViewUintFn oClearUnorderedAccessViewUintD3D12;
+        ID3D12Resource* pDstBuffer, UINT64 DstOffset,
+        ID3D12Resource* pSrcBuffer, UINT64 SrcOffset, UINT64 NumBytes);
+    extern CopyBufferRegionFn oCopyBufferRegionD3D12;
 
     typedef void(STDMETHODCALLTYPE* ResetFn)(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState);
     extern ResetFn oResetD3D12;
@@ -148,14 +144,10 @@ namespace d3d12hook {
     extern void STDMETHODCALLTYPE hookOMSetRenderTargetsD3D12(ID3D12GraphicsCommandList* dCommandList, UINT NumRenderTargetDescriptors, const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors, BOOL RTsSingleHandleToDescriptorRange, const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor);
     extern void STDMETHODCALLTYPE hookResolveQueryDataD3D12(ID3D12GraphicsCommandList* self, ID3D12QueryHeap* pQueryHeap, D3D12_QUERY_TYPE Type, UINT StartIndex, UINT NumQueries, ID3D12Resource* pDestinationBuffer, UINT64 AlignedDestinationBufferOffset);
     extern void STDMETHODCALLTYPE hookSetGraphicsRootSignatureD3D12(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature);
-    extern void STDMETHODCALLTYPE hookClearUnorderedAccessViewUintD3D12(
+    extern void STDMETHODCALLTYPE hookCopyBufferRegionD3D12(
         ID3D12GraphicsCommandList* cl,
-        D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle,
-        D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
-        ID3D12Resource* resource,
-        const UINT values[4],
-        UINT numRects,
-        const D3D12_RECT* rects);
+        ID3D12Resource* pDstBuffer, UINT64 DstOffset,
+        ID3D12Resource* pSrcBuffer, UINT64 SrcOffset, UINT64 NumBytes);
     extern void STDMETHODCALLTYPE hookResetD3D12(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState);
     extern void STDMETHODCALLTYPE hookCloseD3D12(ID3D12GraphicsCommandList* cl);
     extern void STDMETHODCALLTYPE hookIASetIndexBufferD3D12(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView);
@@ -201,7 +193,7 @@ namespace hooks {
     constexpr size_t kResolveQueryDataIndex = 54;
     constexpr size_t kExecuteIndirectIndex = 59;
     constexpr size_t kSetGraphicsRootSignatureIndex = 30;
-    constexpr size_t kClearUnorderedAccessViewUintIndex = 49;
+    constexpr size_t kCopyBufferRegionIndex = 15;
     constexpr size_t kResetIndex = 10;
     constexpr size_t kSetPipelineStateIndex = 25;
     constexpr size_t kIASetPrimitiveTopologyIndex = 20;
@@ -241,7 +233,7 @@ namespace hooks {
     static LPVOID pResolveQueryDataTarget = nullptr;
     static LPVOID pExecuteIndirectTarget = nullptr;
     static LPVOID pSetGraphicsRootSignatureTarget = nullptr;
-    static LPVOID pClearUnorderedAccessViewUintTarget = nullptr;
+    static LPVOID pCopyBufferRegionTarget = nullptr;
     static LPVOID pResetTarget = nullptr;
     static LPVOID pCloseTarget = nullptr;
     static LPVOID pIASetIndexBufferTarget = nullptr;
@@ -455,9 +447,9 @@ namespace hooks {
         mh = MH_CreateHook(pSetGraphicsRootDescriptorTableTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootDescriptorTableD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootDescriptorTableD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook SetGraphicsRootDescriptorTable failed: %s\n", MH_StatusToString(mh));
 
-        pSetComputeRootDescriptorTableTarget = reinterpret_cast<LPVOID>(slVTable[kSetComputeRootDescriptorTableIndex]);
-        mh = MH_CreateHook(pSetComputeRootDescriptorTableTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetComputeRootDescriptorTableD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetComputeRootDescriptorTableD3D12));
-        if (mh != MH_OK) Log("[hooks] MH_CreateHook SetComputeRootDescriptorTable failed: %s\n", MH_StatusToString(mh));
+        //pSetComputeRootDescriptorTableTarget = reinterpret_cast<LPVOID>(slVTable[kSetComputeRootDescriptorTableIndex]);
+        //mh = MH_CreateHook(pSetComputeRootDescriptorTableTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetComputeRootDescriptorTableD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetComputeRootDescriptorTableD3D12));
+        //if (mh != MH_OK) Log("[hooks] MH_CreateHook SetComputeRootDescriptorTable failed: %s\n", MH_StatusToString(mh));
 
         pSetGraphicsRootSignatureTarget = reinterpret_cast<LPVOID>(slVTable[kSetGraphicsRootSignatureIndex]);
         mh = MH_CreateHook(pSetGraphicsRootSignatureTarget, reinterpret_cast<LPVOID>(d3d12hook::hookSetGraphicsRootSignatureD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oSetGraphicsRootSignatureD3D12));
@@ -475,9 +467,9 @@ namespace hooks {
         mh = MH_CreateHook(pExecuteIndirectTarget, reinterpret_cast<LPVOID>(d3d12hook::hookExecuteIndirectD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oExecuteIndirectD3D12));
         if (mh != MH_OK) Log("[hooks] MH_CreateHook ExecuteIndirect failed: %s\n", MH_StatusToString(mh));
 
-        //pClearUnorderedAccessViewUintTarget = reinterpret_cast<LPVOID>(slVTable[kClearUnorderedAccessViewUintIndex]);
-        //mh = MH_CreateHook(pClearUnorderedAccessViewUintTarget, reinterpret_cast<LPVOID>(d3d12hook::hookClearUnorderedAccessViewUintD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oClearUnorderedAccessViewUintD3D12));
-        //if (mh != MH_OK) Log("[hooks] MH_CreateHook ClearUnorderedAccessViewUint failed: %s\n", MH_StatusToString(mh));
+        //pCopyBufferRegionTarget = reinterpret_cast<LPVOID>(slVTable[kCopyBufferRegionIndex]);
+        //mh = MH_CreateHook(pCopyBufferRegionTarget, reinterpret_cast<LPVOID>(d3d12hook::hookCopyBufferRegionD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oCopyBufferRegionD3D12));
+        //if (mh != MH_OK) Log("[hooks] MH_CreateHook CopyBufferRegion failed: %s\n", MH_StatusToString(mh));
 
         pResetTarget = reinterpret_cast<LPVOID>(slVTable[kResetIndex]);
         mh = MH_CreateHook(pResetTarget, reinterpret_cast<LPVOID>(d3d12hook::hookResetD3D12), reinterpret_cast<LPVOID*>(&d3d12hook::oResetD3D12));
@@ -583,14 +575,14 @@ namespace hooks {
         DisableAndRemove(pDrawIndexedInstancedTarget);
         //DisableAndRemove(pDrawInstancedTarget);
         DisableAndRemove(pSetGraphicsRootConstantBufferViewTarget);
-        //DisableAndRemove(pSetDescriptorHeapsTarget);
         DisableAndRemove(pSetGraphicsRootDescriptorTableTarget);
-        DisableAndRemove(pSetComputeRootDescriptorTableTarget);
+        //DisableAndRemove(pSetComputeRootDescriptorTableTarget);
         DisableAndRemove(pOMSetRenderTargetsTarget);
         DisableAndRemove(pResolveQueryDataTarget);
         DisableAndRemove(pExecuteIndirectTarget);
+        //DisableAndRemove(pSetDescriptorHeapsTarget);
+        //DisableAndRemove(pCopyBufferRegionTarget);
         DisableAndRemove(pSetGraphicsRootSignatureTarget);
-        //DisableAndRemove(pClearUnorderedAccessViewUintTarget);
         DisableAndRemove(pResetTarget);
         DisableAndRemove(pIASetIndexBufferTarget);
         DisableAndRemove(pSetPipelineStateTarget);
@@ -669,8 +661,6 @@ thread_local struct {
     // optional safety
     //UINT64 frameId = 0;
     D3D12_PRIMITIVE_TOPOLOGY currentTopology;
-
-    //UINT64 ClearUAVWidth = 0;
 } t_;
 
 //=========================================================================================================================//
@@ -798,6 +788,11 @@ void CleanupColorBuffer()
     }
     colorinitialized = false;
 }
+
+//=========================================================================================================================//
+
+//Todo:
+//Boilerplate code for coloring with SetGraphicsRootDescriptorTable
 
 //=========================================================================================================================//
 
