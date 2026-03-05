@@ -10,5 +10,5 @@ d3d12 wallhack, dx12 wallhack, imgui, overlay
 
 ![Alt text description](https://github.com/DrNseven/D3D12-Wallhack/blob/main/wallhack3.jpg)
 
-Credits: Sh0ckFR
+Credits: Sh0ckFR, UtterlyTV
 
