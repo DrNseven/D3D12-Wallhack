@@ -1,2175 +1,1113 @@
-﻿// Vulkan Hook/Wallhack
-#define NOMINMAX
-#include <Windows.h>
-#include <iostream>
+//d3d12 hook/wallhack with imgui overlay 2026 by N7
+
+#pragma once
+#include <windows.h>
 #include <vector>
-#include <mutex>
-#include <shared_mutex>
-#include <unordered_map>
-#include <unordered_set>
-#include <string>
-#include <fstream>
-#include <algorithm>
-#include <atomic>
-#include "vulkan/vulkan.h"
+#include <cstring>
+#include <cstdio>
+#include <cstdint>
+#include <cstddef>
+#include <cstdarg>
+
+#include <dxgi.h>
+#include <dxgi1_4.h>
+#include <d3d12.h>
+
+#include <wrl/client.h>
+
+// imgui
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_win32.h"
+#include "imgui/imgui_impl_dx12.h"
+
+// minhook
 #include "minhook/include/MinHook.h"
 
-#pragma comment(lib, "vulkan/vulkan-1.lib")
-
-//===================================================================================================//
-
-// --- Globals ---
-int countnum = -1;
-bool reversedDepth = false;
-bool wallhack = 1;
-bool colorhack = 0;
-//stride value needs to be correct for colors to work
-static constexpr uint32_t kHighlightStride = 40;   //40 = valheim, 48 = zombie army 4: dead war(reversedDepth=true), 28 = deadlock
-
-//Log
-inline void Log(const char* fmt, ...) {
-    char text[4096] = { 0 };
-    va_list ap;
-    va_start(ap, fmt);
-    vsnprintf(text, sizeof(text), fmt, ap);
-    va_end(ap);
-
-    std::ofstream logfile("log.txt", std::ios::app);
-    if (logfile.is_open()) {
-        logfile << text << std::endl;
-    }
-}
-
-//===================================================================================================//
-
-// Function Pointers
-typedef PFN_vkVoidFunction(VKAPI_PTR* PFN_vkGetDeviceProcAddr)(VkDevice device, const char* pName);
-typedef PFN_vkVoidFunction(VKAPI_PTR* PFN_vkGetInstanceProcAddr)(VkInstance instance, const char* pName);
-typedef VkResult(VKAPI_PTR* PFN_vkCreateGraphicsPipelines)(VkDevice, VkPipelineCache, uint32_t, const VkGraphicsPipelineCreateInfo*, const VkAllocationCallbacks*, VkPipeline*);
-typedef void (VKAPI_PTR* PFN_vkCmdBindPipeline)(VkCommandBuffer, VkPipelineBindPoint, VkPipeline);
-typedef void (VKAPI_PTR* PFN_vkCmdSetViewport_Custom)(VkCommandBuffer, uint32_t, uint32_t, const VkViewport*);
-typedef void (VKAPI_PTR* PFN_CmdSetViewportWithCount)(VkCommandBuffer cmd, uint32_t count, const VkViewport* pVp);
-typedef void (VKAPI_PTR* PFN_vkCmdDraw)(VkCommandBuffer, uint32_t, uint32_t, uint32_t, uint32_t);
-typedef void (VKAPI_PTR* PFN_vkCmdDrawIndexed)(VkCommandBuffer, uint32_t, uint32_t, uint32_t, int32_t, uint32_t);
-typedef void (VKAPI_PTR* PFN_vkCmdDrawIndirect)(VkCommandBuffer, VkBuffer, VkDeviceSize, uint32_t, uint32_t);
-typedef void (VKAPI_PTR* PFN_vkCmdDrawIndexedIndirect)(VkCommandBuffer, VkBuffer, VkDeviceSize, uint32_t, uint32_t);
-typedef void (VKAPI_PTR* PFN_vkCmdDrawIndirectCount)(VkCommandBuffer, VkBuffer, VkDeviceSize, VkBuffer, VkDeviceSize, uint32_t, uint32_t);
-typedef void (VKAPI_PTR* PFN_vkCmdDrawIndexedIndirectCount)(VkCommandBuffer, VkBuffer, VkDeviceSize, VkBuffer, VkDeviceSize, uint32_t, uint32_t);
-typedef void (VKAPI_PTR* PFN_vkCmdBindDescriptorSets)(VkCommandBuffer, VkPipelineBindPoint, VkPipelineLayout, uint32_t, uint32_t, const VkDescriptorSet*, uint32_t, const uint32_t*);
-typedef VkResult(VKAPI_PTR* PFN_vkCreateShaderModule)(VkDevice device,const VkShaderModuleCreateInfo* pCreateInfo,const VkAllocationCallbacks* pAllocator,VkShaderModule* pModule);
-typedef void (VKAPI_PTR* PFN_vkCmdSetVertexInputEXT)(
-    VkCommandBuffer                             commandBuffer,
-    uint32_t                                    vertexBindingDescriptionCount,
-    const VkVertexInputBindingDescription2EXT* pVertexBindingDescriptions,
-    uint32_t                                    vertexAttributeDescriptionCount,
-    const VkVertexInputAttributeDescription2EXT* pVertexAttributeDescriptions);
-
-// Typedefs
-PFN_vkGetDeviceProcAddr pOriginalGetDeviceProcAddr = nullptr;
-PFN_vkGetInstanceProcAddr pOriginalGetInstanceProcAddr = nullptr;
-PFN_vkCreateGraphicsPipelines pOriginalCreateGraphicsPipelines = nullptr;
-PFN_vkCmdBindPipeline         pOriginalCmdBindPipeline = nullptr;
-PFN_vkCmdSetViewport_Custom pOriginalCmdSetViewport = nullptr;
-PFN_vkCmdSetViewportWithCount pOriginalCmdSetViewportWithCount = nullptr;
-PFN_vkCmdDraw pOriginalCmdDraw = nullptr;
-PFN_vkCmdDrawIndexed pOriginalCmdDrawIndexed = nullptr;
-PFN_vkCmdDrawIndirect pOriginalCmdDrawIndirect = nullptr;
-PFN_vkCmdDrawIndexedIndirect pOriginalCmdDrawIndexedIndirect = nullptr;
-PFN_vkCmdDrawIndirectCount pOriginalCmdDrawIndirectCount = nullptr;
-PFN_vkCmdDrawIndexedIndirectCount pOriginalCmdDrawIndexedIndirectCount = nullptr;
-PFN_vkCmdBindDescriptorSets pOriginalCmdBindDescriptorSets = nullptr;
-PFN_vkCreateShaderModule pOriginalCreateShaderModule = nullptr;
-PFN_vkCmdSetVertexInputEXT pOriginalCmdSetVertexInputEXT = nullptr;
-
-//===================================================================================================//
-
-// Toggle for the diagnostic Log() calls below
-static constexpr bool kVerboseKeyLog = false;
-
-// Viewport, Command Buffer State
-struct CmdState {
-    VkViewport currentViewport{};
-    uint32_t   firstViewport = 0;
-    bool       hasViewport = false;
-};
-
-std::unordered_map<VkCommandBuffer, CmdState> cmdStates;
-std::shared_mutex statesMtx;
-
-void RemoveCmdState(VkCommandBuffer cmd)
-{
-    if (!cmd) return;
-    std::unique_lock<std::shared_mutex> lock(statesMtx);
-    //std::unique_lock lock(statesMtx);
-    cmdStates.erase(cmd);
-}
-
-//===================================================================================================//
-
-//Pipeline key
-static std::mutex g_mtx;
-static std::unordered_map<VkPipeline, uint64_t>      g_pipelineKey;  // pipeline -> key
-static std::unordered_map<VkCommandBuffer, uint64_t> g_curKey;       // cmd -> key of bound graphics pipeline
-static std::unordered_map<VkShaderModule, uint64_t> g_moduleHash;  // module → content hash
-
-// Hash helper (64-bit mix)
-static uint64_t combine(uint64_t seed, uint64_t v) {
-    v *= 0xbf58476d1ce4e5b9ULL;
-    v ^= v >> 30;
-    v *= 0x94d049bb133111ebULL;
-    v ^= v >> 27;
-    return seed ^ (v + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
-}
-
-//===================================================================================================//
-
-// Stride (dynamic version)
-std::unordered_map<VkCommandBuffer, uint32_t> g_cmdBufStride;
-
-struct VertexInputState {
-    uint32_t bindingCount = 0;
-    std::vector<VkVertexInputBindingDescription2EXT> bindings;
-    uint32_t attributeCount = 0;
-    std::vector<VkVertexInputAttributeDescription2EXT> attributes;
-};
-std::unordered_map<VkCommandBuffer, VertexInputState> g_cmdBufVertexInput;
-
-//===================================================================================================//
-
-VKAPI_ATTR VkResult VKAPI_CALL DetourVkCreateShaderModule(
-    VkDevice device, const VkShaderModuleCreateInfo* pCreateInfo,
-    const VkAllocationCallbacks* pAllocator, VkShaderModule* pModule)
-{
-    static bool loggedOnce = false;
-    if (!loggedOnce) {
-        Log("CreateShaderModule");
-        loggedOnce = true;
-    }
-
-    VkResult r = pOriginalCreateShaderModule(device, pCreateInfo, pAllocator, pModule);
-    if (r == VK_SUCCESS && pModule && *pModule != VK_NULL_HANDLE && pCreateInfo && pCreateInfo->pCode) {
-        uint64_t h = 0;
-        const uint32_t* code = pCreateInfo->pCode;
-        const size_t wordCount = pCreateInfo->codeSize / 4;
-
-        for (size_t i = 0; i < wordCount; ++i)
-            h = combine(h, code[i]);
-
-        // also mix the size so two different-length shaders that somehow produce the same hash still differ
-        h = combine(h, pCreateInfo->codeSize);
-
-        std::lock_guard<std::mutex> lock(g_mtx);
-        g_moduleHash[*pModule] = h;
-
-        if (kVerboseKeyLog)
-            Log("CreateShaderModule: module=%p size=%zu hash=%llu",
-                (void*)*pModule, pCreateInfo->codeSize, h);
-    }
-    return r;
-}
-
-//===================================================================================================//
-
-// Maps
-std::unordered_map<VkPipeline, VkPipeline> g_highlightPipelines;   // original → colored version
-std::unordered_map<VkCommandBuffer, VkPipeline> g_curPipeline;   // currently bound graphics pipeline
-std::unordered_map<VkPipeline, uint32_t> g_pipelineStrides; // pipeline -> binding 0 stride
-
-// Short lock, lookup only, no calls made while it is held
-static bool GetModuleHash(VkShaderModule m, uint64_t& out)
-{
-    std::lock_guard<std::mutex> lock(g_mtx);
-    auto it = g_moduleHash.find(m);
-    if (it == g_moduleHash.end())
-        return false;
-    out = it->second;
-    return true;
-}
-
-
-// ---- flat red fragment shader (SPIR-V 1.0, 70 words) ------------------------
-// flat-red fragment shader
-static const uint32_t kRedFragSpv[] = {
-    0x07230203, 0x00010000, 0x00000000, 0x0000000c, 0x00000000, 0x00020011,
-    0x00000001, 0x0003000e, 0x00000000, 0x00000001, 0x0006000f, 0x00000004,
-    0x00000001, 0x6e69616d, 0x00000000, 0x00000002, 0x00030010, 0x00000001,
-    0x00000007, 0x00040047, 0x00000002, 0x0000001e, 0x00000000, 0x00020013,
-    0x00000003, 0x00030021, 0x00000004, 0x00000003, 0x00030016, 0x00000005,
-    0x00000020, 0x00040017, 0x00000006, 0x00000005, 0x00000004, 0x00040020,
-    0x00000007, 0x00000003, 0x00000006, 0x0004003b, 0x00000007, 0x00000002,
-    0x00000003, 0x0004002b, 0x00000005, 0x00000008, 0x3f800000, 0x0004002b,
-    0x00000005, 0x00000009, 0x00000000, 0x0007002c, 0x00000006, 0x0000000a,
-    0x00000008, 0x00000009, 0x00000009, 0x00000008, 0x00050036, 0x00000003,
-    0x00000001, 0x00000000, 0x00000004, 0x000200f8, 0x0000000b, 0x0003003e,
-    0x00000002, 0x0000000a, 0x000100fd, 0x00010038,
-};
-
-// magenta: o = vec4(1.0, 0.0, 1.0, 1.0)
-static const uint32_t kMagentaFragSpv[] = {
-    0x07230203, 0x00010000, 0x00000000, 0x0000000c, 0x00000000, 0x00020011,
-    0x00000001, 0x0003000e, 0x00000000, 0x00000001, 0x0006000f, 0x00000004,
-    0x00000001, 0x6e69616d, 0x00000000, 0x00000002, 0x00030010, 0x00000001,
-    0x00000007, 0x00040047, 0x00000002, 0x0000001e, 0x00000000, 0x00020013,
-    0x00000003, 0x00030021, 0x00000004, 0x00000003, 0x00030016, 0x00000005,
-    0x00000020, 0x00040017, 0x00000006, 0x00000005, 0x00000004, 0x00040020,
-    0x00000007, 0x00000003, 0x00000006, 0x0004003b, 0x00000007, 0x00000002,
-    0x00000003, 0x0004002b, 0x00000005, 0x00000008, 0x3f800000, 0x0004002b,
-    0x00000005, 0x00000009, 0x00000000, 0x0007002c, 0x00000006, 0x0000000a,
-    0x00000008, 0x00000009, 0x00000008, 0x00000008, 0x00050036, 0x00000003,
-    0x00000001, 0x00000000, 0x00000004, 0x000200f8, 0x0000000b, 0x0003003e,
-    0x00000002, 0x0000000a, 0x000100fd, 0x00010038,
-};
-
-// green: o = vec4(0.0, 1.0, 0.0, 1.0)
-static const uint32_t kGreenFragSpv[] = {
-    0x07230203, 0x00010000, 0x00000000, 0x0000000c, 0x00000000, 0x00020011,
-    0x00000001, 0x0003000e, 0x00000000, 0x00000001, 0x0006000f, 0x00000004,
-    0x00000001, 0x6e69616d, 0x00000000, 0x00000002, 0x00030010, 0x00000001,
-    0x00000007, 0x00040047, 0x00000002, 0x0000001e, 0x00000000, 0x00020013,
-    0x00000003, 0x00030021, 0x00000004, 0x00000003, 0x00030016, 0x00000005,
-    0x00000020, 0x00040017, 0x00000006, 0x00000005, 0x00000004, 0x00040020,
-    0x00000007, 0x00000003, 0x00000006, 0x0004003b, 0x00000007, 0x00000002,
-    0x00000003, 0x0004002b, 0x00000005, 0x00000008, 0x3f800000, 0x0004002b,
-    0x00000005, 0x00000009, 0x00000000, 0x0007002c, 0x00000006, 0x0000000a,
-    0x00000009, 0x00000008, 0x00000009, 0x00000008, 0x00050036, 0x00000003,
-    0x00000001, 0x00000000, 0x00000004, 0x000200f8, 0x0000000b, 0x0003003e,
-    0x00000002, 0x0000000a, 0x000100fd, 0x00010038,
-};
-
-// One module per device, created lazily, intentionally never destroyed.
-static VkShaderModule GetRedFragModule(VkDevice device)
-{
-    static std::mutex s_mtx;
-    static std::unordered_map<VkDevice, VkShaderModule> s_mods;
-
-    std::lock_guard<std::mutex> lk(s_mtx);
-    auto it = s_mods.find(device);
-    if (it != s_mods.end())
-        return it->second;
-
-    VkShaderModuleCreateInfo mci{};
-    mci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    mci.codeSize = sizeof(kRedFragSpv);
-    mci.pCode = kRedFragSpv;
-
-    VkShaderModule m = VK_NULL_HANDLE;
-    if (pOriginalCreateShaderModule(device, &mci, nullptr, &m) != VK_SUCCESS)
-    {
-        Log("GetRedFragModule: vkCreateShaderModule FAILED");
-        m = VK_NULL_HANDLE;
-    }
-    s_mods[device] = m;
-    return m;
-}
-
-// ---- shared bookkeeping ------------------------------------------------------
-
-struct LibInfo
-{
-    VkGraphicsPipelineLibraryFlagsEXT parts = 0;       // GPL parts this pipeline contains
-    uint32_t   stride = 0;                             // from the vertex-input part (0 if dynamic)
-    bool       strideUnknown = false;                  // vertex input / stride is dynamic
-    bool       hasFrag = false;                        // contains a fragment shader stage
-    uint64_t   key = 0;                                // hash of the state this part owns
-    VkPipeline highlightLib = VK_NULL_HANDLE;          // highlight twin of this library
-    VkGraphicsPipelineLibraryFlagsEXT twinParts = 0;   // which parts the twin actually changed (FS / FO)
-
-    // depth/stencil setup of the fragment-shader part (diagnostics only; -1 = unknown)
-    int  depthTest = -1, depthOp = -1, depthWrite = -1, stencilTest = -1;
-    bool depthDyn = false;                             // any depth/stencil state is dynamic
-};
-
-std::unordered_map<VkPipeline, LibInfo> g_libInfo;     // guarded by g_mtx
-
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplVI =
-VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT;
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplPre =
-VK_GRAPHICS_PIPELINE_LIBRARY_PRE_RASTERIZATION_SHADERS_BIT_EXT;
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplFS =
-VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT;
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplFO =
-VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT;
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplAll = kGplVI | kGplPre | kGplFS | kGplFO;
-
-// Owns the memory a highlight create-info points into. Must outlive the create call.
-struct HighlightStorage
-{
-    std::vector<VkPipelineShaderStageCreateInfo>     stages;
-    std::vector<VkPipelineColorBlendAttachmentState> attachments;
-    VkPipelineColorBlendStateCreateInfo              blend{};
-    VkPipelineDepthStencilStateCreateInfo            depth{};
-};
-
-// Builds the highlight create-info for whatever parts `owned` covers:
-//   fragment-shader part  -> fragment stage replaced by the flat-red shader
-//   fragment-output part  -> blending off; RT0 writes RGBA, other RTs write nothing
-// Returns the mask of parts that were really modified (kGplFS and/or kGplFO), 0 if none.
-static VkGraphicsPipelineLibraryFlagsEXT BuildHighlightCI(
-    const VkGraphicsPipelineCreateInfo& ci,
-    VkGraphicsPipelineLibraryFlagsEXT owned,
-    VkShaderModule red,
-    HighlightStorage& hs,
-    VkGraphicsPipelineCreateInfo& out)
-{
-    VkGraphicsPipelineLibraryFlagsEXT modified = 0;
-
-    out = ci;
-    out.flags &= ~(VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT |
-        VK_PIPELINE_CREATE_DERIVATIVE_BIT);
-    out.basePipelineHandle = VK_NULL_HANDLE;
-    out.basePipelineIndex = -1;
-
-    // ---- fragment shader: replace the fragment stage ----
-    if ((owned & kGplFS) && ci.pStages && ci.stageCount > 0 && red != VK_NULL_HANDLE)
-    {
-        hs.stages.assign(ci.pStages, ci.pStages + ci.stageCount);
-        for (auto& st : hs.stages)
-        {
-            if (st.stage == VK_SHADER_STAGE_FRAGMENT_BIT)
-            {
-                st.pNext = nullptr;
-                st.flags = 0;
-                st.module = red;
-                st.pName = "main";
-                st.pSpecializationInfo = nullptr;
-                modified |= kGplFS;
-            }
-        }
-        if (modified & kGplFS)
-            out.pStages = hs.stages.data();
-    }
-
-    /*
-    //VK_COMPARE_OP_ALWAYS wallhack works, good for fps, but does not punch though all walls 
-    // ---- depth/stencil: make the highlight a true wallhack overlay ----
-    if ((owned & kGplFS) && ci.pDepthStencilState)
-    {
-        hs.depth = *ci.pDepthStencilState;
-
-        // Force always-pass + no depth write 
-        hs.depth.depthTestEnable = VK_TRUE;               // keep test enabled so the op is used
-        hs.depth.depthCompareOp = VK_COMPARE_OP_ALWAYS;  //
-        hs.depth.depthWriteEnable = VK_FALSE;
-
-        // Never touch stencil
-        hs.depth.front.failOp = hs.depth.front.passOp = hs.depth.front.depthFailOp = VK_STENCIL_OP_KEEP;
-        hs.depth.back.failOp = hs.depth.back.passOp = hs.depth.back.depthFailOp = VK_STENCIL_OP_KEEP;
-        hs.depth.front.writeMask = 0;
-        hs.depth.back.writeMask = 0;
-
-        out.pDepthStencilState = &hs.depth;
-    }
-    */
-
-    /*
-    if ((owned & kGplFS) && ci.pDepthStencilState)
-    {
-        hs.depth = *ci.pDepthStencilState;
-
-        hs.depth.depthTestEnable = VK_FALSE;
-        hs.depth.depthWriteEnable = VK_FALSE;
-        hs.depth.stencilTestEnable = VK_FALSE;
-
-        out.pDepthStencilState = &hs.depth;
-    }
-    */
-
-    // ---- depth/stencil: the highlight is an OVERLAY drawn after the game's own draw ----
-    // The original draw already wrote depth, so the overlay must pass on equal depth,
-    // and must not write depth or stencil. 
-    if ((owned & kGplFS) && ci.pDepthStencilState)
-    {
-        hs.depth = *ci.pDepthStencilState;
-
-        static std::atomic<int> s_depthLogs{ 0 };
-        if (s_depthLogs.fetch_add(1) < 1)//10
-            Log("highlight depth: test=%d op=%d write=%d",
-                (int)ci.pDepthStencilState->depthTestEnable,
-                (int)ci.pDepthStencilState->depthCompareOp,
-                (int)ci.pDepthStencilState->depthWriteEnable);
-
-        // Keep the game's depth DIRECTION and only make the test inclusive (pass on equal).
-        // Unity on Vulkan uses reversed-Z (GREATER_OR_EQUAL), so forcing LESS_OR_EQUAL
-        // would pass for everything FARTHER than the stored depth, i.e. behind walls.
-        if (hs.depth.depthTestEnable)
-        {
-            if (hs.depth.depthCompareOp == VK_COMPARE_OP_LESS)
-                hs.depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-            else if (hs.depth.depthCompareOp == VK_COMPARE_OP_GREATER)
-                hs.depth.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
-            // LESS_OR_EQUAL / GREATER_OR_EQUAL / EQUAL / others stay exactly as the game has them
-        }
-        hs.depth.depthWriteEnable = VK_FALSE;
-
-        // Keep the game's stencil TEST (it may be what hides the model behind things),
-        // but make sure the overlay never changes stencil values.
-        hs.depth.front.failOp = hs.depth.front.passOp = hs.depth.front.depthFailOp = VK_STENCIL_OP_KEEP;
-        hs.depth.back.failOp = hs.depth.back.passOp = hs.depth.back.depthFailOp = VK_STENCIL_OP_KEEP;
-        hs.depth.front.writeMask = 0;
-        hs.depth.back.writeMask = 0;
-        out.pDepthStencilState = &hs.depth;
-    }
-    
-
-    // ---- fragment output: overlay writes RGB of RT0 only ----
-    // Every other attachment (normals, motion vectors, masks, ...) and the alpha
-    // channel keep what the game's own draw wrote, so nothing is left with holes.
-    if ((owned & kGplFO) && ci.pColorBlendState &&
-        ci.pColorBlendState->attachmentCount > 0 && ci.pColorBlendState->pAttachments)
-    {
-        hs.attachments.assign(ci.pColorBlendState->attachmentCount, VkPipelineColorBlendAttachmentState{});
-        for (size_t a = 0; a < hs.attachments.size(); ++a)
-        {
-            VkPipelineColorBlendAttachmentState& att = hs.attachments[a];
-            att.blendEnable = VK_FALSE;
-            att.colorWriteMask = (a == 0)
-                ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT)
-                : 0;
-        }
-
-        hs.blend = *ci.pColorBlendState;
-        hs.blend.logicOpEnable = VK_FALSE;
-        hs.blend.pAttachments = hs.attachments.data();
-        out.pColorBlendState = &hs.blend;
-        modified |= kGplFO;
-    }
-
-    return modified;
-}
-
-// ---- the detour -------------------------------------------------------------
-
-VKAPI_ATTR VkResult VKAPI_CALL DetourVkCreateGraphicsPipelines(
-    VkDevice device,
-    VkPipelineCache cache,
-    uint32_t count,
-    const VkGraphicsPipelineCreateInfo* pCreateInfos,
-    const VkAllocationCallbacks* pAllocator,
-    VkPipeline* pPipelines)
-{
-    static std::atomic<bool> s_loggedOnce{ false };
-    if (!s_loggedOnce.exchange(true))
-        Log("DetourVkCreateGraphicsPipelines");
-
-    // 1) Create the original pipelines first
-    VkResult r = pOriginalCreateGraphicsPipelines(device, cache, count, pCreateInfos, pAllocator, pPipelines);
-
-    // Partial results (e.g. VK_PIPELINE_COMPILE_REQUIRED) still leave valid handles.
-    if (!pCreateInfos || !pPipelines || count == 0)
-        return r;
-
-    struct Entry
-    {
-        VkPipeline pipe = VK_NULL_HANDLE;
-        bool       isLibrary = false;
-        uint32_t   stride = 0;
-        uint64_t   key = 0;
-        VkPipeline highlight = VK_NULL_HANDLE;  // complete (non-library) highlight pipeline
-        LibInfo    lib;                         // filled when isLibrary
+// libs
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "d3d12.lib")
+#pragma comment(lib, "dxguid.lib")
+
+// headers
+#include "main.h" //hooks, helper functions
+#include "overlay.h" //overlay, config, dllmain
+
+//=========================================================================================================================//
+
+namespace hooks { void Remove(); }
+
+namespace d3d12hook {
+    PresentD3D12            oPresentD3D12 = nullptr;
+    Present1Fn              oPresent1D3D12 = nullptr;
+    ExecuteCommandListsFn   oExecuteCommandListsD3D12 = nullptr;
+    ResizeBuffersFn         oResizeBuffersD3D12 = nullptr;
+    RSSetViewportsFn        oRSSetViewportsD3D12 = nullptr;
+    IASetVertexBuffersFn    oIASetVertexBuffersD3D12 = nullptr;
+    DrawIndexedInstancedFn  oDrawIndexedInstancedD3D12 = nullptr;
+    DrawInstancedFn         oDrawInstancedD3D12 = nullptr;
+    DispatchFn              oDispatchD3D12 = nullptr;
+    SetGraphicsRootConstantBufferViewFn oSetGraphicsRootConstantBufferViewD3D12 = nullptr;
+    SetDescriptorHeapsFn    oSetDescriptorHeapsD3D12 = nullptr;
+    SetGraphicsRootDescriptorTableFn oSetGraphicsRootDescriptorTableD3D12 = nullptr;
+    SetComputeRootDescriptorTableFn oSetComputeRootDescriptorTableD3D12 = nullptr;
+    OMSetRenderTargetsFn    oOMSetRenderTargetsD3D12 = nullptr;
+    ResolveQueryDataFn      oResolveQueryDataD3D12 = nullptr;
+    ExecuteIndirectFn       oExecuteIndirectD3D12 = nullptr;
+    SetGraphicsRootSignatureFn oSetGraphicsRootSignatureD3D12 = nullptr;
+    CopyBufferRegionFn oCopyBufferRegionD3D12 = nullptr;
+    ResetFn oResetD3D12 = nullptr;
+    CloseFn oCloseD3D12 = nullptr;
+    IASetIndexBufferFn      oIASetIndexBufferD3D12 = nullptr;
+    SetPipelineStateFn      oSetPipelineStateD3D12 = nullptr;
+    IASetPrimitiveTopologyFn oIASetPrimitiveTopologyD3D12 = nullptr;
+    SetPredicationFn        oSetPredicationD3D12 = nullptr;
+    BeginQueryFn            oBeginQueryD3D12 = nullptr;
+    EndQueryFn              oEndQueryD3D12 = nullptr;
+    //if unresolved external symbol d3d12hook::function, add fix here
+
+
+    static ID3D12Device*            gDevice = nullptr;
+    static ID3D12CommandQueue*      gCommandQueue = nullptr;
+    static ID3D12DescriptorHeap*    gHeapRTV = nullptr;
+    static ID3D12DescriptorHeap*    gHeapSRV = nullptr;
+    static ID3D12GraphicsCommandList* gCommandList = nullptr;
+    static ID3D12Fence*            gOverlayFence = nullptr;
+    static HANDLE                  gFenceEvent = nullptr;
+    static UINT64                  gOverlayFenceValue = 0;
+    static uintx_t                 gBufferCount = 0;
+
+    struct FrameContext {
+        ID3D12CommandAllocator* allocator;
+        ID3D12Resource* renderTarget;
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle;
+
+        // The specific fence value that must be reached before this specific back-buffer can be reused
+        UINT64 FenceValue;
     };
+    static FrameContext*          gFrameContexts = nullptr;
+    static bool                   gInitialized = false;
+    static bool                   gShutdown = false;
+    static bool                   gAfterFirstPresent = false;
 
-    std::vector<Entry> entries;
-    entries.reserve(count);
+    void release();
 
-    for (uint32_t i = 0; i < count; ++i)
-    {
-        if (pPipelines[i] == VK_NULL_HANDLE)
-            continue;
+    //=========================================================================================================================//
 
-        const VkGraphicsPipelineCreateInfo& ci = pCreateInfos[i];
+    HRESULT WINAPI hookPresentD3D12(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags) {
 
-        Entry e;
-        e.pipe = pPipelines[i];
+        return oPresentD3D12(pSwapChain, SyncInterval, Flags);
+    }
 
-        const bool isLibrary = (ci.flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR) != 0;
-        e.isLibrary = isLibrary;
+    //=========================================================================================================================//
 
-        // ------------------------------------------------------------
-        // Dynamic-state flags (of this create info)
-        // ------------------------------------------------------------
-        bool strideDyn = false;
-        bool vinDyn = false;
-        bool depthDyn = false;
+    HRESULT WINAPI hookPresent1D3D12(IDXGISwapChain3* pSwapChain, UINT SyncInterval, UINT Flags, const DXGI_PRESENT_PARAMETERS* pParams) {
 
-        if (ci.pDynamicState && ci.pDynamicState->pDynamicStates)
-        {
-            for (uint32_t d = 0; d < ci.pDynamicState->dynamicStateCount; ++d)
-            {
-                const VkDynamicState s = ci.pDynamicState->pDynamicStates[d];
-                if (s == VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE) strideDyn = true;
-                if (s == VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)            vinDyn = true;
-                if (s == VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE || s == VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE ||
-                    s == VK_DYNAMIC_STATE_DEPTH_COMPARE_OP || s == VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE ||
-                    s == VK_DYNAMIC_STATE_STENCIL_OP)
-                    depthDyn = true;
-            }
-        }
+        return oPresent1D3D12(pSwapChain, SyncInterval, Flags, pParams);
+    }
 
-        // ------------------------------------------------------------
-        // pNext chain: GPL part flags + linked libraries
-        // ------------------------------------------------------------
-        const VkGraphicsPipelineLibraryCreateInfoEXT* gpl = nullptr;
-        const VkPipelineLibraryCreateInfoKHR* li = nullptr;
+    //=========================================================================================================================//
 
-        for (auto p = static_cast<const VkBaseInStructure*>(ci.pNext); p; p = p->pNext)
-        {
-            if (p->sType == VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT)
-                gpl = reinterpret_cast<const VkGraphicsPipelineLibraryCreateInfoEXT*>(p);
-            else if (p->sType == VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR)
-                li = reinterpret_cast<const VkPipelineLibraryCreateInfoKHR*>(p);
-        }
+    void STDMETHODCALLTYPE hookExecuteCommandListsD3D12(ID3D12CommandQueue* _this, UINT NumCommandLists, ID3D12CommandList* const* ppCommandLists) {
+        /*
+        if (!_this) return oExecuteCommandListsD3D12(_this, NumCommandLists, ppCommandLists);
 
-        const bool isLinked = li && li->libraryCount > 0 && li->pLibraries;
+        // 1. Only attempt capture if we don't have a queue yet
+        if (!gCommandQueue) {
+            D3D12_COMMAND_QUEUE_DESC desc = _this->GetDesc();
 
-        // ------------------------------------------------------------
-        // Merge info from linked libraries (stride, key, parts, frag stage)
-        // and build the list with each library swapped for its highlight twin.
-        // ------------------------------------------------------------
-        VkGraphicsPipelineLibraryFlagsEXT libParts = 0;
-        VkGraphicsPipelineLibraryFlagsEXT swappedParts = 0;   // FS/FO parts the twins really changed
-        uint64_t libKey = 0;
-        uint32_t libStride = 0;
-        bool     libStrideUnknown = false;
-        bool     libHasFrag = false;
-        bool     swapped = false;
-        int      mTest = -1, mOp = -1, mWrite = -1, mStencil = -1;   // depth info from the FS library
-        bool     mDepthDyn = false;
-        std::vector<VkPipeline> hlLibs;
+            // 2. Must be a DIRECT queue (Graphics)
+            if (desc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT) {
 
-        if (isLinked)
-        {
-            hlLibs.assign(li->pLibraries, li->pLibraries + li->libraryCount);
+                // 3. Optional: Verify it matches our device
+                ID3D12Device* queueDevice = nullptr;
+                if (SUCCEEDED(_this->GetDevice(__uuidof(ID3D12Device), (void**)&queueDevice))) {
 
-            std::lock_guard<std::mutex> lock(g_mtx);
-            for (VkPipeline& lib : hlLibs)
-            {
-                auto it = g_libInfo.find(lib);
-                if (it == g_libInfo.end())
-                    continue;   // library created before the hook was live
-
-                const LibInfo& L = it->second;
-                libParts |= L.parts;
-                libKey = combine(libKey, L.key);
-                libHasFrag |= L.hasFrag;
-
-                if (L.parts & kGplFS)
-                {
-                    mTest = L.depthTest;  mOp = L.depthOp;
-                    mWrite = L.depthWrite; mStencil = L.stencilTest;
-                    mDepthDyn = L.depthDyn;
-                }
-
-                if (L.parts & kGplVI)
-                {
-                    libStride = L.stride;
-                    libStrideUnknown = L.strideUnknown;
-                }
-
-                if (L.highlightLib != VK_NULL_HANDLE && L.twinParts != 0)
-                {
-                    lib = L.highlightLib;
-                    swappedParts |= L.twinParts;
-                    swapped = true;
-                }
-            }
-        }
-
-        // Which parts does THIS create info actually own?
-        // State for parts it doesn't own is ignored (and may be null/junk).
-        VkGraphicsPipelineLibraryFlagsEXT owned;
-        if (gpl)            owned = gpl->flags;
-        else if (isLinked)  owned = libParts ? (kGplAll & ~libParts) : 0;
-        else                owned = kGplAll;   // classic monolithic pipeline
-
-        const bool ownsVI = (owned & kGplVI) != 0;
-        const bool ownsPre = (owned & kGplPre) != 0;
-        const bool ownsFS = (owned & kGplFS) != 0;
-        const bool ownsFO = (owned & kGplFO) != 0;
-
-        // ------------------------------------------------------------
-        // Stride (only from the vertex-input part)
-        // ------------------------------------------------------------
-        const VkPipelineVertexInputStateCreateInfo* vis =
-            (ownsVI && !vinDyn) ? ci.pVertexInputState : nullptr;
-
-        uint32_t ownStride = 0;
-        if (!strideDyn && vis &&
-            vis->pVertexBindingDescriptions && vis->vertexBindingDescriptionCount > 0)
-        {
-            uint32_t primary = vis->pVertexBindingDescriptions[0].binding;
-            if (vis->pVertexAttributeDescriptions && vis->vertexAttributeDescriptionCount > 0)
-                primary = vis->pVertexAttributeDescriptions[0].binding;
-
-            for (uint32_t b = 0; b < vis->vertexBindingDescriptionCount; ++b)
-            {
-                if (vis->pVertexBindingDescriptions[b].binding == primary)
-                {
-                    ownStride = vis->pVertexBindingDescriptions[b].stride;
-                    break;
-                }
-            }
-        }
-
-        const uint32_t stride = ownsVI ? ownStride : libStride;
-        const bool strideUnknown = ownsVI ? (vinDyn || strideDyn) : libStrideUnknown;
-        e.stride = stride;
-
-        // ------------------------------------------------------------
-        // Key (own state only, then combined with the libraries' keys)
-        // ------------------------------------------------------------
-        uint64_t key = 0;
-        bool ownHasFrag = false;
-
-        if (ci.pStages && (ownsPre || ownsFS))
-        {
-            for (uint32_t s = 0; s < ci.stageCount; ++s)
-            {
-                const VkPipelineShaderStageCreateInfo& st = ci.pStages[s];
-
-                if (st.stage == VK_SHADER_STAGE_FRAGMENT_BIT)
-                    ownHasFrag = true;
-
-                uint64_t h = 0;
-                if (GetModuleHash(st.module, h))
-                {
-                    key = combine(key, h);
-                }
-                else
-                {
-                    key = combine(key, reinterpret_cast<uint64_t>(st.module));
-                    if (kVerboseKeyLog)
-                        Log("CreateGP: module %p not in g_moduleHash (using handle)", (void*)st.module);
-                }
-
-                key = combine(key, static_cast<uint64_t>(st.stage));
-
-                if (st.pName)
-                    for (const char* p = st.pName; *p; ++p)
-                        key = combine(key, static_cast<uint8_t>(*p));
-
-                if (st.pSpecializationInfo)
-                {
-                    const VkSpecializationInfo* si = st.pSpecializationInfo;
-
-                    if (si->pData && si->dataSize)
-                    {
-                        const uint8_t* d = static_cast<const uint8_t*>(si->pData);
-                        for (size_t b = 0; b < si->dataSize; ++b)
-                            key = combine(key, d[b]);
+                    // If we already have a device from Present, make sure they match
+                    if (gDevice == nullptr || queueDevice == gDevice) {
+                        _this->AddRef();
+                        gCommandQueue = _this;
+                        Log("[d3d12hook] Captured Direct CommandQueue: %p\n", _this);
                     }
 
-                    if (si->pMapEntries)
-                    {
-                        for (uint32_t m = 0; m < si->mapEntryCount; ++m)
-                        {
-                            key = combine(key, si->pMapEntries[m].constantID);
-                            key = combine(key, si->pMapEntries[m].offset);
-                            key = combine(key, si->pMapEntries[m].size);
-                        }
-                    }
+                    queueDevice->Release();
                 }
             }
         }
-
-        if (vis)
-        {
-            if (vis->pVertexBindingDescriptions)
-            {
-                for (uint32_t b = 0; b < vis->vertexBindingDescriptionCount; ++b)
-                {
-                    key = combine(key, vis->pVertexBindingDescriptions[b].binding);
-                    key = combine(key, vis->pVertexBindingDescriptions[b].stride);
-                    key = combine(key, vis->pVertexBindingDescriptions[b].inputRate);
-                }
-            }
-
-            if (vis->pVertexAttributeDescriptions)
-            {
-                for (uint32_t a = 0; a < vis->vertexAttributeDescriptionCount; ++a)
-                {
-                    key = combine(key, vis->pVertexAttributeDescriptions[a].location);
-                    key = combine(key, vis->pVertexAttributeDescriptions[a].binding);
-                    key = combine(key, vis->pVertexAttributeDescriptions[a].format);
-                    key = combine(key, vis->pVertexAttributeDescriptions[a].offset);
-                }
-            }
-        }
-
-        if (ownsVI && ci.pInputAssemblyState)
-        {
-            key = combine(key, ci.pInputAssemblyState->topology);
-            key = combine(key, ci.pInputAssemblyState->primitiveRestartEnable ? 1ull : 0ull);
-        }
-
-        if (ownsPre && ci.pRasterizationState)
-        {
-            key = combine(key, ci.pRasterizationState->polygonMode);
-            key = combine(key, ci.pRasterizationState->cullMode);
-            key = combine(key, ci.pRasterizationState->frontFace);
-            key = combine(key, ci.pRasterizationState->depthBiasEnable ? 1ull : 0ull);
-        }
-
-        if ((ownsFS || ownsFO) && ci.pMultisampleState)
-            key = combine(key, ci.pMultisampleState->rasterizationSamples);
-
-        if (ownsFS && ci.pDepthStencilState)
-        {
-            key = combine(key, ci.pDepthStencilState->depthTestEnable ? 1ull : 0ull);
-            key = combine(key, ci.pDepthStencilState->depthWriteEnable ? 1ull : 0ull);
-            key = combine(key, ci.pDepthStencilState->depthCompareOp);
-        }
-
-        if (ownsFO && ci.pColorBlendState && ci.pColorBlendState->pAttachments)
-        {
-            key = combine(key, ci.pColorBlendState->attachmentCount);
-            for (uint32_t a = 0; a < ci.pColorBlendState->attachmentCount; ++a)
-            {
-                const auto& att = ci.pColorBlendState->pAttachments[a];
-                key = combine(key, att.blendEnable ? 1ull : 0ull);
-                key = combine(key, att.colorWriteMask);
-            }
-        }
-
-        // Linked pipelines: fold in the libraries' keys (a linked final has no
-        // stages / vertex input of its own, so without this all finals collide).
-        if (isLinked)
-            key = combine(key, libKey);
-
-        if (key == 0)
-            key = combine(key, 0xDEADBEEFCAFEBABEull);
-
-        e.key = key;
-
-        const bool hasFrag = ownHasFrag || libHasFrag;
-
-        // depth/stencil setup (own if this create info owns the FS part, else from the linked FS library)
-        int dTest = mTest, dOp = mOp, dWrite = mWrite, dStencil = mStencil;
-        bool dDyn = mDepthDyn;
-        if (ownsFS && ci.pDepthStencilState)
-        {
-            dTest = ci.pDepthStencilState->depthTestEnable ? 1 : 0;
-            dOp = (int)ci.pDepthStencilState->depthCompareOp;
-            dWrite = ci.pDepthStencilState->depthWriteEnable ? 1 : 0;
-            dStencil = ci.pDepthStencilState->stencilTestEnable ? 1 : 0;
-            dDyn = depthDyn;
-        }
-
-        // Does this fragment-shader part really reject hidden pixels? A pass with depth test
-        // off / ALWAYS draws through everything, so an overlay on it would be visible through
-        // walls. Dynamic depth state can't be judged here, so it is allowed.
-        const bool realDepthTest =
-            depthDyn ||
-            (ci.pDepthStencilState && ci.pDepthStencilState->depthTestEnable &&
-                ci.pDepthStencilState->depthCompareOp != VK_COMPARE_OP_ALWAYS &&
-                ci.pDepthStencilState->depthCompareOp != VK_COMPARE_OP_NEVER &&
-                ci.pDepthStencilState->depthCompareOp != VK_COMPARE_OP_NOT_EQUAL);
-
-        static std::atomic<int> s_infoLogs{ 0 };
-        if (s_infoLogs.fetch_add(1) < 1)
-            Log("GP pipe=%p kind=%s flags=0x%x owned=0x%x libParts=0x%x stride=%u strideUnknown=%d "
-                "vinDyn=%d strideDyn=%d frag=%d att=%u key=%llu",
-                (void*)e.pipe,
-                isLibrary ? (isLinked ? "linked-lib" : "lib") : (isLinked ? "linked" : "full"),
-                (unsigned)ci.flags, (unsigned)owned, (unsigned)libParts,
-                stride, strideUnknown ? 1 : 0, vinDyn ? 1 : 0, strideDyn ? 1 : 0,
-                hasFrag ? 1 : 0,
-                (ownsFO && ci.pColorBlendState) ? ci.pColorBlendState->attachmentCount : 0u,
-                (unsigned long long)key);
-
-        // ------------------------------------------------------------
-        // Highlight creation (flat-red fragment shader, blending off)
-        // ------------------------------------------------------------
-        VkPipeline highlightPipe = VK_NULL_HANDLE;
-        VkResult   hr = VK_SUCCESS;
-        bool       attempted = false;
-        VkGraphicsPipelineLibraryFlagsEXT twinParts = 0;
-
-        const bool strideWanted = (stride == kHighlightStride) || strideUnknown;
-
-        if (!isLinked && (!ownsFS || realDepthTest) &&
-            (isLibrary ? (ownsFS || ownsFO) : (hasFrag && strideWanted)))
-        {
-            // (A) FS / FO library: always make a twin (cheap: trivial shader / no shaders).
-            //     The stride filter is applied later, when a final pipeline links it.
-            // (B) monolithic pipeline: only when the stride matches / is dynamic.
-            VkShaderModule red = ownsFS ? GetRedFragModule(device) : VK_NULL_HANDLE;
-
-            HighlightStorage hs;
-            VkGraphicsPipelineCreateInfo hci;
-            twinParts = BuildHighlightCI(ci, owned, red, hs, hci);
-
-            const bool complete = isLibrary
-                ? (twinParts != 0)
-                : ((twinParts & (kGplFS | kGplFO)) == (kGplFS | kGplFO));
-
-            if (complete)
-            {
-                attempted = true;
-                hr = pOriginalCreateGraphicsPipelines(device, cache, 1, &hci, pAllocator, &highlightPipe);
-            }
-        }
-        else if (isLinked && swapped && !ownsFS && !ownsFO &&
-            (isLibrary || (hasFrag && strideWanted &&
-                (swappedParts & (kGplFS | kGplFO)) == (kGplFS | kGplFO))))
-        {
-            // (C) linked pipeline: same libraries, but FS and FO libraries are replaced
-            //     by their highlight twins. Everything else is shared with the original.
-            VkGraphicsPipelineCreateInfo hci = ci;
-            hci.flags &= ~(VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT |
-                VK_PIPELINE_CREATE_DERIVATIVE_BIT);
-            hci.basePipelineHandle = VK_NULL_HANDLE;
-            hci.basePipelineIndex = -1;
-
-            // Temporarily point the game's lib-info at our array; restored right after.
-            auto* mli = const_cast<VkPipelineLibraryCreateInfoKHR*>(li);
-            const VkPipeline* savedLibs = mli->pLibraries;
-            mli->pLibraries = hlLibs.data();
-
-            attempted = true;
-            twinParts = swappedParts;
-            hr = pOriginalCreateGraphicsPipelines(device, cache, 1, &hci, pAllocator, &highlightPipe);
-
-            mli->pLibraries = savedLibs;
-        }
-
-        if (attempted)
-        {
-            if (hr == VK_SUCCESS && highlightPipe != VK_NULL_HANDLE)
-            {
-                if (isLibrary)
-                {
-                    e.lib.highlightLib = highlightPipe;
-                    e.lib.twinParts = twinParts;
-                }
-                else
-                {
-                    e.highlight = highlightPipe;
-
-                    static std::atomic<int> s_modelLogs{ 0 };
-                    if (s_modelLogs.fetch_add(1) < 1)
-                        Log("HL model pipe=%p stride=%u strideUnknown=%d depthTest=%d op=%d write=%d "
-                            "stencil=%d depthDynamic=%d",
-                            (void*)e.pipe, stride, strideUnknown ? 1 : 0,
-                            dTest, dOp, dWrite, dStencil, dDyn ? 1 : 0);
-                }
-
-                if (kVerboseKeyLog)
-                    Log("CreateGP: created highlight %p for original %p", (void*)highlightPipe, (void*)e.pipe);
-            }
-            else
-            {
-                static std::atomic<int> s_failLogs{ 0 };
-                if (s_failLogs.fetch_add(1) < 20)
-                    Log("highlight create FAILED hr=%d for %p (kind=%s)", (int)hr, (void*)e.pipe,
-                        isLibrary ? "lib" : (isLinked ? "linked" : "full"));
-            }
-        }
-
-        // Library bookkeeping
-        if (isLibrary)
-        {
-            e.lib.parts = isLinked ? (owned | libParts) : owned;
-            e.lib.stride = stride;
-            e.lib.strideUnknown = strideUnknown;
-            e.lib.hasFrag = hasFrag;
-            e.lib.key = key;
-            e.lib.depthTest = dTest;   e.lib.depthOp = dOp;
-            e.lib.depthWrite = dWrite; e.lib.stencilTest = dStencil;
-            e.lib.depthDyn = dDyn;
-        }
-
-        entries.push_back(e);
+        */
+        return oExecuteCommandListsD3D12(_this, NumCommandLists, ppCommandLists);
     }
 
-    // ------------------------------------------------------------
-    // ONE short lock, map writes only
-    // ------------------------------------------------------------
+    //=========================================================================================================================//
+
+    HRESULT STDMETHODCALLTYPE hookResizeBuffersD3D12(IDXGISwapChain3* pSwapChain,UINT BufferCount,UINT Width,UINT Height,DXGI_FORMAT NewFormat,UINT SwapChainFlags)
     {
-        std::lock_guard<std::mutex> lock(g_mtx);
-        for (const Entry& e : entries)
-        {
-            if (e.isLibrary)
-            {
-                g_libInfo[e.pipe] = e.lib;
-
-                // handle may have been reused from a former complete pipeline
-                g_pipelineStrides.erase(e.pipe);
-                g_pipelineKey.erase(e.pipe);
-                g_highlightPipelines.erase(e.pipe);
-            }
-            else
-            {
-                g_libInfo.erase(e.pipe);
-
-                g_pipelineStrides[e.pipe] = e.stride;
-                g_pipelineKey[e.pipe] = e.key;
-
-                if (e.highlight != VK_NULL_HANDLE)
-                    g_highlightPipelines[e.pipe] = e.highlight;
-                else
-                    g_highlightPipelines.erase(e.pipe);   // never keep a stale clone
-            }
-        }
+        return oResizeBuffersD3D12(pSwapChain, BufferCount, Width, Height, NewFormat, SwapChainFlags);
     }
 
-    return r;
-}
+    //=========================================================================================================================//
 
-
-/*
-//This version has bug that disables depth too, wallhack effect
-// ---- flat red fragment shader (SPIR-V 1.0, 70 words) ------------------------
-static const uint32_t kRedFragSpv[] = {
-    0x07230203, 0x00010000, 0x00000000, 0x0000000c, 0x00000000, 0x00020011,
-    0x00000001, 0x0003000e, 0x00000000, 0x00000001, 0x0006000f, 0x00000004,
-    0x00000001, 0x6e69616d, 0x00000000, 0x00000002, 0x00030010, 0x00000001,
-    0x00000007, 0x00040047, 0x00000002, 0x0000001e, 0x00000000, 0x00020013,
-    0x00000003, 0x00030021, 0x00000004, 0x00000003, 0x00030016, 0x00000005,
-    0x00000020, 0x00040017, 0x00000006, 0x00000005, 0x00000004, 0x00040020,
-    0x00000007, 0x00000003, 0x00000006, 0x0004003b, 0x00000007, 0x00000002,
-    0x00000003, 0x0004002b, 0x00000005, 0x00000008, 0x3f800000, 0x0004002b,
-    0x00000005, 0x00000009, 0x00000000, 0x0007002c, 0x00000006, 0x0000000a,
-    0x00000008, 0x00000009, 0x00000009, 0x00000008, 0x00050036, 0x00000003,
-    0x00000001, 0x00000000, 0x00000004, 0x000200f8, 0x0000000b, 0x0003003e,
-    0x00000002, 0x0000000a, 0x000100fd, 0x00010038,
-};
-
-// One module per device, created lazily, intentionally never destroyed.
-static VkShaderModule GetRedFragModule(VkDevice device)
-{
-    static std::mutex s_mtx;
-    static std::unordered_map<VkDevice, VkShaderModule> s_mods;
-
-    std::lock_guard<std::mutex> lk(s_mtx);
-    auto it = s_mods.find(device);
-    if (it != s_mods.end())
-        return it->second;
-
-    VkShaderModuleCreateInfo mci{};
-    mci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    mci.codeSize = sizeof(kRedFragSpv);
-    mci.pCode = kRedFragSpv;
-
-    VkShaderModule m = VK_NULL_HANDLE;
-    if (pOriginalCreateShaderModule(device, &mci, nullptr, &m) != VK_SUCCESS)
+    void STDMETHODCALLTYPE hookSetPipelineStateD3D12(ID3D12GraphicsCommandList* _this,ID3D12PipelineState* pso)
     {
-        Log("GetRedFragModule: vkCreateShaderModule FAILED");
-        m = VK_NULL_HANDLE;
-    }
-    s_mods[device] = m;
-    return m;
-}
+        // cache for fast filtering
+        t_.currentPSO = pso;
 
-// ---- shared bookkeeping ------------------------------------------------------
-
-struct LibInfo
-{
-    VkGraphicsPipelineLibraryFlagsEXT parts = 0;       // GPL parts this pipeline contains
-    uint32_t   stride = 0;                             // from the vertex-input part (0 if dynamic)
-    bool       strideUnknown = false;                  // vertex input / stride is dynamic
-    bool       hasFrag = false;                        // contains a fragment shader stage
-    uint64_t   key = 0;                                // hash of the state this part owns
-    VkPipeline highlightLib = VK_NULL_HANDLE;          // highlight twin of this library
-    VkGraphicsPipelineLibraryFlagsEXT twinParts = 0;   // which parts the twin actually changed (FS / FO)
-};
-
-std::unordered_map<VkPipeline, LibInfo> g_libInfo;     // guarded by g_mtx
-
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplVI =
-VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT;
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplPre =
-VK_GRAPHICS_PIPELINE_LIBRARY_PRE_RASTERIZATION_SHADERS_BIT_EXT;
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplFS =
-VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT;
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplFO =
-VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT;
-static constexpr VkGraphicsPipelineLibraryFlagsEXT kGplAll = kGplVI | kGplPre | kGplFS | kGplFO;
-
-// Owns the memory a highlight create-info points into. Must outlive the create call.
-struct HighlightStorage
-{
-    std::vector<VkPipelineShaderStageCreateInfo>     stages;
-    std::vector<VkPipelineColorBlendAttachmentState> attachments;
-    VkPipelineColorBlendStateCreateInfo              blend{};
-    VkPipelineDepthStencilStateCreateInfo            depth{};
-};
-
-// Builds the highlight create-info for whatever parts `owned` covers:
-//   fragment-shader part  -> fragment stage replaced by the flat-red shader
-//   fragment-output part  -> blending off; RT0 writes RGBA, other RTs write nothing
-// Returns the mask of parts that were really modified (kGplFS and/or kGplFO), 0 if none.
-static VkGraphicsPipelineLibraryFlagsEXT BuildHighlightCI(
-    const VkGraphicsPipelineCreateInfo& ci,
-    VkGraphicsPipelineLibraryFlagsEXT owned,
-    VkShaderModule red,
-    HighlightStorage& hs,
-    VkGraphicsPipelineCreateInfo& out)
-{
-    VkGraphicsPipelineLibraryFlagsEXT modified = 0;
-
-    out = ci;
-    out.flags &= ~(VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT |
-        VK_PIPELINE_CREATE_DERIVATIVE_BIT);
-    out.basePipelineHandle = VK_NULL_HANDLE;
-    out.basePipelineIndex = -1;
-
-    // ---- fragment shader: replace the fragment stage ----
-    if ((owned & kGplFS) && ci.pStages && ci.stageCount > 0 && red != VK_NULL_HANDLE)
-    {
-        hs.stages.assign(ci.pStages, ci.pStages + ci.stageCount);
-        for (auto& st : hs.stages)
-        {
-            if (st.stage == VK_SHADER_STAGE_FRAGMENT_BIT)
-            {
-                st.pNext = nullptr;
-                st.flags = 0;
-                st.module = red;
-                st.pName = "main";
-                st.pSpecializationInfo = nullptr;
-                modified |= kGplFS;
-            }
-        }
-        if (modified & kGplFS)
-            out.pStages = hs.stages.data();
+        return oSetPipelineStateD3D12(_this, pso);
     }
 
-    // ---- depth/stencil: the highlight is an OVERLAY drawn after the game's own draw ----
-    // The original draw already wrote depth, so the overlay must pass on equal depth,
-    // must not write depth, and must not be rejected by the game's stencil setup.
-    if ((owned & kGplFS) && ci.pDepthStencilState)
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookIASetPrimitiveTopologyD3D12(ID3D12GraphicsCommandList* _this, D3D12_PRIMITIVE_TOPOLOGY PrimitiveTopology)
     {
-        hs.depth = *ci.pDepthStencilState;
-        if (hs.depth.depthTestEnable)
-            hs.depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-        hs.depth.depthWriteEnable = VK_FALSE;
-        hs.depth.stencilTestEnable = VK_FALSE;
-        out.pDepthStencilState = &hs.depth;
+        t_.currentTopology = PrimitiveTopology;
+      
+        return oIASetPrimitiveTopologyD3D12(_this, PrimitiveTopology);
     }
 
-    // ---- fragment output: overlay writes RGB of RT0 only ----
-    // Every other attachment (normals, motion vectors, masks, ...) and the alpha
-    // channel keep what the game's own draw wrote, so nothing is left with holes.
-    if ((owned & kGplFO) && ci.pColorBlendState &&
-        ci.pColorBlendState->attachmentCount > 0 && ci.pColorBlendState->pAttachments)
-    {
-        hs.attachments.assign(ci.pColorBlendState->attachmentCount, VkPipelineColorBlendAttachmentState{});
-        for (size_t a = 0; a < hs.attachments.size(); ++a)
-        {
-            VkPipelineColorBlendAttachmentState& att = hs.attachments[a];
-            att.blendEnable = VK_FALSE;
-            att.colorWriteMask = (a == 0)
-                ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT)
-                : 0;
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookRSSetViewportsD3D12(ID3D12GraphicsCommandList* _this, UINT NumViewports, const D3D12_VIEWPORT* pViewports) {
+        gInitialized = true; //ready, do not rehook
+
+        if (!pViewports || NumViewports == 0) {
+            oRSSetViewportsD3D12(_this, NumViewports, pViewports);
+            return;
         }
 
-        hs.blend = *ci.pColorBlendState;
-        hs.blend.logicOpEnable = VK_FALSE;
-        hs.blend.pAttachments = hs.attachments.data();
-        out.pColorBlendState = &hs.blend;
-        modified |= kGplFO;
+        if (NumViewports > 0 && pViewports) {
+            t_.currentViewport = pViewports[0]; // cache viewport
+            t_.numViewports = NumViewports;
+        }
+
+        /*
+        //for fucked up games, where it draws in unknown function (doesn't really happen)
+        if (countindexformat > 0 && t_.currentNumRTVs > 0) {
+            UINT currentindexformat = t_.currentIndexFormat + t_.numViewports;
+
+            if (currentindexformat == countindexformat &&
+                t_.currentViewport.Width > 128 &&
+                t_.currentViewport.Width < 16384)
+            {
+                D3D12_VIEWPORT hVp = t_.currentViewport;
+
+                hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
+                hVp.MaxDepth = reversedDepth ? 0.1f : 1.0f;
+
+                // submit modified viewport ONCE
+                oRSSetViewportsD3D12(_this, 1, &hVp);
+                return;
+            }
+        }
+        */
+        oRSSetViewportsD3D12(_this, NumViewports, pViewports);
     }
 
-    return modified;
-}
+    //=========================================================================================================================//
 
-
-VKAPI_ATTR VkResult VKAPI_CALL DetourVkCreateGraphicsPipelines(
-    VkDevice device,
-    VkPipelineCache cache,
-    uint32_t count,
-    const VkGraphicsPipelineCreateInfo* pCreateInfos,
-    const VkAllocationCallbacks* pAllocator,
-    VkPipeline* pPipelines)
-{
-    static std::atomic<bool> s_loggedOnce{ false };
-    if (!s_loggedOnce.exchange(true))
-        Log("DetourVkCreateGraphicsPipelines");
-
-    // 1) Create the original pipelines first
-    VkResult r = pOriginalCreateGraphicsPipelines(device, cache, count, pCreateInfos, pAllocator, pPipelines);
-
-    // Partial results (e.g. VK_PIPELINE_COMPILE_REQUIRED) still leave valid handles.
-    if (!pCreateInfos || !pPipelines || count == 0)
-        return r;
-
-    struct Entry
+    void STDMETHODCALLTYPE hookIASetVertexBuffersD3D12(ID3D12GraphicsCommandList* _this,UINT StartSlot,UINT NumViews,const D3D12_VERTEX_BUFFER_VIEW* pViews)
     {
-        VkPipeline pipe = VK_NULL_HANDLE;
-        bool       isLibrary = false;
-        uint32_t   stride = 0;
-        uint64_t   key = 0;
-        VkPipeline highlight = VK_NULL_HANDLE;  // complete (non-library) highlight pipeline
-        LibInfo    lib;                         // filled when isLibrary
-    };
+        // 1. Reset current state
+        t_.StartSlot = StartSlot;
+        t_.numViews = NumViews;
+        //t_.cachedStrideSum = 0;
 
-    std::vector<Entry> entries;
-    entries.reserve(count);
+        // Clear old data
+        for (int i = 0; i < 16; ++i) {
+            t_.Strides[i] = 0;
+            //t_.vertexBufferSizes[i] = 0;
+        }
 
-    for (uint32_t i = 0; i < count; ++i)
+        // 2. Process views
+        if (NumViews > 0 && pViews) {
+            uint32_t strideData[16] = {};
+            UINT validCount = (NumViews > 16) ? 16 : NumViews;
+            //t_.currentGPUVAddress = pViews->BufferLocation;
+
+            for (UINT i = 0; i < validCount; ++i) {
+                // Filter out clearly invalid strides or huge raw buffers
+                if (pViews[i].BufferLocation != 0 &&              
+                    pViews[i].StrideInBytes > 0 && pViews[i].StrideInBytes <= 200) {
+                    t_.Strides[i] = pViews[i].StrideInBytes;
+                    //t_.vertexBufferSizes[i] = pViews[i].SizeInBytes;
+
+                    strideData[i] = pViews[i].StrideInBytes;
+                    //t_.cachedStrideSum += pViews[i].StrideInBytes;
+                }
+            }
+
+            // 3. Generate a High-Precision Hash
+            // Use the full 32-bit result for internal logic to prevent flickering
+            t_.StrideHash = fastStrideHash(strideData, validCount);
+        }
+        else {
+            t_.StrideHash = 0;
+        }
+
+        return oIASetVertexBuffersD3D12(_this, StartSlot, NumViews, pViews);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookIASetIndexBufferD3D12(ID3D12GraphicsCommandList* dCommandList, const D3D12_INDEX_BUFFER_VIEW* pView)
     {
-        if (pPipelines[i] == VK_NULL_HANDLE)
-            continue;
+        if (pView != nullptr) {
+            //t_.currentiSize = pView->SizeInBytes;
+            t_.currentIndexFormat = pView->Format;//almost always 57, 42
+            t_.currentGPUIAddress = pView->BufferLocation;
+        }
 
-        const VkGraphicsPipelineCreateInfo& ci = pCreateInfos[i];
+        return oIASetIndexBufferD3D12(dCommandList, pView);
+    }
 
-        Entry e;
-        e.pipe = pPipelines[i];
+    //=========================================================================================================================//
 
-        const bool isLibrary = (ci.flags & VK_PIPELINE_CREATE_LIBRARY_BIT_KHR) != 0;
-        e.isLibrary = isLibrary;
+    void STDMETHODCALLTYPE hookOMSetRenderTargetsD3D12(
+        ID3D12GraphicsCommandList* dCommandList,
+        UINT NumRenderTargetDescriptors,
+        const D3D12_CPU_DESCRIPTOR_HANDLE* pRenderTargetDescriptors,
+        BOOL RTsSingleHandleToDescriptorRange,
+        const D3D12_CPU_DESCRIPTOR_HANDLE* pDepthStencilDescriptor) {
 
-        // ------------------------------------------------------------
-        // Dynamic-state flags (of this create info)
-        // ------------------------------------------------------------
-        bool strideDyn = false;
-        bool vinDyn = false;
-
-        if (ci.pDynamicState && ci.pDynamicState->pDynamicStates)
+        // Filter only Direct Command Lists (standard rendering)
+        if (dCommandList->GetType() == D3D12_COMMAND_LIST_TYPE_DIRECT)
         {
-            for (uint32_t d = 0; d < ci.pDynamicState->dynamicStateCount; ++d)
-            {
-                const VkDynamicState s = ci.pDynamicState->pDynamicStates[d];
-                if (s == VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE) strideDyn = true;
-                if (s == VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)            vinDyn = true;
+            t_.currentNumRTVs = NumRenderTargetDescriptors;
+
+            // 1. Capture DSV State (important performance filter)
+            if (pDepthStencilDescriptor != nullptr && pDepthStencilDescriptor->ptr != 0) {
+                t_.currentDSVHandle = *pDepthStencilDescriptor;
+                t_.hasDSV = true;
             }
-        }
-
-        // ------------------------------------------------------------
-        // pNext chain: GPL part flags + linked libraries
-        // ------------------------------------------------------------
-        const VkGraphicsPipelineLibraryCreateInfoEXT* gpl = nullptr;
-        const VkPipelineLibraryCreateInfoKHR* li = nullptr;
-
-        for (auto p = static_cast<const VkBaseInStructure*>(ci.pNext); p; p = p->pNext)
-        {
-            if (p->sType == VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_LIBRARY_CREATE_INFO_EXT)
-                gpl = reinterpret_cast<const VkGraphicsPipelineLibraryCreateInfoEXT*>(p);
-            else if (p->sType == VK_STRUCTURE_TYPE_PIPELINE_LIBRARY_CREATE_INFO_KHR)
-                li = reinterpret_cast<const VkPipelineLibraryCreateInfoKHR*>(p);
-        }
-
-        const bool isLinked = li && li->libraryCount > 0 && li->pLibraries;
-
-        // ------------------------------------------------------------
-        // Merge info from linked libraries (stride, key, parts, frag stage)
-        // and build the list with each library swapped for its highlight twin.
-        // ------------------------------------------------------------
-        VkGraphicsPipelineLibraryFlagsEXT libParts = 0;
-        VkGraphicsPipelineLibraryFlagsEXT swappedParts = 0;   // FS/FO parts the twins really changed
-        uint64_t libKey = 0;
-        uint32_t libStride = 0;
-        bool     libStrideUnknown = false;
-        bool     libHasFrag = false;
-        bool     swapped = false;
-        std::vector<VkPipeline> hlLibs;
-
-        if (isLinked)
-        {
-            hlLibs.assign(li->pLibraries, li->pLibraries + li->libraryCount);
-
-            std::lock_guard<std::mutex> lock(g_mtx);
-            for (VkPipeline& lib : hlLibs)
-            {
-                auto it = g_libInfo.find(lib);
-                if (it == g_libInfo.end())
-                    continue;   // library created before the hook was live
-
-                const LibInfo& L = it->second;
-                libParts |= L.parts;
-                libKey = combine(libKey, L.key);
-                libHasFrag |= L.hasFrag;
-
-                if (L.parts & kGplVI)
-                {
-                    libStride = L.stride;
-                    libStrideUnknown = L.strideUnknown;
-                }
-
-                if (L.highlightLib != VK_NULL_HANDLE && L.twinParts != 0)
-                {
-                    lib = L.highlightLib;
-                    swappedParts |= L.twinParts;
-                    swapped = true;
-                }
+            else {
+                t_.hasDSV = false;
+                t_.currentDSVHandle.ptr = 0;
             }
-        }
-
-        // Which parts does THIS create info actually own?
-        // State for parts it doesn't own is ignored (and may be null/junk).
-        VkGraphicsPipelineLibraryFlagsEXT owned;
-        if (gpl)            owned = gpl->flags;
-        else if (isLinked)  owned = libParts ? (kGplAll & ~libParts) : 0;
-        else                owned = kGplAll;   // classic monolithic pipeline
-
-        const bool ownsVI = (owned & kGplVI) != 0;
-        const bool ownsPre = (owned & kGplPre) != 0;
-        const bool ownsFS = (owned & kGplFS) != 0;
-        const bool ownsFO = (owned & kGplFO) != 0;
-
-        // ------------------------------------------------------------
-        // Stride (only from the vertex-input part)
-        // ------------------------------------------------------------
-        const VkPipelineVertexInputStateCreateInfo* vis =
-            (ownsVI && !vinDyn) ? ci.pVertexInputState : nullptr;
-
-        uint32_t ownStride = 0;
-        if (!strideDyn && vis &&
-            vis->pVertexBindingDescriptions && vis->vertexBindingDescriptionCount > 0)
-        {
-            uint32_t primary = vis->pVertexBindingDescriptions[0].binding;
-            if (vis->pVertexAttributeDescriptions && vis->vertexAttributeDescriptionCount > 0)
-                primary = vis->pVertexAttributeDescriptions[0].binding;
-
-            for (uint32_t b = 0; b < vis->vertexBindingDescriptionCount; ++b)
+            /*
+            // 2. Capture RTV Handles (Optional, if you need to know WHERE it renders)
+            if (pRenderTargetDescriptors != nullptr && NumRenderTargetDescriptors > 0)
             {
-                if (vis->pVertexBindingDescriptions[b].binding == primary)
-                {
-                    ownStride = vis->pVertexBindingDescriptions[b].stride;
-                    break;
+                if (RTsSingleHandleToDescriptorRange) {
+                    t_.currentRTVHandles[0] = pRenderTargetDescriptors[0];
                 }
-            }
-        }
-
-        const uint32_t stride = ownsVI ? ownStride : libStride;
-        const bool strideUnknown = ownsVI ? (vinDyn || strideDyn) : libStrideUnknown;
-        e.stride = stride;
-
-        // ------------------------------------------------------------
-        // Key (own state only, then combined with the libraries' keys)
-        // ------------------------------------------------------------
-        uint64_t key = 0;
-        bool ownHasFrag = false;
-
-        if (ci.pStages && (ownsPre || ownsFS))
-        {
-            for (uint32_t s = 0; s < ci.stageCount; ++s)
-            {
-                const VkPipelineShaderStageCreateInfo& st = ci.pStages[s];
-
-                if (st.stage == VK_SHADER_STAGE_FRAGMENT_BIT)
-                    ownHasFrag = true;
-
-                uint64_t h = 0;
-                if (GetModuleHash(st.module, h))
-                {
-                    key = combine(key, h);
-                }
-                else
-                {
-                    key = combine(key, reinterpret_cast<uint64_t>(st.module));
-                    if (kVerboseKeyLog)
-                        Log("CreateGP: module %p not in g_moduleHash (using handle)", (void*)st.module);
-                }
-
-                key = combine(key, static_cast<uint64_t>(st.stage));
-
-                if (st.pName)
-                    for (const char* p = st.pName; *p; ++p)
-                        key = combine(key, static_cast<uint8_t>(*p));
-
-                if (st.pSpecializationInfo)
-                {
-                    const VkSpecializationInfo* si = st.pSpecializationInfo;
-
-                    if (si->pData && si->dataSize)
-                    {
-                        const uint8_t* d = static_cast<const uint8_t*>(si->pData);
-                        for (size_t b = 0; b < si->dataSize; ++b)
-                            key = combine(key, d[b]);
-                    }
-
-                    if (si->pMapEntries)
-                    {
-                        for (uint32_t m = 0; m < si->mapEntryCount; ++m)
-                        {
-                            key = combine(key, si->pMapEntries[m].constantID);
-                            key = combine(key, si->pMapEntries[m].offset);
-                            key = combine(key, si->pMapEntries[m].size);
-                        }
+                else {
+                    UINT count = (NumRenderTargetDescriptors > 8) ? 8 : NumRenderTargetDescriptors;
+                    for (UINT i = 0; i < count; ++i) {
+                        t_.currentRTVHandles[i] = pRenderTargetDescriptors[i];
                     }
                 }
             }
+            */
         }
 
-        if (vis)
+        return oOMSetRenderTargetsD3D12(dCommandList, NumRenderTargetDescriptors, pRenderTargetDescriptors, RTsSingleHandleToDescriptorRange, pDepthStencilDescriptor);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookDrawIndexedInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation)
+    {
+        // --- LEVEL 1: REGISTER-ONLY CHECKS (ZERO COST) ---
+        // Check InstanceCount and IndexCount first because they require NO memory lookups
+        if (!_this || InstanceCount == 0 || InstanceCount > 5 || IndexCountPerInstance < 120)
         {
-            if (vis->pVertexBindingDescriptions)
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        }
+
+        // --- LEVEL 2: COMMAND LIST TYPE ---
+        // GetType() is a virtual call. Fast, but slightly more expensive than a register check
+        if (_this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        {
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        }
+
+        // --- LEVEL 3: CACHED STATE CHECKS (LOW COST) ---
+        // These look up the thread_local 't_' struct. If no RTV or no Depth, it's UI/Post-FX/Shadows
+        if (t_.currentNumRTVs == 999 || !t_.hasDSV) //sadly t_.currentNumRTVs == 0 can be models, usually big performance boost if we filter 0 out
+        {
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        }
+
+        // --- LEVEL 4: VIEWPORT CHECKS (MEDIUM COST) ---
+        // Filters out reflection probes, tiny icons, and sub-renders.
+        if (t_.currentViewport.Width < 500.0f)
+        {
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+        }
+
+        // --- LEVEL 5
+        if (t_.currentTopology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+        // --- LEVEL 6
+        if (!t_.currentPSO) //Guard against t_.currentPSO == nullptr
+            return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+
+        ID3D12PipelineState* currentPSO = t_.currentPSO;
+        PSOStats* stats = nullptr;
+        // 1. Find existing PSO (linear scan)
+        for (UINT i = 0; i < psoCount; ++i)
+        {
+            if (psoStats[i].pso == currentPSO)
             {
-                for (uint32_t b = 0; b < vis->vertexBindingDescriptionCount; ++b)
+                stats = &psoStats[i];
+
+                // --- MOVE-TO-FRONT HEURISTIC ---
+                if (i > 0)
                 {
-                    key = combine(key, vis->pVertexBindingDescriptions[b].binding);
-                    key = combine(key, vis->pVertexBindingDescriptions[b].stride);
-                    key = combine(key, vis->pVertexBindingDescriptions[b].inputRate);
+                    PSOStats tmp = psoStats[i];
+                    psoStats[i] = psoStats[0];
+                    psoStats[0] = tmp;
+
+                    stats = &psoStats[0];
                 }
-            }
-
-            if (vis->pVertexAttributeDescriptions)
-            {
-                for (uint32_t a = 0; a < vis->vertexAttributeDescriptionCount; ++a)
-                {
-                    key = combine(key, vis->pVertexAttributeDescriptions[a].location);
-                    key = combine(key, vis->pVertexAttributeDescriptions[a].binding);
-                    key = combine(key, vis->pVertexAttributeDescriptions[a].format);
-                    key = combine(key, vis->pVertexAttributeDescriptions[a].offset);
-                }
-            }
-        }
-
-        if (ownsVI && ci.pInputAssemblyState)
-        {
-            key = combine(key, ci.pInputAssemblyState->topology);
-            key = combine(key, ci.pInputAssemblyState->primitiveRestartEnable ? 1ull : 0ull);
-        }
-
-        if (ownsPre && ci.pRasterizationState)
-        {
-            key = combine(key, ci.pRasterizationState->polygonMode);
-            key = combine(key, ci.pRasterizationState->cullMode);
-            key = combine(key, ci.pRasterizationState->frontFace);
-            key = combine(key, ci.pRasterizationState->depthBiasEnable ? 1ull : 0ull);
-        }
-
-        if ((ownsFS || ownsFO) && ci.pMultisampleState)
-            key = combine(key, ci.pMultisampleState->rasterizationSamples);
-
-        if (ownsFS && ci.pDepthStencilState)
-        {
-            key = combine(key, ci.pDepthStencilState->depthTestEnable ? 1ull : 0ull);
-            key = combine(key, ci.pDepthStencilState->depthWriteEnable ? 1ull : 0ull);
-            key = combine(key, ci.pDepthStencilState->depthCompareOp);
-        }
-
-        if (ownsFO && ci.pColorBlendState && ci.pColorBlendState->pAttachments)
-        {
-            key = combine(key, ci.pColorBlendState->attachmentCount);
-            for (uint32_t a = 0; a < ci.pColorBlendState->attachmentCount; ++a)
-            {
-                const auto& att = ci.pColorBlendState->pAttachments[a];
-                key = combine(key, att.blendEnable ? 1ull : 0ull);
-                key = combine(key, att.colorWriteMask);
-            }
-        }
-
-        // Linked pipelines: fold in the libraries' keys (a linked final has no
-        // stages / vertex input of its own, so without this all finals collide).
-        if (isLinked)
-            key = combine(key, libKey);
-
-        if (key == 0)
-            key = combine(key, 0xDEADBEEFCAFEBABEull);
-
-        e.key = key;
-
-        const bool hasFrag = ownHasFrag || libHasFrag;
-
-        static std::atomic<int> s_infoLogs{ 0 };
-        if (s_infoLogs.fetch_add(1) < 40)
-            Log("GP pipe=%p kind=%s flags=0x%x owned=0x%x libParts=0x%x stride=%u strideUnknown=%d "
-                "vinDyn=%d strideDyn=%d frag=%d att=%u key=%llu",
-                (void*)e.pipe,
-                isLibrary ? (isLinked ? "linked-lib" : "lib") : (isLinked ? "linked" : "full"),
-                (unsigned)ci.flags, (unsigned)owned, (unsigned)libParts,
-                stride, strideUnknown ? 1 : 0, vinDyn ? 1 : 0, strideDyn ? 1 : 0,
-                hasFrag ? 1 : 0,
-                (ownsFO && ci.pColorBlendState) ? ci.pColorBlendState->attachmentCount : 0u,
-                (unsigned long long)key);
-
-        // ------------------------------------------------------------
-        // Highlight creation (flat-red fragment shader, blending off)
-        // ------------------------------------------------------------
-        VkPipeline highlightPipe = VK_NULL_HANDLE;
-        VkResult   hr = VK_SUCCESS;
-        bool       attempted = false;
-        VkGraphicsPipelineLibraryFlagsEXT twinParts = 0;
-
-        const bool strideWanted = (stride == kHighlightStride) || strideUnknown;
-
-        if (!isLinked && (isLibrary ? (ownsFS || ownsFO) : (hasFrag && strideWanted)))
-        {
-            // (A) FS / FO library: always make a twin (cheap: trivial shader / no shaders).
-            //     The stride filter is applied later, when a final pipeline links it.
-            // (B) monolithic pipeline: only when the stride matches / is dynamic.
-            VkShaderModule red = ownsFS ? GetRedFragModule(device) : VK_NULL_HANDLE;
-
-            HighlightStorage hs;
-            VkGraphicsPipelineCreateInfo hci;
-            twinParts = BuildHighlightCI(ci, owned, red, hs, hci);
-
-            const bool complete = isLibrary
-                ? (twinParts != 0)
-                : ((twinParts & (kGplFS | kGplFO)) == (kGplFS | kGplFO));
-
-            if (complete)
-            {
-                attempted = true;
-                hr = pOriginalCreateGraphicsPipelines(device, cache, 1, &hci, pAllocator, &highlightPipe);
+                break;
             }
         }
-        else if (isLinked && swapped && !ownsFS && !ownsFO &&
-            (isLibrary || (hasFrag && strideWanted &&
-                (swappedParts & (kGplFS | kGplFO)) == (kGplFS | kGplFO))))
+        // 2. Create new entry if not found
+        if (!stats)
         {
-            // (C) linked pipeline: same libraries, but FS and FO libraries are replaced
-            //     by their highlight twins. Everything else is shared with the original.
-            VkGraphicsPipelineCreateInfo hci = ci;
-            hci.flags &= ~(VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT |
-                VK_PIPELINE_CREATE_DERIVATIVE_BIT);
-            hci.basePipelineHandle = VK_NULL_HANDLE;
-            hci.basePipelineIndex = -1;
+            if (psoCount < _countof(psoStats))
+            {
+                stats = &psoStats[psoCount++];
+                stats->pso = currentPSO;
+                stats->maxIndexCount = 0;
+            }
+        }
+        // 3. Update heuristic + filter
+        if (stats)
+        {
+            if (IndexCountPerInstance > stats->maxIndexCount)
+                stats->maxIndexCount = IndexCountPerInstance;
 
-            // Temporarily point the game's lib-info at our array; restored right after.
-            auto* mli = const_cast<VkPipelineLibraryCreateInfoKHR*>(li);
-            const VkPipeline* savedLibs = mli->pLibraries;
-            mli->pLibraries = hlLibs.data();
-
-            attempted = true;
-            twinParts = swappedParts;
-            hr = pOriginalCreateGraphicsPipelines(device, cache, 1, &hci, pAllocator, &highlightPipe);
-
-            mli->pLibraries = savedLibs;
+            // Skip heavy logic for tiny meshes
+            if (stats->maxIndexCount < 300)
+            {
+                oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+            }
         }
 
-        if (attempted)
-        {
-            if (hr == VK_SUCCESS && highlightPipe != VK_NULL_HANDLE)
-            {
-                if (isLibrary)
-                {
-                    e.lib.highlightLib = highlightPipe;
-                    e.lib.twinParts = twinParts;
-                }
-                else
-                {
-                    e.highlight = highlightPipe;
-                }
 
-                if (kVerboseKeyLog)
-                    Log("CreateGP: created highlight %p for original %p", (void*)highlightPipe, (void*)e.pipe);
+        // 2. IDENTIFICATION
+        const UINT currentStrides = t_.StrideHash + t_.StartSlot;
+
+        bool isModelDraw = false;
+
+        if (currentStrides == countstride1 || currentStrides == countstride2 || currentStrides == countstride3 || currentStrides == countstride4 || currentStrides == countstride5 || //(currentStrides == 1 && h.contains(countstride5 % 100)) ||
+            cache.lastRDTindex == countGRootDescriptor || cache.lastRCBVindex == countGRootConstantBuffer ||
+            t_.currentNumRTVs == countfindrendertarget|| IndexCountPerInstance / 1000 == countIndexCount)
+        {
+            isModelDraw = true;
+        }
+
+        if(enabletemporaryids)
+        {
+            // Only check RootSig if strides didn't match
+            uint32_t rootSigID = (tlsCurrentCmdList == _this) ? tlsCurrentRootSigID : 0;
+            if (rootSigID == countcurrentRootSigID || rootSigID == countcurrentRootSigID2)
+            {
+                isModelDraw = true;
             }
             else
             {
-                static std::atomic<int> s_failLogs{ 0 };
-                if (s_failLogs.fetch_add(1) < 20)
-                    Log("highlight create FAILED hr=%d for %p (kind=%s)", (int)hr, (void*)e.pipe,
-                        isLibrary ? "lib" : (isLinked ? "linked" : "full"));
+                // Only perform expensive Modulo if everything else failed
+                uint8_t indexid = static_cast<uint8_t>((t_.currentGPUIAddress >> 12) % 100);
+                if (indexid == countcurrentIndexAddress || indexid == countcurrentIndexAddress2 || indexid == countcurrentIndexAddress3)
+                {
+                    isModelDraw = true;
+                }
+
+                uint8_t psoid = static_cast<uint8_t>(((UINT)currentPSO >> 12) % 100);
+                if (psoid == countcurrentPSOAddress)
+                {
+                    isModelDraw = true;
+                }
             }
         }
 
-        // Library bookkeeping
-        if (isLibrary)
+        if (isModelDraw) 
         {
-            e.lib.parts = isLinked ? (owned | libParts) : owned;
-            e.lib.stride = stride;
-            e.lib.strideUnknown = strideUnknown;
-            e.lib.hasFrag = hasFrag;
-            e.lib.key = key;
-        }
-
-        entries.push_back(e);
-    }
-
-    // ------------------------------------------------------------
-    // ONE short lock, map writes only
-    // ------------------------------------------------------------
-    {
-        std::lock_guard<std::mutex> lock(g_mtx);
-        for (const Entry& e : entries)
-        {
-            if (e.isLibrary)
+            // 3. FILTER LOGIC
+            // If any filter fails, we immediately jump to the original draw
+            if(enablefilters)
             {
-                g_libInfo[e.pipe] = e.lib;
-
-                // handle may have been reused from a former complete pipeline
-                g_pipelineStrides.erase(e.pipe);
-                g_pipelineKey.erase(e.pipe);
-                g_highlightPipelines.erase(e.pipe);
+            if (filterindexformat && t_.currentIndexFormat != countfilterindexformat) goto skip;
+            if (filternumViews && t_.numViews + t_.numViewports != countfilternumViews) goto skip;
+            if (filterrendertarget && (t_.currentNumRTVs != countfilterrendertarget && t_.currentNumRTVs != countfilterrendertarget2)) goto skip;
+            if (filterGRootDescriptor && (cache.lastRDTindex != countfilterGRootDescriptor && cache.lastRDTindex != countfilterGRootDescriptor2 && cache.lastRDTindex != countfilterGRootDescriptor3)) goto skip;
+            if (filterGRootConstantBuffer && (cache.lastRCBVindex != countfilterGRootConstantBuffer && cache.lastRCBVindex != countfilterGRootConstantBuffer2 && cache.lastRCBVindex != countfilterGRootConstantBuffer3)) goto skip;
+            if (filterIndexCountPerInstance && (IndexCountPerInstance / 1000 != countfilterIndexCountPerInstance && IndexCountPerInstance / 1000 != countfilterIndexCountPerInstance2)) goto skip;
             }
-            else
+
+            if(enableignores)
             {
-                g_libInfo.erase(e.pipe);
-
-                g_pipelineStrides[e.pipe] = e.stride;
-                g_pipelineKey[e.pipe] = e.key;
-
-                if (e.highlight != VK_NULL_HANDLE)
-                    g_highlightPipelines[e.pipe] = e.highlight;
-                else
-                    g_highlightPipelines.erase(e.pipe);   // never keep a stale clone
+            if (ignorenumViews && t_.numViews + t_.numViewports == countignorenumViews) goto skip;
+            if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;        
+            if (ignoreGRootDescriptor && (cache.lastRDTindex == countignoreGRootDescriptor || cache.lastRDTindex == countignoreGRootDescriptor2 || cache.lastRDTindex == countignoreGRootDescriptor3)) goto skip;         
+            if (ignoreGRootConstantBuffer && (cache.lastRCBVindex == countignoreGRootConstantBuffer || cache.lastRCBVindex == countignoreGRootConstantBuffer2 || cache.lastRCBVindex == countignoreGRootConstantBuffer3)) goto skip;
+            if (ignoreIndexCountPerInstance && IndexCountPerInstance/1000 <= countignoreIndexCountPerInstance) goto skip;
             }
-        }
-    }
 
-    return r;
-}
-*/
-
-//===================================================================================================//
-
-void VKAPI_CALL DetourVkCmdBindPipeline(VkCommandBuffer cmd, VkPipelineBindPoint bindPoint, VkPipeline pipeline) {
-
-    static bool loggedOnce = false;
-    if (!loggedOnce) {
-        Log("DetourVkCmdBindPipeline");
-        loggedOnce = true;
-    }
-
-    pOriginalCmdBindPipeline(cmd, bindPoint, pipeline);
-
-    if (bindPoint != VK_PIPELINE_BIND_POINT_GRAPHICS ||
-        pipeline == VK_NULL_HANDLE)
-    {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(g_mtx);
-
-    uint64_t key = 0;
-
-    auto it = g_pipelineKey.find(pipeline);
-    if (it != g_pipelineKey.end())
-        key = it->second;
-
-    g_curKey[cmd] = key;
-    g_curPipeline[cmd] = pipeline;
-
-    if (kVerboseKeyLog)
-        Log("Bind: cmd=%p pipeline=%p found=%d key=%llu",
-            (void*)cmd, (void*)pipeline, it != g_pipelineKey.end(), key);
-}
-
-//===================================================================================================//
-
-void VKAPI_CALL DetourVkCmdSetViewport(VkCommandBuffer cmd, uint32_t first, uint32_t count, const VkViewport* pVp) {
-
-    static bool loggedOnce = false;
-    if (!loggedOnce) {
-        Log("DetourVkCmdSetViewport");
-        loggedOnce = true;
-    }
-
-    if (pVp && count > 0 && cmd)
-    {
-        std::unique_lock<std::shared_mutex> lock(statesMtx);
-        //std::unique_lock lock(statesMtx);
-        CmdState& state = cmdStates[cmd];
-        state.currentViewport = pVp[0];   // we only care about the first
-        state.firstViewport = first;
-        state.hasViewport = true;
-    }
-
-    if (pOriginalCmdSetViewport)
-        pOriginalCmdSetViewport(cmd, first, count, pVp);
-}
-
-//===================================================================================================//
-
-void VKAPI_CALL DetourVkCmdSetViewportWithCount(VkCommandBuffer cmd, uint32_t count, const VkViewport* pVp)
-{
-    static bool loggedOnce = false;
-    if (!loggedOnce) {
-        Log("DetourVkCmdSetViewportWithCount");
-        loggedOnce = true;
-    }
-
-    if (pVp && count > 0 && cmd)
-    {
-        std::unique_lock<std::shared_mutex> lock(statesMtx);
-        //std::unique_lock lock(statesMtx);
-        CmdState& st = cmdStates[cmd];
-        st.currentViewport = pVp[0];   // we only care about the first
-        st.firstViewport = 0;
-        st.hasViewport = true;
-    }
-
-    if (pOriginalCmdSetViewportWithCount)
-    pOriginalCmdSetViewportWithCount(cmd, count, pVp);
-}
-
-//===================================================================================================//
-
-void VKAPI_CALL DetourVkCmdSetVertexInputEXT(
-    VkCommandBuffer                             commandBuffer,
-    uint32_t                                    vertexBindingDescriptionCount,
-    const VkVertexInputBindingDescription2EXT* pVertexBindingDescriptions,
-    uint32_t                                    vertexAttributeDescriptionCount,
-    const VkVertexInputAttributeDescription2EXT* pVertexAttributeDescriptions)
-{
-    static bool loggedOnce = false;
-    if (!loggedOnce) {
-        Log("DetourVkCmdSetVertexInputEXT");
-        loggedOnce = true;
-    }
-    
-    // capture
-    if (pVertexBindingDescriptions && vertexBindingDescriptionCount > 0)
-    {
-        // simplest: just keep binding 0 stride
-        g_cmdBufStride[commandBuffer] = pVertexBindingDescriptions[0].stride;
-
-        // richer version 
-        VertexInputState& state = g_cmdBufVertexInput[commandBuffer];
-        state.bindingCount = vertexBindingDescriptionCount;
-        state.bindings.assign(pVertexBindingDescriptions,
-            pVertexBindingDescriptions + vertexBindingDescriptionCount);
-        state.attributeCount = vertexAttributeDescriptionCount;
-        state.attributes.assign(pVertexAttributeDescriptions,
-            pVertexAttributeDescriptions + vertexAttributeDescriptionCount);
-    }
-
-    pOriginalCmdSetVertexInputEXT(
-        commandBuffer,
-        vertexBindingDescriptionCount,
-        pVertexBindingDescriptions,
-        vertexAttributeDescriptionCount,
-        pVertexAttributeDescriptions);
-}
-
-//===================================================================================================//
-
-//Viewport wallhack punches through all walls, but worse for fps
-void VKAPI_CALL DetourVkCmdDrawIndexed(VkCommandBuffer cmd, uint32_t idxCount, uint32_t instCount,
-    uint32_t firstIdx, int32_t vtxOff, uint32_t firstInst)
-{
-    static bool loggedOnce = false;
-    if (!loggedOnce) {
-        Log("DetourVkCmdDrawIndexed");
-        loggedOnce = true;
-    }
-
-    VkPipeline original = VK_NULL_HANDLE;
-    VkPipeline highlight = VK_NULL_HANDLE;
-    uint32_t   dstride = 0;
-    uint32_t   pstride = 0;
-    uint64_t   key = 0;
-
-    {
-        std::lock_guard<std::mutex> lock(g_mtx);
-        auto pit = g_curPipeline.find(cmd);
-        if (pit != g_curPipeline.end())
-        {
-            original = pit->second;
-            auto hit = g_highlightPipelines.find(original);
-            if (hit != g_highlightPipelines.end())
-                highlight = hit->second;
-            auto pst = g_pipelineStrides.find(original);
-            if (pst != g_pipelineStrides.end())
-                pstride = pst->second;
-        }
-        auto sit = g_cmdBufStride.find(cmd);
-        if (sit != g_cmdBufStride.end())
-            dstride = sit->second;
-        auto kit = g_curKey.find(cmd);
-        if (kit != g_curKey.end())
-            key = kit->second;
-    }
-    const uint32_t stride = dstride ? dstride : pstride; //model recognition option 1
-    const uint32_t shortkey = static_cast<uint32_t>(key % 100); //model recognition option 2
-
-
-    //model recognition
-    if (stride != kHighlightStride) //40 = valheim, 48 = zombie army 4: dead war(reversedDepth=true), 28 = deadlock
-    {
-        if (pOriginalCmdDrawIndexed)
-            pOriginalCmdDrawIndexed(cmd, idxCount, instCount, firstIdx, vtxOff, firstInst);
-        return;
-    }
-
-    // Capture viewport
-    bool hasVp = false;
-    CmdState localState{};
-    {
-        std::shared_lock<std::shared_mutex> lock(statesMtx);
-        auto it = cmdStates.find(cmd);
-        if (it != cmdStates.end() && it->second.hasViewport)
-        {
-            localState = it->second;
-            hasVp = true;
-        }
-    }
-
-
-    bool wantColor = (original != VK_NULL_HANDLE && highlight != VK_NULL_HANDLE);
-    bool wantWall = hasVp;
-
-    if (wallhack == 0)
-        wantWall = false;
-
-    if (colorhack == 0)
-        wantColor = false;
-
-    // ------------------------------------------------------------------
-    // 1) Normal draw – keeps depth buffer correct for the rest of the frame
-    // ------------------------------------------------------------------
-    if (pOriginalCmdDrawIndexed)
-        pOriginalCmdDrawIndexed(cmd, idxCount, instCount, firstIdx, vtxOff, firstInst);
-
-    // ------------------------------------------------------------------
-    // 2) + 3) Wallhack solid + Colour  (both use modified viewport)
-    // ------------------------------------------------------------------
-    if (wantWall || wantColor)
-    {
-        // Apply wallhack viewport once for the remaining passes
-        if (wantWall && pOriginalCmdSetViewport)
-        {
-            VkViewport hVp = localState.currentViewport;
-            constexpr bool reversedDepth = false;   // set true if game uses reversed-Z
-            hVp.minDepth = reversedDepth ? 0.0f : 0.9f;
-            hVp.maxDepth = reversedDepth ? 0.1f : 1.0f;
-            pOriginalCmdSetViewport(cmd, localState.firstViewport, 1, &hVp);
-        }
-
-        // 2) Solid wallhack pass (model visible through every texture)
-        if (wantWall && pOriginalCmdDrawIndexed)
-            pOriginalCmdDrawIndexed(cmd, idxCount, instCount, firstIdx, vtxOff, firstInst);
-
-        // 3) Colour pass (drawn last → always visible, also through walls)
-        if (wantColor)
-        {
-            if (pOriginalCmdBindPipeline)
-                pOriginalCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, highlight);
-
-            if (pOriginalCmdDrawIndexed)
-                pOriginalCmdDrawIndexed(cmd, idxCount, instCount, firstIdx, vtxOff, firstInst);
-
-            if (pOriginalCmdBindPipeline)
-                pOriginalCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, original);
-        }
-
-        // Restore original viewport
-        if (wantWall && pOriginalCmdSetViewport)
-            pOriginalCmdSetViewport(cmd, localState.firstViewport, 1, &localState.currentViewport);
-    }
-}
-
-//===================================================================================================//
-
-/*
-//VK_COMPARE_OP_ALWAYS wallhack works, good for fps, but does not punch though all walls 
-//If you want to use this you must go to BuildHighlightCI and enable the VK_COMPARE_OP_ALWAYS part
-void VKAPI_CALL DetourVkCmdDrawIndexed(VkCommandBuffer cmd, uint32_t idxCount, uint32_t instCount,
-    uint32_t firstIdx, int32_t vtxOff, uint32_t firstInst)
-{
-    VkPipeline original = VK_NULL_HANDLE;
-    VkPipeline highlight = VK_NULL_HANDLE;
-    uint32_t   dstride = 0;
-    uint32_t   pstride = 0;
-
-    {
-        std::lock_guard<std::mutex> lock(g_mtx);
-        auto pit = g_curPipeline.find(cmd);
-        if (pit != g_curPipeline.end())
-        {
-            original = pit->second;
-            auto hit = g_highlightPipelines.find(original);
-            if (hit != g_highlightPipelines.end())
-                highlight = hit->second;
-            auto pst = g_pipelineStrides.find(original);
-            if (pst != g_pipelineStrides.end())
-                pstride = pst->second;
-        }
-        auto sit = g_cmdBufStride.find(cmd);
-        if (sit != g_cmdBufStride.end())
-            dstride = sit->second;
-    }
-
-    const uint32_t stride = dstride ? dstride : pstride;
-
-    // Only care about the models we want
-    if (stride != 40)
-    {
-        if (pOriginalCmdDrawIndexed)
-            pOriginalCmdDrawIndexed(cmd, idxCount, instCount, firstIdx, vtxOff, firstInst);
-        return;
-    }
-
-    // 1) Game’s own draw (writes correct depth, normals, etc.)
-    if (pOriginalCmdDrawIndexed)
-        pOriginalCmdDrawIndexed(cmd, idxCount, instCount, firstIdx, vtxOff, firstInst);
-
-    // 2) Coloured wallhack overlay (ALWAYS depth test → through all walls)
-    if (original != VK_NULL_HANDLE && highlight != VK_NULL_HANDLE)
-    {
-        if (pOriginalCmdBindPipeline)
-            pOriginalCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, highlight);
-
-        if (pOriginalCmdDrawIndexed)
-            pOriginalCmdDrawIndexed(cmd, idxCount, instCount, firstIdx, vtxOff, firstInst);
-
-        if (pOriginalCmdBindPipeline)
-            pOriginalCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, original);
-    }
-}
-*/
-
-//===================================================================================================//
-
-void VKAPI_CALL DetourVkCmdDrawIndexedIndirect(VkCommandBuffer cmd, VkBuffer buffer, VkDeviceSize offset, uint32_t drawCount, uint32_t stride)
-{
-    static bool loggedOnce = false;
-    if (!loggedOnce) {
-        Log("DetourVkCmdDrawIndexedIndirect");
-        loggedOnce = true;
-    }
-
-    //if game is drawing models here, paste code from DrawIndexed here and rename stride to istride
-
-    return pOriginalCmdDrawIndexedIndirect(cmd, buffer, offset, drawCount, stride);
-}
-
-//===================================================================================================//
-
-static std::vector<void*> g_patchedAddrs;   // only touched from HookThread
-
-static bool HookFn(const char* name, PFN_vkVoidFunction fn, void* detour, void** original)
-{
-    if (!fn)
-    {
-        Log("hook %s: driver returned null", name);
-        return false;
-    }
-
-    for (void* a : g_patchedAddrs)
-    {
-        if (a == (void*)fn)
-        {
-            Log("hook %s @%p: already patched, skipping", name, (void*)fn);
-            return true;
-        }
-    }
-
-    MH_STATUS s = MH_CreateHook((void*)fn, detour, original);
-    if (s == MH_OK)
-        s = MH_EnableHook((void*)fn);
-
-    Log("hook %s @%p -> %s", name, (void*)fn, MH_StatusToString(s));
-
-    if (s == MH_OK)
-    {
-        g_patchedAddrs.push_back((void*)fn);
-        return true;
-    }
-    return false;
-}
-
-//===================================================================================================//
-
-static PFN_vkDestroyPipeline pOriginalDestroyPipeline = nullptr;
-
-void VKAPI_CALL DetourVkDestroyPipeline(
-    VkDevice device,
-    VkPipeline pipeline,
-    const VkAllocationCallbacks* pAllocator)
-{
-    static bool loggedOnce = false;
-    if (!loggedOnce)
-    {
-        Log("DetourVkDestroyPipeline");
-        loggedOnce = true;
-    }
-
-    VkPipeline clone = VK_NULL_HANDLE;
-
-    if (pipeline != VK_NULL_HANDLE)
-    {
-        std::lock_guard<std::mutex> lock(g_mtx);
-
-        auto it = g_highlightPipelines.find(pipeline);
-        if (it != g_highlightPipelines.end())
-        {
-            clone = it->second;
-            g_highlightPipelines.erase(it);
-        }
-
-        g_pipelineStrides.erase(pipeline);
-        g_pipelineKey.erase(pipeline);
-    }
-
-    // Destroy the application's pipeline.
-    pOriginalDestroyPipeline(device, pipeline, pAllocator);
-
-    // IMPORTANT:
-    // This is only safe if you know the GPU is no longer using clone.
-    if (clone != VK_NULL_HANDLE)
-    {
-        pOriginalDestroyPipeline(device, clone, pAllocator);
-    }
-}
- 
-/*
-//to do:
-// ============================================================================
-// Lifetime / cleanup detours
-// ============================================================================
-VkResult VKAPI_CALL DetourVkResetCommandBuffer(
-    VkCommandBuffer commandBuffer,
-    VkCommandBufferResetFlags flags)
-{
-    RemoveCmdState(commandBuffer);
-    return pOriginalResetCommandBuffer
-        ? pOriginalResetCommandBuffer(commandBuffer, flags)
-        : VK_SUCCESS;
-}
-
-void VKAPI_CALL DetourVkFreeCommandBuffers(
-    VkDevice device,
-    VkCommandPool commandPool,
-    uint32_t commandBufferCount,
-    const VkCommandBuffer* pCommandBuffers)
-{
-    if (pCommandBuffers)
-    {
-        for (uint32_t i = 0; i < commandBufferCount; ++i)
-            RemoveCmdState(pCommandBuffers[i]);
-    }
-
-    if (pOriginalFreeCommandBuffers)
-        pOriginalFreeCommandBuffers(device, commandPool,
-            commandBufferCount, pCommandBuffers);
-}
-*/
-
-//===================================================================================================//
-
-static bool HookViaDummyDevice()
-{
-    HMODULE hVk = GetModuleHandleA("vulkan-1.dll");
-    if (!hVk)
-    {
-        Log("dummy: vulkan-1.dll not loaded");
-        return false;
-    }
-
-    // Loader functions, resolved from the exports (these are NOT hooked by us,
-    // except the two resolvers, which we avoid by using the saved originals).
-    auto fnGetInstanceProcAddr = pOriginalGetInstanceProcAddr
-        ? pOriginalGetInstanceProcAddr
-        : (PFN_vkGetInstanceProcAddr)GetProcAddress(hVk, "vkGetInstanceProcAddr");
-
-    auto fnCreateInstance =
-        (PFN_vkCreateInstance)GetProcAddress(hVk, "vkCreateInstance");
-
-    if (!fnGetInstanceProcAddr || !fnCreateInstance)
-    {
-        Log("dummy: loader entry points missing");
-        return false;
-    }
-
-    // ---- instance ----
-    VkApplicationInfo app{ VK_STRUCTURE_TYPE_APPLICATION_INFO };
-    app.pApplicationName = "dummy";
-    app.apiVersion = VK_API_VERSION_1_1;
-
-    VkInstanceCreateInfo ici{ VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
-    ici.pApplicationInfo = &app;
-
-
-
-    Sleep(250);   // let the loader finish its first-time init
-
-    VkInstance inst = VK_NULL_HANDLE;
-    VkResult r = VK_ERROR_INITIALIZATION_FAILED;
-
-    for (int attempt = 0; attempt < 50; ++attempt)   // up to ~10 s
-    {
-        r = fnCreateInstance(&ici, nullptr, &inst);
-        if (r == VK_SUCCESS && inst)
-            break;
-
-        Log("dummy: vkCreateInstance attempt %d failed (%d)", attempt, (int)r);
-        inst = VK_NULL_HANDLE;
-        Sleep(200);
-    }
-
-    if (!inst)
-    {
-        Log("dummy: giving up");
-
-        char path[MAX_PATH]{};
-        GetModuleFileNameA(hVk, path, MAX_PATH);
-        Log("dummy: vulkan-1.dll = %s", path);
-
-        auto fnVer = (PFN_vkEnumerateInstanceVersion)GetProcAddress(hVk, "vkEnumerateInstanceVersion");
-        uint32_t ver = 0;
-        if (fnVer && fnVer(&ver) == VK_SUCCESS)
-            Log("dummy: loader instance version %u.%u", VK_VERSION_MAJOR(ver), VK_VERSION_MINOR(ver));
-
-        return false;
-    }
-
-
-    auto fnEnumPhys = (PFN_vkEnumeratePhysicalDevices)
-        fnGetInstanceProcAddr(inst, "vkEnumeratePhysicalDevices");
-    auto fnQueueFamilies = (PFN_vkGetPhysicalDeviceQueueFamilyProperties)
-        fnGetInstanceProcAddr(inst, "vkGetPhysicalDeviceQueueFamilyProperties");
-    auto fnEnumDevExt = (PFN_vkEnumerateDeviceExtensionProperties)
-        fnGetInstanceProcAddr(inst, "vkEnumerateDeviceExtensionProperties");
-    auto fnCreateDevice = (PFN_vkCreateDevice)
-        fnGetInstanceProcAddr(inst, "vkCreateDevice");
-    auto fnGetDeviceProcAddr = (PFN_vkGetDeviceProcAddr)
-        fnGetInstanceProcAddr(inst, "vkGetDeviceProcAddr");
-
-    if (!fnEnumPhys || !fnQueueFamilies || !fnEnumDevExt || !fnCreateDevice || !fnGetDeviceProcAddr)
-    {
-        Log("dummy: instance-level entry points missing");
-        return false;   // instance intentionally kept alive
-    }
-
-    uint32_t gpuCount = 0;
-    fnEnumPhys(inst, &gpuCount, nullptr);
-    if (gpuCount == 0)
-    {
-        Log("dummy: no physical devices");
-        return false;
-    }
-
-    std::vector<VkPhysicalDevice> gpus(gpuCount);
-    fnEnumPhys(inst, &gpuCount, gpus.data());
-
-
-    // ---- functions to patch ----
-    struct Entry { const char* name; void* detour; void** original; };
-    const Entry list[] = {
-        { "vkCreateGraphicsPipelines", (void*)DetourVkCreateGraphicsPipelines, (void**)&pOriginalCreateGraphicsPipelines },
-        { "vkCmdBindPipeline",         (void*)DetourVkCmdBindPipeline,         (void**)&pOriginalCmdBindPipeline },
-        { "vkCreateShaderModule",      (void*)DetourVkCreateShaderModule,      (void**)&pOriginalCreateShaderModule },
-        { "vkCmdSetVertexInputEXT",    (void*)DetourVkCmdSetVertexInputEXT,    (void**)&pOriginalCmdSetVertexInputEXT },
-        { "vkCmdSetViewport",          (void*)DetourVkCmdSetViewport,          (void**)&pOriginalCmdSetViewport },
-        { "vkCmdSetViewportWithCount", (void*)DetourVkCmdSetViewportWithCount, (void**)&pOriginalCmdSetViewportWithCount },
-        { "vkCmdDrawIndexed",          (void*)DetourVkCmdDrawIndexed,          (void**)&pOriginalCmdDrawIndexed },
-        { "vkCmdDrawIndexedIndirect",  (void*)DetourVkCmdDrawIndexedIndirect,  (void**)&pOriginalCmdDrawIndexedIndirect },
-        { "vkDestroyPipeline",         (void*)DetourVkDestroyPipeline,         (void**)&pOriginalDestroyPipeline },
+            // Enable color (UE5)
+            if (enablecolor)
+            {
+                // One time initialization
+                if (!colorinitialized) {
+                    HRESULT hr = _this->GetDevice(__uuidof(ID3D12Device), (void**)&pDevice);
+                    if (FAILED(hr)) {
+                        Log("GetDevice failed: 0x%08X", hr);
+                        return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+                    }
+                    if (CreateColorConstantBuffer()) {
+                        colorinitialized = true;
+                        //Log("Constant buffer initialized for colors");
+                    }
+                    else {
+                        Log("Failed to create constant buffer for colors");
+                    }
+                }
         
-    };
+                //COLOR
+                if(cache.lastRCBVindex==0 && cri0==1|| cache.lastRCBVindex == 1 && cri1 == 1|| cache.lastRCBVindex == 2 && cri2 == 1 || cache.lastRCBVindex == 3 && cri3 == 1||
+                    cache.lastRCBVindex == 4 && cri4 == 1 || cache.lastRCBVindex == 5 && cri5 == 1 || cache.lastRCBVindex == 6 && cri6 == 1 || cache.lastRCBVindex == 7 && cri7 == 1||
+                    cache.lastRCBVindex == 8 && cri8 == 1 || cache.lastRCBVindex == 9 && cri9 == 1 || cache.lastRCBVindex == 10 && cri10 == 1)
+                {
+                    if (colorinitialized && g_pMappedConstantBuffer)
+                    {
+                        // Clamp countnum, it is for bruteforcing offset
+                        if (coloroffset < 0) coloroffset = 0;
+                        if (coloroffset > (MAX_CB_SIZE - 256)) coloroffset = MAX_CB_SIZE - 256;
 
-    bool anyPatched = false;
+                        DirectX::XMFLOAT4 myColor = { 15.0f, 0.0f, 15.0f, 1.0f }; //1.0 and 0.0 can appear black, depends on the game 
 
-    for (VkPhysicalDevice pd : gpus)
+                        // Get pointer to the current offset
+                        auto* constants = reinterpret_cast<MyMaterialConstants*>(g_pMappedConstantBuffer + coloroffset);
+
+                        // Fill the 256-byte block
+                        for (int i = 0; i < 16; i++) constants->color[i] = myColor;
+
+                        D3D12_GPU_VIRTUAL_ADDRESS cbAddr = g_pCustomConstantBuffer->GetGPUVirtualAddress() + coloroffset;
+
+                        //This crash check would require D3D12SerializeRootSignature / CreateRootSignature but then also need to hook and inject early
+                        //auto& params = RootParamTypes[cache.currentRootSig]; 
+                        //if (params[cache.lastRCBVindex] == D3D12_ROOT_PARAMETER_TYPE_CBV)
+                        //{
+                            // safe to call SetGraphicsRootConstantBufferView
+                        //}
+
+                        //wrong cache.lastRCBVindex can crash the game
+                        _this->SetGraphicsRootConstantBufferView(cache.lastRCBVindex, cbAddr);
+                    }
+                }
+            }
+              
+
+            //WALLHACK
+            //4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
+            const D3D12_VIEWPORT originalVp = t_.currentViewport;
+            if (originalVp.Width >= 128 && originalVp.Width < 16384) 
+            {
+                D3D12_VIEWPORT hVp = originalVp;
+                hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
+                hVp.MaxDepth = reversedDepth ? 0.1f : 1.0f;
+
+                _this->RSSetViewports(1, &hVp);
+                oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+                _this->RSSetViewports(1, &originalVp);
+                return;
+            }
+
+        }
+
+    skip:
+        oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookExecuteIndirectD3D12(ID3D12GraphicsCommandList* _this,ID3D12CommandSignature* pCommandSignature,UINT MaxCommandCount,ID3D12Resource* pArgumentBuffer,
+        UINT64 ArgumentBufferOffset,ID3D12Resource* pCountBuffer,UINT64 CountBufferOffset)
     {
-        // Needs VK_EXT_vertex_input_dynamic_state, otherwise skip this GPU
-        uint32_t extCount = 0;
-        fnEnumDevExt(pd, nullptr, &extCount, nullptr);
-        std::vector<VkExtensionProperties> exts(extCount);
-        fnEnumDevExt(pd, nullptr, &extCount, exts.data());
+        // 1. Mandatory Exits
+        if (!_this || MaxCommandCount == 0)
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
 
-        bool hasVin = false;
-        for (const auto& e : exts)
-        {
-            if (!strcmp(e.extensionName, VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME))
-            {
-                hasVin = true;
+        // 2. Command List Type
+        if (_this->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // 3. State Filters (The most important ones here!)
+        // These ensure we aren't looking at UI, Shadows, or Post-Processing
+        // Be careful with NumRTVs == 0 (Good for perfromance but RISKY)
+        // If the game uses a Depth - Pre - Pass(common in Warzone, Halo, Battlefield), the players are drawn to the Depth buffer first with 0 RTVs.
+        // If you filter this, you will miss them
+        if (t_.currentNumRTVs == 999 || !t_.hasDSV || t_.currentViewport.Width < 500.0f) //sadly t_.currentNumRTVs == 0 can be models, usually big performance boost if we filter 0 out
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // 4. Batch Size Filter
+        // Environment meshes (grass, etc) are usually drawn in large batches.
+        // Players/Characters are usually drawn in small batches or single calls.
+        if (MaxCommandCount > 50) //?
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // 5.
+        if (t_.currentTopology != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // 6.
+        if (!t_.currentPSO)
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+
+        // PSO Logic (Simplified for ExecuteIndirect)
+        PSOStats* stats = nullptr;
+        for (UINT i = 0; i < psoCount; ++i) {
+            if (psoStats[i].pso == t_.currentPSO) {
+                stats = &psoStats[i];
                 break;
             }
         }
 
-        if (!hasVin)
-        {
-            Log("dummy: GPU lacks %s, skipping", VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
-            continue;
+        // 6. Only filter if we are CERTAIN this PSO is for tiny objects (UI)
+        // We learned this certainty from the DrawIndexedInstanced hook!
+        if (stats && stats->maxIndexCount > 0 && stats->maxIndexCount < 100) {
+            return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
         }
 
-        // Pick a graphics queue family instead of assuming 0
-        uint32_t qCount = 0;
-        fnQueueFamilies(pd, &qCount, nullptr);
-        std::vector<VkQueueFamilyProperties> qProps(qCount);
-        fnQueueFamilies(pd, &qCount, qProps.data());
+        // 7. Signature Pointer Filter (Optional but recommended)
+        // if (pCommandSignature == knownComputeSignature) return ...;
+        ExecuteIndirectisCalled = 1;
+        
 
-        uint32_t family = 0;
-        for (uint32_t q = 0; q < qCount; ++q)
+        // 2. IDENTIFICATION
+        const UINT currentExIStride = t_.StrideHash + t_.StartSlot;
+        //uint8_t shortCount = static_cast<uint8_t>((MaxCommandCount >> 12) % 100);
+
+        bool isModelDraw = false;
+
+        if (currentExIStride == countExIStride1 || currentExIStride == countExIStride2 || currentExIStride == countExIStride3 || currentExIStride == countExIStride4 ||
+            cache.lastRDTindex == countGRootDescriptor || cache.lastRCBVindex == countGRootConstantBuffer ||
+            t_.currentNumRTVs == countfindrendertarget)
         {
-            if (qProps[q].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+            isModelDraw = true;
+        }
+
+        if (enabletemporaryids)
+        {
+            // Only check RootSig if strides didn't match
+            uint32_t rootSigID = (tlsCurrentCmdList == _this) ? tlsCurrentRootSigID : 0;
+            if (rootSigID == countcurrentRootSigID || rootSigID == countcurrentRootSigID2)
             {
-                family = q;
-                break;
+                isModelDraw = true;
+            }
+            else
+            {
+                // Only perform expensive Modulo if everything else failed
+                uint8_t indexid = static_cast<uint8_t>((t_.currentGPUIAddress >> 12) % 100);
+                if (indexid == countcurrentIndexAddress || indexid == countcurrentIndexAddress2 || indexid == countcurrentIndexAddress3)
+                {
+                    isModelDraw = true;
+                }
             }
         }
 
-        float prio = 1.0f;
-        VkDeviceQueueCreateInfo qci{ VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
-        qci.queueFamilyIndex = family;
-        qci.queueCount = 1;
-        qci.pQueuePriorities = &prio;
-
-        VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT vinFeat{
-            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_INPUT_DYNAMIC_STATE_FEATURES_EXT };
-        vinFeat.vertexInputDynamicState = VK_TRUE;
-
-        const char* devExts[] = { VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME };
-
-        VkDeviceCreateInfo dci{ VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
-        dci.pNext = &vinFeat;
-        dci.queueCreateInfoCount = 1;
-        dci.pQueueCreateInfos = &qci;
-        dci.enabledExtensionCount = 1;
-        dci.ppEnabledExtensionNames = devExts;
-
-        VkDevice dev = VK_NULL_HANDLE;
-        r = fnCreateDevice(pd, &dci, nullptr, &dev);
-        if (r != VK_SUCCESS || !dev)
+        if (isModelDraw)
         {
-            Log("dummy: vkCreateDevice failed (%d)", (int)r);
-            continue;
+            // 3. FILTER LOGIC
+            // If any filter fails, we immediately jump to the original draw
+            if (enablefilters)
+            {
+                if (filterindexformat && t_.currentIndexFormat != countfilterindexformat) goto skip;
+                if (filternumViews && t_.numViews + t_.numViewports != countfilternumViews) goto skip;
+                if (filterrendertarget && (t_.currentNumRTVs != countfilterrendertarget && t_.currentNumRTVs != countfilterrendertarget2)) goto skip;
+                if (filterGRootDescriptor && (cache.lastRDTindex != countfilterGRootDescriptor && cache.lastRDTindex != countfilterGRootDescriptor2 && cache.lastRDTindex != countfilterGRootDescriptor3)) goto skip;
+                if (filterGRootConstantBuffer && (cache.lastRCBVindex != countfilterGRootConstantBuffer && cache.lastRCBVindex != countfilterGRootConstantBuffer2 && cache.lastRCBVindex != countfilterGRootConstantBuffer3)) goto skip;
+            }
+
+            if (enableignores)
+            {
+                if (ignorenumViews && t_.numViews + t_.numViewports == countignorenumViews) goto skip;
+                if (ignorerendertarget && t_.currentNumRTVs == countignorerendertarget) goto skip;
+                if (ignoreGRootDescriptor && (cache.lastRDTindex == countignoreGRootDescriptor || cache.lastRDTindex == countignoreGRootDescriptor2 || cache.lastRDTindex == countignoreGRootDescriptor3)) goto skip;
+                if (ignoreGRootConstantBuffer && (cache.lastRCBVindex == countignoreGRootConstantBuffer || cache.lastRCBVindex == countignoreGRootConstantBuffer2 || cache.lastRCBVindex == countignoreGRootConstantBuffer3)) goto skip;
+            }
+
+            // Enable color (UE5)
+            if (enablecolor)
+            {
+                // One time initialization
+                if (!colorinitialized) {
+                    HRESULT hr = _this->GetDevice(__uuidof(ID3D12Device), (void**)&pDevice);
+                    if (FAILED(hr)) {
+                        Log("GetDevice failed: 0x%08X", hr);
+                        return oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+                    }
+                    if (CreateColorConstantBuffer()) {
+                        colorinitialized = true;
+                        //Log("Constant buffer initialized for colors");
+                    }
+                    else {
+                        Log("Failed to create constant buffer for colors");
+                    }
+                }
+
+                //COLOR
+                if (cache.lastRCBVindex == 0 && cri0 == 1 || cache.lastRCBVindex == 1 && cri1 == 1 || cache.lastRCBVindex == 2 && cri2 == 1 || cache.lastRCBVindex == 3 && cri3 == 1 ||
+                    cache.lastRCBVindex == 4 && cri4 == 1 || cache.lastRCBVindex == 5 && cri5 == 1 || cache.lastRCBVindex == 6 && cri6 == 1 || cache.lastRCBVindex == 7 && cri7 == 1 ||
+                    cache.lastRCBVindex == 8 && cri8 == 1 || cache.lastRCBVindex == 9 && cri9 == 1 || cache.lastRCBVindex == 10 && cri10 == 1)
+                {
+                    if (colorinitialized && g_pMappedConstantBuffer)
+                    {
+                        // Clamp countnum, it is for bruteforcing offset
+                        if (coloroffset < 0) coloroffset = 0;
+                        if (coloroffset > (MAX_CB_SIZE - 256)) coloroffset = MAX_CB_SIZE - 256;
+
+                        DirectX::XMFLOAT4 myColor = { 15.0f, 0.0f, 15.0f, 1.0f }; //1.0 and 0.0 can appear black, depends on the game 
+
+                        // Get pointer to the current offset
+                        auto* constants = reinterpret_cast<MyMaterialConstants*>(g_pMappedConstantBuffer + coloroffset);
+
+                        // Fill the 256-byte block
+                        for (int i = 0; i < 16; i++) constants->color[i] = myColor;
+
+                        D3D12_GPU_VIRTUAL_ADDRESS cbAddr = g_pCustomConstantBuffer->GetGPUVirtualAddress() + coloroffset;
+
+                        //This crash check would require D3D12SerializeRootSignature / CreateRootSignature but then also need to hook and inject early
+                        //auto& params = RootParamTypes[cache.currentRootSig]; 
+                        //if (params[cache.lastRCBVindex] == D3D12_ROOT_PARAMETER_TYPE_CBV)
+                        //{
+                            // safe to call SetGraphicsRootConstantBufferView
+                        //}
+
+                        //wrong cache.lastRCBVindex can crash the game
+                        _this->SetGraphicsRootConstantBufferView(cache.lastRCBVindex, cbAddr);
+                    }
+                }
+            }
+
+
+            //WALLHACK
+            //4. VIEWPORT EXECUTION, MUST BE A COPY, NOT A REFERENCE, to prevent flickering/state corruption
+            const D3D12_VIEWPORT originalVp = t_.currentViewport;
+            if (originalVp.Width >= 128 && originalVp.Width < 16384)
+            {
+                D3D12_VIEWPORT hVp = originalVp;
+                hVp.MinDepth = reversedDepth ? 0.0f : 0.9f;
+                hVp.MaxDepth = reversedDepth ? 0.1f : 1.0f;
+
+                _this->RSSetViewports(1, &hVp);
+                oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+                _this->RSSetViewports(1, &originalVp);
+                return;
+            }
         }
 
-        for (const Entry& e : list)
-        {
-            if (HookFn(e.name, fnGetDeviceProcAddr(dev, e.name), e.detour, e.original))
-                anyPatched = true;
+    skip:
+        oExecuteIndirectD3D12(_this, pCommandSignature, MaxCommandCount, pArgumentBuffer, ArgumentBufferOffset, pCountBuffer, CountBufferOffset);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookDrawInstancedD3D12(ID3D12GraphicsCommandList* _this, UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation)
+    {
+       
+        oDrawInstancedD3D12(_this, VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookSetGraphicsRootConstantBufferViewD3D12(ID3D12GraphicsCommandList* _this, UINT RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation) {
+
+        // 1. Sync the command list context
+        if (cache.cmdListPtr != _this) {
+            cache.cmdListPtr = _this;
+            // Reset to a sentinel value because we don't know the state of this new list
+            cache.lastRCBVindex = UINT_MAX;
         }
 
-        // No break
+        // 2. Only update the cache if the address is valid
+        if (BufferLocation != 0) {
+            cache.lastRCBVindex = RootParameterIndex;
+            cache.cbvGPUAddress[RootParameterIndex] = BufferLocation; // Useful if you need to track address ranges
+            // cache.currentGPURAddress = BufferLocation; // Useful if you need to track address ranges
+        }
+
+        return oSetGraphicsRootConstantBufferViewD3D12(_this, RootParameterIndex, BufferLocation);
     }
 
-    Log("dummy: done, anyPatched=%d", anyPatched ? 1 : 0);
-    return anyPatched;
-}
+    //=========================================================================================================================//
 
-//===================================================================================================//
+    void STDMETHODCALLTYPE hookSetGraphicsRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList, UINT RootParameterIndex, D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor) {
 
-DWORD WINAPI HookThread(LPVOID)
-{
-    Log("Hook Thread Started");
+        // 1. Update the command list context if it switched
+        if (cache.cmdListPtr != dCommandList) {
+            cache.cmdListPtr = dCommandList;
+            cache.lastRDTindex = UINT_MAX; // Reset index for the new list
+        }
 
-    HMODULE hVulkan = nullptr;
-    while (!(hVulkan = GetModuleHandleA("vulkan-1.dll")))
-        Sleep(1);
+        // 2. Only cache and pass through if it's a valid handle
+        // or if you specifically want to track the 'null' state.
+        if (BaseDescriptor.ptr != 0) {
+            if (cache.lastRDTindex != RootParameterIndex) {
+                cache.lastRDTindex = RootParameterIndex;
+            }
+        }
 
-    if (MH_Initialize() != MH_OK)
-        return 1;
-
-    HookViaDummyDevice();
-    return 0;
-}
-
-DWORD WINAPI InputThread(LPVOID lpParam) {
-    bool p1 = false, p2 = false, p3 = false;
-    while (true) {
-        if (GetAsyncKeyState(VK_OEM_COMMA) & 1) { countnum--; }
-        if (GetAsyncKeyState(VK_OEM_PERIOD) & 1) { countnum++; }
-        if (GetAsyncKeyState(VK_OEM_MINUS) & 1) { countnum = -1; }
-
-        bool c1 = GetAsyncKeyState(VK_F1) & 0x8000;
-        bool c2 = GetAsyncKeyState(VK_F3) & 0x8000;
-
-        if (c1 && !p1) wallhack ^= 1;
-        if (c2 && !p2) colorhack ^= 1;
-
-        p1 = c1; p2 = c2;
-        Sleep(2);
+        return oSetGraphicsRootDescriptorTableD3D12(dCommandList, RootParameterIndex, BaseDescriptor);
     }
-    return 0;
-}
 
-BOOL APIENTRY DllMain(HMODULE hMod, DWORD reason, LPVOID res) {
-    if (reason == DLL_PROCESS_ATTACH) {
-        DisableThreadLibraryCalls(hMod);
-        CreateThread(NULL, 0, HookThread, NULL, 0, NULL);
-        CreateThread(NULL, 0, InputThread, NULL, 0, NULL);
+    //=========================================================================================================================//
+
+    //Claim: The Solution for CPU Culling :
+    //Hook ID3D12GraphicsCommandList::SetGraphicsRootDescriptorTable and look for the constant buffers that pass culling parameters to the GPU, 
+    //or find the engine's internal flags (CVars) in memory and flip them to 0.
+
+    void STDMETHODCALLTYPE hookSetComputeRootDescriptorTableD3D12(ID3D12GraphicsCommandList* dCommandList,UINT RootParameterIndex,D3D12_GPU_DESCRIPTOR_HANDLE BaseDescriptor)
+    {
+        /*
+        // 1. Sync the command list context
+        if (cache.cmdListPtr != dCommandList) {
+            cache.cmdListPtr = dCommandList;
+            // It's safer to reset all indices when the command list switches
+            cache.lastCRDTindex = UINT_MAX;
+        }
+
+        // 2. Access the .ptr member for the null check
+        if (BaseDescriptor.ptr != 0) {
+            cache.lastCRDTindex = RootParameterIndex;
+        }
+        */
+        return oSetComputeRootDescriptorTableD3D12(dCommandList, RootParameterIndex, BaseDescriptor);
     }
-    return TRUE;
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookSetGraphicsRootSignatureD3D12(ID3D12GraphicsCommandList* dCommandList, ID3D12RootSignature* pRootSignature) {
+
+        if (!dCommandList || !pRootSignature) 
+            return oSetGraphicsRootSignatureD3D12(dCommandList, pRootSignature);
+
+        // 1. Always sync the command list pointer
+        cache.cmdListPtr = dCommandList;
+
+        // 2. INVALIDATE the cached indices
+        // Because the new signature might have different bindings at these indices
+        cache.lastRDTindex = UINT_MAX;
+        cache.lastRCBVindex = UINT_MAX;
+        //cache.lastCRDTindex = UINT_MAX;
+
+        // Cache the root signature if you need to check types later
+        cache.currentRootSig = pRootSignature;
+
+        if ((countcurrentRootSigID > 0 || countcurrentRootSigID2 > 0) && (dCommandList && pRootSignature)) {
+            uint32_t idToStore = 0;
+
+            // 1. Try to find the ID with a shared lock (multiple threads can do this at once)
+            {
+                std::shared_lock<std::shared_mutex> lock(rootSigMutex);
+                auto it = rootSigToID.find(pRootSignature);
+                if (it != rootSigToID.end()) {
+                    idToStore = it->second;
+                }
+            }
+
+            // 2. If not found, use an exclusive lock to register the new signature
+            if (idToStore == 0) {
+                std::unique_lock<std::shared_mutex> lock(rootSigMutex);
+                // Re-check inside the lock to handle race conditions
+                if (rootSigToID.find(pRootSignature) == rootSigToID.end()) {
+                    idToStore = nextRuntimeSigID++;
+                    rootSigToID[pRootSignature] = idToStore;
+                }
+                else {
+                    idToStore = rootSigToID[pRootSignature];
+                }
+            }
+
+            // 3. Store the state in TLS - NO GLOBAL MAP REQUIRED
+            tlsCurrentCmdList = dCommandList;
+            tlsCurrentRootSigID = idToStore;
+        }
+
+        return oSetGraphicsRootSignatureD3D12(dCommandList, pRootSignature);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookResetD3D12(ID3D12GraphicsCommandList* _this, ID3D12CommandAllocator* pAllocator, ID3D12PipelineState* pInitialState) {
+
+        // ALWAYS sync the pointer
+        cache.cmdListPtr = _this;
+
+        // ALWAYS reset the indices
+        // A Reset() command list has no state. Stale cache = bugs.
+        cache.lastRCBVindex = UINT_MAX;
+        cache.lastRDTindex = UINT_MAX;
+        //cache.lastCRDTindex = UINT_MAX;
+
+        //CmdState* state = GetCmdState(_this);
+        //state->NumRTVs = 0;
+
+        return oResetD3D12(_this, pAllocator, pInitialState);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookCloseD3D12(ID3D12GraphicsCommandList* cl)
+    {
+        //if (cl) {
+            //CmdState* state = GetCmdState(cl);
+            //state->NumRTVs = 0;
+        //}
+
+        oCloseD3D12(cl);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookSetDescriptorHeapsD3D12(ID3D12GraphicsCommandList* cmdList, UINT NumHeaps, ID3D12DescriptorHeap* const* ppHeaps)
+    {
+        /*
+        for (UINT i = 0; i < NumHeaps; i++) {
+            D3D12_DESCRIPTOR_HEAP_DESC desc = ppHeaps[i]->GetDesc();
+            if (desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV)
+            {
+                g_GameSRVHeap = ppHeaps[i];
+            }
+            //if (desc.Type == D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER)
+                //g_GameSamplerHeap = ppHeaps[i];
+        }
+        */
+        oSetDescriptorHeapsD3D12(cmdList, NumHeaps, ppHeaps);
+    }
+
+    //=========================================================================================================================//
+    
+    //occlusion culling try 1 
+    void STDMETHODCALLTYPE hookResolveQueryDataD3D12(
+        ID3D12GraphicsCommandList* self,
+        ID3D12QueryHeap* pQueryHeap,
+        D3D12_QUERY_TYPE Type,
+        UINT StartIndex,
+        UINT NumQueries,
+        ID3D12Resource* pDestinationBuffer,
+        UINT64 AlignedDestinationBufferOffset)
+    {
+        
+        // Filter: Only handle occlusion-related queries
+        if (DisableOcclusionCulling && (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION)) {
+
+            // WriteBufferImmediate is not allowed in Bundles
+            if (self->GetType() != D3D12_COMMAND_LIST_TYPE_BUNDLE) {
+
+                ID3D12GraphicsCommandList2* cl2 = nullptr;
+                if (SUCCEEDED(self->QueryInterface(IID_PPV_ARGS(&cl2)))) {
+
+                    UINT64 visibleValue = 1ull; // Default to 1
+
+                    if (Type == D3D12_QUERY_TYPE_OCCLUSION) {
+                        // Standard occlusion: use a high pixel count to pass engine thresholds
+                        visibleValue = 0xFFFFFFFFull;
+                    }
+                    else {
+                        // Binary occlusion: strictly 1
+                        visibleValue = 1ull;
+                    }
+
+                    const UINT batchSize = 32;
+                    D3D12_WRITEBUFFERIMMEDIATE_PARAMETER params[batchSize];
+                    UINT64 gpuAddrBase = pDestinationBuffer->GetGPUVirtualAddress() + AlignedDestinationBufferOffset;
+
+                    for (UINT i = 0; i < NumQueries; i += batchSize) {
+                        UINT currentBatchCount = (NumQueries - i) < batchSize ? (NumQueries - i) : batchSize;
+
+                        for (UINT j = 0; j < currentBatchCount; ++j) {
+                            params[j].Dest = gpuAddrBase + ((UINT64(i) + j) * sizeof(UINT64));
+                            params[j].Value = visibleValue;
+                        }
+
+                        cl2->WriteBufferImmediate(currentBatchCount, params, nullptr);
+                    }
+
+                    cl2->Release();
+                    return; // Successfully spoofed, skip original call
+                }
+            }
+        }
+        
+        oResolveQueryDataD3D12(self, pQueryHeap, Type, StartIndex, NumQueries, pDestinationBuffer, AlignedDestinationBufferOffset);
+    }
+    
+    //=========================================================================================================================//
+
+    //occlusion culling try 2 (most games do not call this, so it's useless)
+    void STDMETHODCALLTYPE hookSetPredicationD3D12(ID3D12GraphicsCommandList* self, ID3D12Resource* pBuffer, UINT64 AlignedBufferOffset, D3D12_PREDICATION_OP Operation)
+    {
+        //if (pBuffer != nullptr)
+        //{
+            // Disable predication -> draw everything
+            //oSetPredicationD3D12(self, nullptr, 0, Operation);
+            //return;
+        //}
+
+        oSetPredicationD3D12(self, pBuffer, AlignedBufferOffset, Operation);
+    }
+
+    //=========================================================================================================================//
+
+    //occlusion culling try 3 (may cause black screen)
+    HRESULT STDMETHODCALLTYPE hookMapD3D12(ID3D12Resource* self, UINT Subresource, const D3D12_RANGE* pReadRange, void** ppData)
+    {
+        HRESULT hr = oMapD3D12(self, Subresource, pReadRange, ppData);
+        /*
+        // 1. Basic Safety
+        if (FAILED(hr) || !ppData || !*ppData)
+            return hr;
+
+        // 2. Resource/Heap Validation
+        D3D12_RESOURCE_DESC desc = self->GetDesc();
+        if (desc.Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+            return hr;
+
+        D3D12_HEAP_PROPERTIES heapProps;
+        if (FAILED(self->GetHeapProperties(&heapProps, nullptr)))
+            return hr;
+
+        if (heapProps.Type != D3D12_HEAP_TYPE_READBACK)
+            return hr;
+
+        // 3. Determine actual range to process
+        SIZE_T begin = 0;
+        SIZE_T end = (SIZE_T)desc.Width;
+
+        if (pReadRange != nullptr) {
+            // If End <= Begin, the application is not reading data. Skip to avoid sync issues.
+            if (pReadRange->End <= pReadRange->Begin)
+                return hr;
+
+            begin = pReadRange->Begin;
+            end = min((SIZE_T)desc.Width, pReadRange->End);
+        }
+
+        SIZE_T size = end - begin;
+
+        // 4. Final Heuristic Check
+        // - Must be at least 8 bytes
+        // - Must be 8-byte aligned (to prevent CPU crashes on dereference)
+        // - Max 64KB (Adjusted from 32KB, still very safe for occlusion but covers more queries)
+        if (size >= 8 && (size % 8 == 0) && (begin % 8 == 0) && size <= 65536)
+        {
+            uint64_t* dataPtr = (uint64_t*)((uint8_t*)(*ppData) + begin);
+            size_t count = size / 8;
+
+            for (size_t i = 0; i < count; ++i) {
+                // ONLY modify if 0. 
+                // This is the primary protection against black screens.
+                if (dataPtr[i] == 0) {
+                    dataPtr[i] = 1;
+                }
+            }
+        }
+        */
+        return hr;
+    }
+
+    //=========================================================================================================================//
+    
+    //Warning, this doesn't work, can have the opposite effect
+    void STDMETHODCALLTYPE hookBeginQueryD3D12(
+        ID3D12GraphicsCommandList* self,
+        ID3D12QueryHeap* pQueryHeap,
+        D3D12_QUERY_TYPE Type,
+        UINT Index)
+    {
+        //if (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION) 
+        //{ return; }
+
+        oBeginQueryD3D12(self, pQueryHeap, Type, Index);
+    }
+
+    void STDMETHODCALLTYPE hookEndQueryD3D12(
+        ID3D12GraphicsCommandList* self,
+        ID3D12QueryHeap* pQueryHeap,
+        D3D12_QUERY_TYPE Type,
+        UINT Index)
+    {
+        //if (Type == D3D12_QUERY_TYPE_OCCLUSION || Type == D3D12_QUERY_TYPE_BINARY_OCCLUSION) 
+        //{ return; }
+
+        oEndQueryD3D12(self, pQueryHeap, Type, Index);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookCopyBufferRegionD3D12(
+        ID3D12GraphicsCommandList* cl,
+        ID3D12Resource* pDstBuffer, UINT64 DstOffset,
+        ID3D12Resource* pSrcBuffer, UINT64 SrcOffset, UINT64 NumBytes)
+    {
+        oCopyBufferRegionD3D12(cl, pDstBuffer, DstOffset, pSrcBuffer, SrcOffset, NumBytes);
+    }
+
+    //=========================================================================================================================//
+
+    void STDMETHODCALLTYPE hookDispatchD3D12(ID3D12GraphicsCommandList* cl, UINT x, UINT y, UINT z)
+    {
+        oDispatchD3D12(cl, x, y, z);
+    }
+
+    //=========================================================================================================================//
+
+    void release() {
+        Log("[d3d12hook] Releasing resources and hooks.");
+        gShutdown = true;
+        if (globals::mainWindow) {
+        }
+
+        // Shutdown ImGui before releasing any D3D resources
+        if (gInitialized && ImGui::GetCurrentContext())
+        {
+            ImGui_ImplDX12_Shutdown();
+            ImGui_ImplWin32_Shutdown();
+            ImGui::DestroyContext();
+            gInitialized = false;
+        }
+
+        if (gCommandList) gCommandList->Release();
+        if (gHeapRTV) gHeapRTV->Release();
+        if (gHeapSRV) gHeapSRV->Release();
+
+        for (UINT i = 0; i < gBufferCount; ++i) {
+            if (gFrameContexts[i].renderTarget) gFrameContexts[i].renderTarget->Release();
+        }
+        if (gOverlayFence)
+        {
+            gOverlayFence->Release();
+            gOverlayFence = nullptr;
+        }
+
+        if (gFenceEvent)
+        {
+            CloseHandle(gFenceEvent);
+            gFenceEvent = nullptr;
+        }
+
+        if (gCommandQueue)
+        {
+            gCommandQueue->Release();
+            gCommandQueue = nullptr;
+        }
+
+        if (gDevice) gDevice->Release();
+        delete[] gFrameContexts;
+
+        // Disable hooks installed for D3D12
+        hooks::Remove();
+    }
+
+    bool IsInitialized()
+    {
+        return gInitialized;
+    }
 }
 
-extern "C" __declspec(dllexport)
-LRESULT CALLBACK NextHook(int code, WPARAM wParam, LPARAM lParam)
-{
-    return CallNextHookEx(NULL, code, wParam, lParam);
-}
+//=========================================================================================================================//
+
+
