@@ -307,7 +307,7 @@ namespace d3d12hook {
     {
         // --- LEVEL 1: REGISTER-ONLY CHECKS (ZERO COST) ---
         // Check InstanceCount and IndexCount first because they require NO memory lookups
-        if (!_this || InstanceCount == 0 || InstanceCount > 5 || IndexCountPerInstance < 120)
+        if (!_this || InstanceCount == 0 || IndexCountPerInstance < 120)
         {
             return oDrawIndexedInstancedD3D12(_this, IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
         }
